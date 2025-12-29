@@ -5,7 +5,7 @@ using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
 using TorchSharp.Modules;
 
-class MoveSelectorModule : Module
+public class MoveSelectorModule : Module
 {
     public const int OtherStateWidth = 3;
     public const int CardInputWidth = 53;

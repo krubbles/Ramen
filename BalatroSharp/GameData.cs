@@ -3,8 +3,12 @@
 public sealed class GameData
 {
     public const int MaxPlayedHandSize = 5;
+    public const int HandSize = 8;
 
     public int Seed;
+
+    // When true, GameState should choose a random seed instead of using the Seed field.
+    public bool RandomizeSeed;
 
     public readonly Dictionary<string, Joker> Jokers = new();
 

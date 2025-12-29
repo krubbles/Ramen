@@ -22,7 +22,17 @@ public sealed partial class GameState
         JokerState = new(this);
         PatternMatchingState = new(this);
 
-        SeedGenerator = new(gameData.Seed);
+        if (GameData.RandomizeSeed)
+        {
+            // Choose a seed randomly and persist it back to GameData
+            int chosenSeed = FastRandom.SeededByClock().Next();
+            GameData.Seed = chosenSeed;
+            SeedGenerator = new(chosenSeed);
+        }
+        else
+        {
+            SeedGenerator = new(GameData.Seed);
+        }
 
         GameData.InitStartingDeck(this);
     }
