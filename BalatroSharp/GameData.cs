@@ -1,0 +1,74 @@
+﻿namespace BalatroAI;
+
+public sealed class GameData
+{
+    public const int MaxPlayedHandSize = 5;
+
+    public int Seed;
+
+    public readonly Dictionary<string, Joker> Jokers = new();
+
+    public void AddJoker(Joker joker)
+    {
+        Jokers.Add(joker.Name, joker);
+    }
+
+    public (int chips, int mult)[] StartingHandBaseScore = new (int chips, int mult)[]
+    {
+        (0, 0), // null
+        (5, 1), // high card
+        (10, 2), // pair
+        (20, 2), // two pair
+        (30, 3), // 3oak
+        (30, 4), // straight
+        (35, 4), // flush
+        (40, 4), // full house
+        (60, 7), // 4oak
+        (100, 8), // straight flush
+        (120, 12), // 5oak
+        (140, 14), // flush house
+        (160, 16), // flush five
+    };
+
+    public (int chips, int mult)[] PlanetScores = new (int chips, int mult)[]
+    {
+        (0, 0), // null
+        (10, 1), // high card
+        (15, 1), // pair
+        (20, 1), // two pair
+        (20, 2), // 3oak
+        (30, 3), // straight
+        (15, 2), // flush
+        (25, 2), // full house
+        (30, 3), // 4oak
+        (40, 4), // straight flush
+        (35, 3), // 5oak
+        (40, 4), // flush house
+        (50, 3), // flush five
+    };
+
+    public Action<GameState> InitStartingDeck = (gameState) =>
+    {
+        for (int rank = 2; rank <= 14; ++rank)
+        {
+            gameState.DeckState.AddCardToFullDeck(new(rank, Suit.Spade));
+            gameState.DeckState.AddCardToFullDeck(new(rank, Suit.Heart));
+            gameState.DeckState.AddCardToFullDeck(new(rank, Suit.Club));
+            gameState.DeckState.AddCardToFullDeck(new(rank, Suit.Diamond));
+        }
+    };
+
+    public static int BaseChipsForCardRank(int rank)
+    {
+        if (rank <= 10)
+            return rank;
+        else return rank == 14 ? 11 : 10;
+    }
+
+    public (int chips, int mult) GetHandBaseScore(HandType handType, int level)
+    {
+        (int chips, int mult) = StartingHandBaseScore[(int)handType];
+        (int planetChips, int planetMult) = PlanetScores[(int)handType];
+        return (chips + planetChips * (level - 1), mult + planetMult * (level - 1));
+    }
+}
