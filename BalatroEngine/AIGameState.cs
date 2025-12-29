@@ -50,7 +50,7 @@ class AIGameState
 
     public int CurrentMaxMoveCount()
     {
-        if (GameState.HandState.RemainingHands == 3)
+        if (GameState.HandState.RemainingHands < 4)
             return 0;
 
         int cardsInHand = GameState.HandState.CardsInHand;

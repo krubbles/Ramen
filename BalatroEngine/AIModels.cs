@@ -12,12 +12,12 @@ namespace BalatroAI
     // so existing code can interact with the models through this single object.
     public class AIModels
     {
-        public MoveSelectorModule Policy { get; }
+        public BestMovePredictor Policy { get; }
         public EvaluationModule Evaluation { get; }
 
         public AIModels()
         {
-            Policy = new MoveSelectorModule();
+            Policy = new BestMovePredictor();
             Evaluation = new EvaluationModule(Policy);
         }
 
@@ -37,59 +37,36 @@ namespace BalatroAI
         public Tensor GetCardUseRewards(Tensor fullHand, Tensor otherState, Tensor inUseMask)
             => Policy.GetCardUseRewards(fullHand, otherState, inUseMask);
 
-        public Tensor GetExpectedReward(Tensor fullHand, Tensor otherState)
-            => Evaluation.forward(fullHand, otherState);
+        public Tensor GetExpectedReward(Tensor fullHand, Tensor otherState, Tensor inUseMask)
+            => Evaluation.forward(fullHand, otherState, inUseMask);
     }
 
-    // Small evaluation module that predicts expected final reward from a GameState (batched)
-    public class EvaluationModule : Module<Tensor, Tensor>
+    public class EvaluationModule : Module
     {
-        private readonly MoveSelectorModule _moveSelector;
+        private readonly BestMovePredictor _moveSelector;
         private readonly Sequential _mlp;
 
-        public EvaluationModule(MoveSelectorModule moveSelector) : base("EvaluationModule")
+        public EvaluationModule(BestMovePredictor moveSelector) : base("EvaluationModule")
         {
             _moveSelector = moveSelector;
 
             // input width = EmbeddedCardWidth + OtherStateWidth
-            int inputWidth = MoveSelectorModule.EmbeddedCardWidth + MoveSelectorModule.OtherStateWidth;
+            int inputWidth = BestMovePredictor.EmbeddedCardWidth * 2 + BestMovePredictor.OtherStateWidth;
             int hidden = 128;
 
             _mlp = Sequential(
                 Linear(inputWidth, hidden), ReLU(),
-                Linear(hidden, hidden), ReLU(),
                 Linear(hidden, 1)
             );
 
             RegisterComponents();
         }
 
-        public IEnumerable<Parameter> parameters()
+        public Tensor forward(Tensor fullHand, Tensor otherState, Tensor inUseMask)
         {
-            return _mlp.parameters();
-        }
-
-        public IEnumerable<(string, Parameter)> named_parameters()
-        {
-            return _mlp.named_parameters();
-        }
-
-        // Forward accepts the raw FullHand tensor (N, cards, CardInputWidth) and OtherState (N, otherWidth)
-        public override Tensor forward(Tensor x)
-        {
-            throw new System.NotImplementedException("Use forward(fullHand, otherState) overload");
-        }
-
-        public Tensor forward(Tensor fullHand, Tensor otherState)
-        {
-            // fullHand: (N, cards, CardInputWidth)
-            // otherState: (N, OtherStateWidth)
-            using var scope = NewDisposeScope();
-            Tensor cardEmb = _moveSelector.EmbedCards(fullHand); // (N, cards, EmbeddedCardWidth)
-            Tensor handVec = cardEmb.sum(1); // (N, EmbeddedCardWidth)
-            handVec = handVec.relu(); // non-linearity as requested
-            Tensor inputVec = cat([handVec, otherState], dim: 1);
-            Tensor output = _mlp.forward(inputVec);
+            Tensor compressedHand = fullHand.sum(dim: 1);
+            Tensor compressedWorkingHand = fullHand.mul(inUseMask.unsqueeze(2)).sum(dim: 1);
+            Tensor output = _mlp.forward(concat([compressedHand, compressedWorkingHand, otherState], dim: 1));
             return output;
         }
     }

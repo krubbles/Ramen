@@ -4,82 +4,112 @@ using static TorchSharp.torch;
 
 public static class TrainingData
 {
-    public static readonly List<EvaluationTrainingSample> EvaluationData = new();
+    public static readonly List<EvaluationTrainingSample> EvaluationTrainingData = new();
     public static readonly List<PolicyTrainingSample> PolicyTrainingData = new();
 
-    public static void GeneratePolicyTrainingData(AIModels models, int samples, int logCount, bool log = false)
+    public const int PolicyOutputWidth = 9;
+
+    public static void GeneratePolicyTrainingData(AIModels models, int samples)
     {
+        using var scope = NewDisposeScope();
         int currentCount = PolicyTrainingData.Count;
+        int lastLogCount = 0;
         FastRandom random = FastRandom.SeededByClock();
         GameData gameData = new();
         using (no_grad())
         {
-            int lastLoggedTrainingData = 0;
             while (PolicyTrainingData.Count - currentCount < samples)
             {
-                gameData.Seed = random.Next();
                 GameState gameState = new(gameData);
-                gameState.StartRound();
                 AIGameState aigs = new(gameState, models);
+                AIGameState aigsCopy = new(gameState, models);
+                gameState.StartRound();
                 while (aigs.CurrentMaxMoveCount() > 0)
                 {
-                    var sample = aigs.MakeTrainingSample(true, TrainingConfig.SampleCount, log && PolicyTrainingData.Count - currentCount < logCount);
-                    lock (PolicyTrainingData)
+                    Tensor output = zeros(PolicyOutputWidth);
+                    float bestReward = float.MinValue;
+                    for (int move = 0; move < aigs.CurrentMaxMoveCount(); ++move)
                     {
-                        PolicyTrainingData.Add(sample);
+                        if (!aigs.MoveIsValid(move))
+                        {
+                            continue;
+                        }
+                        aigsCopy.CloneFrom(aigs);
+                        aigsCopy.MakeMove(move);
+                        float reward = models.GetExpectedReward(aigsCopy.HandTensor, aigsCopy.GameStateTensors.OtherState, aigsCopy.InUseMaskTensor).item<float>();
+                        if (reward > bestReward)
+                        {
+                            bestReward = reward;
+                            output.zero_();
+                            output[move] = 1f;
+                        }
+                        else if (reward == bestReward)
+                        {
+                            output[move] = 1f;
+                        }
                     }
-                }
-                if (PolicyTrainingData.Count - lastLoggedTrainingData > 500)
-                {
-                    if (log)
-                        Console.WriteLine("Sample Count: " + PolicyTrainingData.Count);
-                    lastLoggedTrainingData = PolicyTrainingData.Count;
+                    output = output.unsqueeze(0);
+                    PolicyTrainingData.Add(new()
+                    {
+                        GameStateTensors = aigs.GameStateTensors.Clone().DetachFromDisposeScope(),
+                        InUseMask = aigs.InUseMaskTensor.clone().DetachFromDisposeScope(),
+                        Output = output.clone().DetachFromDisposeScope()
+                    });
+                    if (PolicyTrainingData.Count - currentCount >= lastLogCount + 1000)
+                    {
+                        lastLogCount += 1000;
+                        Console.WriteLine($"Generated {PolicyTrainingData.Count - currentCount} / {samples} policy training samples");
+                    }
+                    aigs.MakeMoveStochastic(1f);
                 }
             }
         }
     }
 
-    public static void GenerateEvaluationTrainingData(AIModels models, int episodes, bool log = false)
+    public static void GenerateEvaluationTrainingData(AIModels models, int samples)
     {
+        using var scope = NewDisposeScope();
+        int lastLogCount = 0;
+        int startingSampleCount = EvaluationTrainingData.Count;
         FastRandom random = FastRandom.SeededByClock();
         GameData gameData = new();
         using (no_grad())
         {
-            for (int e = 0; e < episodes; ++e)
+            while (EvaluationTrainingData.Count < startingSampleCount + samples)
             {
                 gameData.Seed = random.Next();
                 GameState gameState = new(gameData);
                 gameState.StartRound();
                 AIGameState aigs = new(gameState, models);
 
-                List<GameStateTensors> states = new();
+                List<(GameStateTensors gameState, Tensor inUseMask)> states = new();
 
-                // simulate until round/game end (RemainingHands < 4)
-                while (aigs.GameState.HandState.RemainingHands >= 4)
+                while (aigs.CurrentMaxMoveCount() > 0)
                 {
-                    // ensure embedded tensors are up to date and batch size 1
-                    aigs.UpdateGameStateTensors();
-                    // clone so stored tensors are independent
-                    var gsClone = aigs.GameStateTensors.Clone();
-                    states.Add(gsClone);
-
-                    // advance game stochastically
+                    states.Add((aigs.GameStateTensors.Clone(), aigs.InUseMaskTensor.clone()));
                     aigs.MakeMoveStochastic(TrainingConfig.GoodPlayTemperature);
                 }
 
                 float finalReward = aigs.GetCurrentReward();
-                Tensor target = new float[] { finalReward };
+                Tensor target = tensor(finalReward).unsqueeze(0).unsqueeze(0);
 
-                // add samples to EvaluationData under lock
-                lock (EvaluationData)
+                lock (EvaluationTrainingData)
                 {
                     foreach (var st in states)
                     {
-                        EvaluationData.Add(new EvaluationTrainingSample() { GameStateTensors = st, Target = target.clone() });
+                        EvaluationTrainingData.Add(new() 
+                        {
+                            GameStateTensors = st.gameState.DetachFromDisposeScope(),
+                            Target = target.clone().DetachFromDisposeScope(),
+                            InUseMask = st.inUseMask.DetachFromDisposeScope()
+                        });
+                        if (EvaluationTrainingData.Count - startingSampleCount >= lastLogCount + 1000)
+                        {
+                            lastLogCount += 1000;
+                            Console.WriteLine($"Generated {EvaluationTrainingData.Count - startingSampleCount} / {samples} evaluation training samples");
+                        }
                     }
                 }
-
-                // dispose the original target tensor we made
                 target.Dispose();
             }
         }
@@ -140,6 +170,13 @@ public struct GameStateTensors : IDisposable
         FullHand.Dispose();
         OtherState.Dispose();
     }
+
+    public GameStateTensors DetachFromDisposeScope()
+    {
+        FullHand = FullHand.DetachFromDisposeScope();
+        OtherState = OtherState.DetachFromDisposeScope();
+        return this;
+    }   
 
     public static GameStateTensors Create(GameState gameState)
     {
@@ -226,5 +263,50 @@ public struct PolicyTrainingSample : IDisposable
         GameStateTensors.Dispose();
         InUseMask.Dispose();
         Output.Dispose();
+    }
+}
+
+public struct EvaluationTrainingSample : IDisposable
+{
+    public GameStateTensors GameStateTensors;
+    public Tensor InUseMask;
+    public Tensor Target; // (1) scalar
+
+    public static EvaluationTrainingSample Stack(IReadOnlyList<EvaluationTrainingSample> samples, bool disposeInputs)
+    {
+        GameStateTensors[] gameStates = new GameStateTensors[samples.Count];
+        Tensor[] targets = new Tensor[samples.Count];
+        Tensor[] inUseMasks = new Tensor[samples.Count];
+
+        for (int i = 0; i < samples.Count; ++i)
+        {
+            gameStates[i] = samples[i].GameStateTensors;
+            targets[i] = samples[i].Target;
+            inUseMasks[i] = samples[i].InUseMask;
+        }
+
+        EvaluationTrainingSample result = new()
+        {
+            GameStateTensors = GameStateTensors.Stack(gameStates, disposeInputs),
+            Target = concat(targets, dim: 0),
+            InUseMask = concat(inUseMasks, dim: 0)
+        };
+
+        if (disposeInputs)
+        {
+            for (int i = 0; i < samples.Count; ++i)
+            {
+                samples[i].Dispose();
+            }
+        }
+
+        return result;
+    }
+
+    public void Dispose()
+    {
+        GameStateTensors.Dispose();
+        Target.Dispose();
+        InUseMask.Dispose();
     }
 }

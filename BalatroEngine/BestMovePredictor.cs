@@ -5,7 +5,7 @@ using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
 using TorchSharp.Modules;
 
-public class MoveSelectorModule : Module
+public class BestMovePredictor : Module
 {
     public const int OtherStateWidth = 3;
     public const int CardInputWidth = 53;
@@ -19,7 +19,7 @@ public class MoveSelectorModule : Module
     Sequential moveEvalHand;
     Sequential moveEvalCard;
 
-    public MoveSelectorModule() : base(nameof(MoveSelectorModule))
+    public BestMovePredictor() : base(nameof(BestMovePredictor))
     {
         cardProcessor = Sequential(
             Linear(CardInputWidth, EmbeddedCardWidth));
