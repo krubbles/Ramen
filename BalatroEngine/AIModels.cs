@@ -12,30 +12,30 @@ namespace BalatroAI
     // so existing code can interact with the models through this single object.
     public class AIModels
     {
-        public MoveSelectorModule MoveSelector { get; }
+        public MoveSelectorModule Policy { get; }
         public EvaluationModule Evaluation { get; }
 
         public AIModels()
         {
-            MoveSelector = new MoveSelectorModule();
-            Evaluation = new EvaluationModule(MoveSelector);
+            Policy = new MoveSelectorModule();
+            Evaluation = new EvaluationModule(Policy);
         }
 
         public IEnumerable<Parameter> parameters()
         {
             // return parameters from both modules
-            return MoveSelector.parameters().Concat(Evaluation.parameters());
+            return Policy.parameters().Concat(Evaluation.parameters());
         }
 
         public IEnumerable<(string, Parameter)> named_parameters()
         {
-            return MoveSelector.named_parameters().Concat(Evaluation.named_parameters());
+            return Policy.named_parameters().Concat(Evaluation.named_parameters());
         }
 
-        public Tensor EmbedCards(Tensor cards) => MoveSelector.EmbedCards(cards);
+        public Tensor EmbedCards(Tensor cards) => Policy.EmbedCards(cards);
 
         public Tensor GetCardUseRewards(Tensor fullHand, Tensor otherState, Tensor inUseMask)
-            => MoveSelector.GetCardUseRewards(fullHand, otherState, inUseMask);
+            => Policy.GetCardUseRewards(fullHand, otherState, inUseMask);
 
         public Tensor GetExpectedReward(Tensor fullHand, Tensor otherState)
             => Evaluation.forward(fullHand, otherState);

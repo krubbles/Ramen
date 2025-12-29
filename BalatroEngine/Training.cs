@@ -10,7 +10,7 @@ using static TorchSharp.torch.nn;
 public static class Training
 {
 
-    static void TrainEvaluationModel(AIModels models, int epochs, int batchSize)
+    public static void TrainEvaluationModel(AIModels models, int epochs, int batchSize)
     {
         // stack data
         EvaluationTrainingSample stacked;
@@ -37,10 +37,6 @@ public static class Training
 
                 optimizer.zero_grad();
 
-                // use models to compute prediction
-                Tensor cardEmb = models.EmbedCards(batchFullHands);
-                Tensor handVec = cardEmb.sum(1).relu();
-                Tensor inputVec = cat(new Tensor[] { handVec, batchOther }, dim: 1);
                 Tensor preds = models.Evaluation.forward(batchFullHands, batchOther);
 
                 var loss = lossFunc.forward(preds, batchTargets);
@@ -66,7 +62,7 @@ public static class Training
             stackedSamples = PolicyTrainingSample.Stack(TrainingData.PolicyTrainingData, false);
         }
 
-        var optimizer = optim.Adam(models.Evaluation.parameters(), lr: TrainingConfig.LearningRate);
+        var optimizer = optim.Adam(models.Policy.parameters(), lr: TrainingConfig.LearningRate);
         var lossFunc = CrossEntropyLoss();
 
 
@@ -76,8 +72,8 @@ public static class Training
         for (int epoch = 0; epoch < epochs; epoch++)
         {
 
-            int samples = (int)stackedSamples.Output.size(dim: 0);
-            int trainSampleCount = samples;
+            int fullSampleCount = (int)stackedSamples.Output.size(dim: 0);
+            int trainSampleCount = fullSampleCount;
 
 
             lossAvg = 0;

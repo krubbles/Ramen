@@ -64,7 +64,7 @@ public static class TrainingData
                     states.Add(gsClone);
 
                     // advance game stochastically
-                    aigs.MakeMoveStochastic(TrainingConfig.Temperature);
+                    aigs.MakeMoveStochastic(TrainingConfig.GoodPlayTemperature);
                 }
 
                 float finalReward = aigs.GetCurrentReward();

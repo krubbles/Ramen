@@ -151,7 +151,7 @@ class AIGameState
             }
             copy.CloneFrom(this);
             copy.MakeMove(move);
-            float reward = copy.EstimateTrueReward(samples, TrainingConfig.Temperature);
+            float reward = copy.EstimateTrueReward(samples, TrainingConfig.GoodPlayTemperature);
             output[move] = reward;
             if (reward > greatestReward)
                 greatestReward = reward;
@@ -182,7 +182,7 @@ class AIGameState
                 }
                 copy.CloneFrom(this);
                 copy.MakeMove(move);
-                float reward = copy.EstimateTrueReward(1, TrainingConfig.Temperature);
+                float reward = copy.EstimateTrueReward(1, TrainingConfig.GoodPlayTemperature);
                 output[move] = reward;
             }
             mda.AddSample(output);

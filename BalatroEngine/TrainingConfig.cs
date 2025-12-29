@@ -14,7 +14,7 @@ namespace BalatroAI
         public const int EpochsPerDataGen = 20;
 
         public const int SampleCount = 2;
-        public const float Temperature = 0.03f;
+        public const float GoodPlayTemperature = 0.03f;
 
         public const int DataSize = 40000;
         public const int DataGenAmount = 2000;

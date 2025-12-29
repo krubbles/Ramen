@@ -92,7 +92,7 @@ class Program
 
         ShowExampleMoveRewards();
 
-        TrainingData.GeneratePolicyTrainingData(models, samples: 10000, logCount: 10, log: true);
+        TrainingData.GeneratePolicyTrainingData(models, samples: 4000, logCount: 10, log: true);
         Training.TrainPolicyModel(models, epochs: 10, batchSize: 64);
 
         void ShowExampleMoveRewards()
