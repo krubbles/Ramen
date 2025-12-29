@@ -8,7 +8,7 @@ public sealed class GameData
     public int Seed;
 
     // When true, GameState should choose a random seed instead of using the Seed field.
-    public bool RandomizeSeed;
+    public bool RandomizeSeed = true;
 
     public readonly Dictionary<string, Joker> Jokers = new();
 
