@@ -12,7 +12,8 @@ public static class Training
 
     public static void TrainEvaluationModel(AIModels models, int epochs, int batchSize)
     {
-        // stack data
+        Console.WriteLine($"Training evaluation model for {epochs} epochs, batch size {batchSize}");
+
         EvaluationTrainingSample stacked;
         lock (TrainingData.EvaluationData)
         {
@@ -56,6 +57,8 @@ public static class Training
 
     public static void TrainPolicyModel(AIModels models, int epochs, int batchSize)
     {
+        Console.WriteLine($"Training policy model for {epochs} epochs, batch size {batchSize}");
+
         PolicyTrainingSample stackedSamples;
         lock (TrainingData.PolicyTrainingData)
         {
@@ -99,9 +102,9 @@ public static class Training
 
             Console.WriteLine($"Epoch {epoch} | Loss = {lossAvg}");
 
-            if (epoch % 10 == 9)
+            if (epoch % 5 == 4)
             {
-                Console.WriteLine("Average Reward: " + Testing.GetAverageReward(models, 500));
+                Console.WriteLine("Average Reward: " + Testing.GetAverageReward(models, 1000));
             }
         }
     }
