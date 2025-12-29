@@ -98,6 +98,11 @@ public static class Training
             lossAvg /= batchCount;
 
             Console.WriteLine($"Epoch {epoch} | Loss = {lossAvg}");
+
+            if (epoch % 10 == 9)
+            {
+                Console.WriteLine("Average Reward: " + Testing.GetAverageReward(models, 500));
+            }
         }
     }
 }
