@@ -9,6 +9,7 @@ public sealed partial class GameState
     public readonly HandState HandState;
     public readonly JokerState JokerState;
     public readonly PatternMatchingState PatternMatchingState;
+    public readonly MoveState MoveState;
 
     public readonly FastRandom SeedGenerator;
 
@@ -22,6 +23,7 @@ public sealed partial class GameState
         HandState = new(this);
         JokerState = new(this);
         PatternMatchingState = new(this);
+        MoveState = new(this);
 
         GameData.InitStartingDeck(this);
     }
@@ -31,6 +33,7 @@ public sealed partial class GameState
         DeckState.CloneFrom(other.DeckState);
         ScoringState.CloneFrom(other.ScoringState);
         HandState.CloneFrom(other.HandState);
+        MoveState.CloneFrom(other.MoveState);
     }
 
     public void Reseed(int seed)
