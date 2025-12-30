@@ -1,17 +1,32 @@
 ﻿namespace BalatroAI;
 
+/// <summary>
+/// Holds all state used for scoring hands and tracking total chips earned in the current round.
+/// </summary>
 public class ScoringState
 {
     public readonly GameState GameState;
     readonly GameData _gameData;
 
+    /// <summary>
+    /// Total number of chips earned by all hands played in the current round.
+    /// </summary>
     public double CurrentRoundTotalChips;
 
-    public double CurrentHandChips, CurrentHandMult;
+    /// <summary>
+    /// Current hand's chip value
+    /// </summary>
+    public double CurrentHandChips;
 
-    public readonly Card[] _currentPlayedHandBuffer = new Card[5];
-    public int CurrentPlayedHandSize { get; private set; }
-    public Span<Card> CurrentPlayedHand => _currentPlayedHandBuffer.AsSpan(0, CurrentPlayedHandSize);
+    /// <summary>
+    /// Current hand's mult value
+    /// </summary>
+    public double CurrentHandMult;
+
+
+    /// <summary>
+    /// If a is being scored, this is the hand being played.
+    /// </summary>
 
     public int CurrentScoringCardTriggerCount;
     
@@ -44,8 +59,6 @@ public class ScoringState
         CurrentRoundTotalChips = other.CurrentRoundTotalChips;
         CurrentHandChips = other.CurrentHandChips;
         CurrentHandMult = other.CurrentHandMult;
-        other.CurrentPlayedHand.CopyTo(_currentPlayedHandBuffer);
-        CurrentPlayedHandSize = other.CurrentPlayedHandSize;
         other.HandLevels.CopyTo(HandLevels, 0);
     }
 
@@ -60,13 +73,15 @@ public class ScoringState
         GameState.JokerState.OnScoreCard(card);
     }
 
-    public double ScoreHand(ReadOnlySpan<Card> hand)
+    public double ScoreActiveHand()
     {
-        hand.CopyTo(_currentPlayedHandBuffer);
-        CurrentPlayedHandSize = hand.Length;
+        return ScoreHand(GameState.HandState.ActiveHand, GameState.HandState.ActiveHandPatterns);
+    }
 
-        (CurrentHandChips, CurrentHandMult) = _gameData.GetHandBaseScore(GameState.HandState.ActiveHandPatternResults.HandType, 1);
-        int playedCardsMask = GameState.HandState.ActiveHandPatternResults.PlayedCardsMask;
+    public double ScoreHand(ReadOnlySpan<Card> hand, in HandPatternResults patterns)
+    {
+        (CurrentHandChips, CurrentHandMult) = _gameData.GetHandBaseScore(patterns.HandType, 1);
+        int playedCardsMask = patterns.PlayedCardsMask;
         for (int i = 0; i < hand.Length; ++i)
         {
             if (((playedCardsMask >> i) & 1) == 1)

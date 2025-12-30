@@ -8,11 +8,27 @@ public class HandState
     public readonly GameState GameState;
     readonly GameData _gameData;
 
-    readonly Card[] _handBuffer = new Card[30];
+    readonly Card[] _handBuffer = new Card[30], _activeHandBuffer = new Card[30];
 
-    public int CardsInHand {get; private set; }
+    /// <summary>
+    /// Number of cards in the player's hand currently.
+    /// </summary>
+    public int CardsInHand { get; private set; }
 
+    /// <summary>
+    /// Number of cards in the currently active hand (played or discarded). Zero if no active hand.
+    /// </summary>
+    public int CardsInActiveHand { get; private set; }
+
+    /// <summary>
+    /// The player's hand.
+    /// </summary>
     public Span<Card> Hand => _handBuffer.AsSpan(0, CardsInHand);
+
+    /// <summary>
+    /// The hand the player is currently playing or discarding, if applicable.
+    /// </summary>
+    public Span<Card> ActiveHand => _activeHandBuffer.AsSpan(0, CardsInActiveHand);
 
     /// <summary>
     /// The number of hands the player can still play this round.
@@ -26,7 +42,7 @@ public class HandState
     /// <summary>
     /// Pattern matching results for the currently active (played/discarded) hand. Used by jokers and scoring.
     /// </summary>
-    public HandPatternResults ActiveHandPatternResults;
+    public HandPatternResults ActiveHandPatterns;
 
     /// <summary>
     /// If the player has less then this number of cards in their hand after playing/discarding, they will draw up to this number.
@@ -56,7 +72,7 @@ public class HandState
         other.Hand.CopyTo(_handBuffer);
         CardsInHand = other.CardsInHand;
 
-        ActiveHandPatternResults = other.ActiveHandPatternResults;
+        ActiveHandPatterns = other.ActiveHandPatterns;
         HandSize = other.HandSize;
         HandsPerRound = other.HandsPerRound;
         DiscardsPerRound = other.DiscardsPerRound;
@@ -96,7 +112,8 @@ public class HandState
             _handBuffer[cardIndices[i]] = Card.Null;
         }
 
-        GameState.PatternMatchingState.MatchHand(playedHand, out ActiveHandPatternResults);
+        SetActiveHand(playedHand);
+        GameState.PatternMatchingState.MatchHand(playedHand, out ActiveHandPatterns);
 
         // remove played cards
         int writeIndex = 0;
@@ -110,11 +127,17 @@ public class HandState
 
         GameState.JokerState.OnBeforePlayHand();
 
-        double score = GameState.ScoringState.ScoreHand(playedHand);
+        double score = GameState.ScoringState.ScoreActiveHand();
 
         DrawToHandSize();
 
         return score;
+    }
+
+    internal void SetActiveHand(ReadOnlySpan<Card> hand)
+    {
+        CardsInActiveHand = hand.Length;
+        hand.CopyTo(_activeHandBuffer);
     }
 
     /// <summary>

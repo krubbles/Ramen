@@ -74,7 +74,7 @@ namespace BalatroAI
             Rarity = Rarity.Common,
             OnJokerTrigger = (gameState, joker) =>
             {
-                if (gameState.HandState.ActiveHandPatternResults.ContainsPair)
+                if (gameState.HandState.ActiveHandPatterns.ContainsPair)
                     gameState.ScoringState.AddMultToCurrentHand(8);
             }
         };
@@ -85,7 +85,7 @@ namespace BalatroAI
             Rarity = Rarity.Common,
             OnJokerTrigger = (gameState, joker) =>
             {
-                if (gameState.HandState.ActiveHandPatternResults.Contains3OAK)
+                if (gameState.HandState.ActiveHandPatterns.Contains3OAK)
                     gameState.ScoringState.AddMultToCurrentHand(12);
             }
         };
@@ -96,7 +96,7 @@ namespace BalatroAI
             Rarity = Rarity.Common,
             OnJokerTrigger = (gameState, joker) =>
             {
-                if (gameState.HandState.ActiveHandPatternResults.ContainsTwoPair)
+                if (gameState.HandState.ActiveHandPatterns.ContainsTwoPair)
                     gameState.ScoringState.AddMultToCurrentHand(10);
             }
         };
@@ -107,7 +107,7 @@ namespace BalatroAI
             Rarity = Rarity.Common,
             OnJokerTrigger = (gameState, joker) =>
             {
-                if (gameState.HandState.ActiveHandPatternResults.ContainsStraight)
+                if (gameState.HandState.ActiveHandPatterns.ContainsStraight)
                     gameState.ScoringState.AddMultToCurrentHand(12);
             }
         };
@@ -118,7 +118,7 @@ namespace BalatroAI
             Rarity = Rarity.Common,
             OnJokerTrigger = (gameState, joker) =>
             {
-                if (gameState.HandState.ActiveHandPatternResults.ContainsFlush)
+                if (gameState.HandState.ActiveHandPatterns.ContainsFlush)
                     gameState.ScoringState.AddMultToCurrentHand(10);
             }
         };
@@ -131,7 +131,7 @@ namespace BalatroAI
             Rarity = Rarity.Common,
             OnJokerTrigger = (gameState, joker) =>
             {
-                if (gameState.HandState.ActiveHandPatternResults.ContainsPair)
+                if (gameState.HandState.ActiveHandPatterns.ContainsPair)
                     gameState.ScoringState.AddChipsToCurrentHand(50);
             }
         };
@@ -142,7 +142,7 @@ namespace BalatroAI
             Rarity = Rarity.Common,
             OnJokerTrigger = (gameState, joker) =>
             {
-                if (gameState.HandState.ActiveHandPatternResults.Contains3OAK)
+                if (gameState.HandState.ActiveHandPatterns.Contains3OAK)
                     gameState.ScoringState.AddChipsToCurrentHand(100);
             }
         };
@@ -153,7 +153,7 @@ namespace BalatroAI
             Rarity = Rarity.Common,
             OnJokerTrigger = (gameState, joker) =>
             {
-                if (gameState.HandState.ActiveHandPatternResults.ContainsTwoPair)
+                if (gameState.HandState.ActiveHandPatterns.ContainsTwoPair)
                     gameState.ScoringState.AddChipsToCurrentHand(80);
             }
         };
@@ -164,7 +164,7 @@ namespace BalatroAI
             Rarity = Rarity.Common,
             OnJokerTrigger = (gameState, joker) =>
             {
-                if (gameState.HandState.ActiveHandPatternResults.ContainsStraight)
+                if (gameState.HandState.ActiveHandPatterns.ContainsStraight)
                     gameState.ScoringState.AddChipsToCurrentHand(100);
             }
         };
@@ -175,7 +175,7 @@ namespace BalatroAI
             Rarity = Rarity.Common,
             OnJokerTrigger = (gameState, joker) =>
             {
-                if (gameState.HandState.ActiveHandPatternResults.ContainsFlush)
+                if (gameState.HandState.ActiveHandPatterns.ContainsFlush)
                     gameState.ScoringState.AddChipsToCurrentHand(80);
             }
         };
