@@ -4,6 +4,39 @@ using ConsoleApp;
 
 public static class Testing
 {
+    public static float GetMaxOneShotScore(GameState gameState)
+    {
+        float maxScore = 0;
+        Span<Card> hand = stackalloc Card[5];
+        for (int playMask = 1; playMask < 256; ++playMask)
+        {
+            int handSize = 0;
+            bool skip = false;
+            for (int i = 0; i < 8; ++i)
+            {
+                if (((playMask >> i) & 1) != 0)
+                {
+                    if (handSize >= hand.Length)
+                    {
+                        skip = true;
+                        break;
+                    }
+                    hand[handSize++] = gameState.HandState.Hand[i];
+                }
+            }
+            if (skip)
+                continue;
+            gameState.PatternMatchingState.MatchHand(hand[..handSize], out gameState.HandState.ActiveHandPatternResults);
+            gameState.ScoringState.ResetCurrentRoundTotalChips();
+            float score = (float)gameState.ScoringState.ScoreHand(hand[..handSize]);
+            if (score > maxScore)
+            {
+                maxScore = score;
+            }
+        }
+        return maxScore;
+    }
+
     public static float GetAverageReward(AIModels models, int sampleCount)
     {
         FastRandom random = FastRandom.SeededByClock();
@@ -17,7 +50,7 @@ public static class Testing
             AIGameState aigs = new(gameState, models);
             while (aigs.GameState.HandState.RemainingHands >= 4)
             {
-                aigs.MakeMoveStochastic(TrainingConfig.GoodPlayTemperature);
+                aigs.MakeMoveStochastic(1f);
             }
             totalReward += aigs.GetCurrentReward();
         }
@@ -26,6 +59,8 @@ public static class Testing
 
     public static void ShowExpectedReward(AIModels models, int sampleCount)
     {
+        Console.WriteLine();
+        Console.WriteLine("--- Example Expected Rewards ---");
         FastRandom random = FastRandom.SeededByClock();
         using (no_grad())
         {
@@ -37,15 +72,17 @@ public static class Testing
                 AIGameState aigs = new(gameState, models);
                 while (aigs.GameState.HandState.RemainingHands >= 4)
                 {
-                    aigs.MakeMoveStochastic(TrainingConfig.GoodPlayTemperature);
+                    Console.WriteLine($"Hand: {gameState.HandToString()}");
+                    Console.WriteLine($"To Use Count: {aigs.ToUseCount}");
+                    Console.WriteLine($"Played Indices: {LoggingUtility.FormatArray(aigs.ToUseIndices[0..aigs.ToUseCount])}");
+                    float expectedReward = models.GetExpectedReward(aigs.GameStateTensors.Hand, aigs.GameStateTensors.OtherState, aigs.InUseMaskTensor).item<float>();
+                    Console.WriteLine($"Predicted Final Reward: {expectedReward}");
+
+                    aigs.MakeMoveStochastic(TrainingConfig.GoodPlayTemp);
                 }
-                Console.WriteLine($"Hand: {gameState.HandToString()}");
-                Console.WriteLine($"Played Indices: {LoggingUtility.FormatArray(aigs.ToUseIndices[0..aigs.ToUseCount])}");
-
-                float expectedReward = models.GetExpectedReward(aigs.HandTensor, aigs.GameStateTensors.OtherState, aigs.InUseMaskTensor).item<float>();
-                Console.WriteLine($"Predicted Final Reward: {expectedReward}");
-
             }
         }
+        Console.WriteLine("-------------------------------");
+        Console.WriteLine();
     }
 }

@@ -9,35 +9,33 @@ public class BestMovePredictor : Module
 {
     public const int OtherStateWidth = 3;
     public const int CardInputWidth = 53;
-    public const int EmbeddedCardWidth = 128;
-    public const int MoveEvalHandHW = 128;
-    public const int MoveEvalCardHW = 128;
 
+    public const int EmbeddedCardWidth = 64;
     public const int MoveVectorWidth = 128;
 
-    Sequential cardProcessor;
-    Sequential moveEvalHand;
-    Sequential moveEvalCard;
+    Embedding mainEmbedder;
+    Embedding moveVecEmbedder;
+    Sequential moveQueryGenerator;
+
+    Sequential fullHandProcessor, workingHandProcessor;
 
     public BestMovePredictor() : base(nameof(BestMovePredictor))
     {
-        cardProcessor = Sequential(
-            Linear(CardInputWidth, EmbeddedCardWidth));
+        mainEmbedder = Embedding(53, EmbeddedCardWidth);
+        moveVecEmbedder = Embedding(53, MoveVectorWidth);
 
-        // input: hand (sum of processed cards)
-        moveEvalHand = Sequential(
+        fullHandProcessor = Sequential(
             ReLU(),
-            Linear(EmbeddedCardWidth * 2 + OtherStateWidth, MoveEvalHandHW),
-            ReLU(),
-            Linear(MoveEvalHandHW, MoveVectorWidth)
-            );
+            new ResidualMLP(EmbeddedCardWidth, 1));
 
-        // input: full hand, full hand extra info, current working hand, potential card to add
-        moveEvalCard = Sequential(
+        workingHandProcessor = Sequential(
             ReLU(),
-            Linear(EmbeddedCardWidth, MoveEvalCardHW),
+            new ResidualMLP(EmbeddedCardWidth, 1));
+
+        moveQueryGenerator = Sequential(
             ReLU(),
-            Linear(MoveEvalCardHW, MoveVectorWidth)
+            new ResidualMLP(EmbeddedCardWidth + OtherStateWidth, 1),
+            Linear(EmbeddedCardWidth + OtherStateWidth, MoveVectorWidth)
             );
 
         RegisterComponents();
@@ -45,18 +43,26 @@ public class BestMovePredictor : Module
 
     public Tensor EmbedCards(Tensor cards)
     {
-        return cardProcessor.forward(cards);
+        return mainEmbedder.forward(cards);
     }
 
 
-    public Tensor GetCardUseRewards(Tensor fullHand, Tensor otherState, Tensor inUseMask)
+    public Tensor GetCardUseRewards(Tensor hand, Tensor otherState, Tensor inUseMask)
     {
-        Tensor compressedHand = fullHand.sum(dim: 1);
-        Tensor compressedWorkingHand = fullHand.mul(inUseMask.unsqueeze(2)).sum(dim: 1);
-        Tensor handVec = moveEvalHand.forward(concat([compressedHand, compressedWorkingHand, otherState], dim: 1));
-        Tensor cardVecs = moveEvalCard.forward(fullHand);
-        Tensor handVecExpanded = handVec.unsqueeze(1).expand([fullHand.size(0), fullHand.size(1), handVec.size(1)]);
-        Tensor output = mul(handVecExpanded, cardVecs).sum(dim: 2) / MathF.Sqrt(MoveVectorWidth);
+        Tensor embeddedHand = mainEmbedder.forward(hand);
+
+        Tensor fullHand = embeddedHand.sum(dim: 1);
+        Tensor processedFullHand = fullHandProcessor.forward(fullHand);
+
+        Tensor workingHand = embeddedHand.mul(inUseMask.unsqueeze(2)).sum(dim: 1);
+        Tensor processedWorkingHand = workingHandProcessor.forward(workingHand);
+
+        Tensor moveQuery = moveQueryGenerator.forward(concat([processedFullHand - processedWorkingHand, otherState], dim: 1));
+        Tensor moveQueryExpanded = moveQuery.unsqueeze(1).expand([hand.size(0), hand.size(1), moveQuery.size(1)]);
+
+        Tensor moveKeys = moveVecEmbedder.forward(hand);
+
+        Tensor output = mul(moveKeys, moveQueryExpanded).sum(dim: 2) / MathF.Sqrt(MoveVectorWidth);
         return output;
     }
 }

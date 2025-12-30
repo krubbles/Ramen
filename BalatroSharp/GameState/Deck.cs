@@ -20,7 +20,7 @@ public class DeckState
     {
         GameState = gameState;
         _gameData = gameState.GameData;
-        _shuffleRandom = new(_gameData.Seed);
+        _shuffleRandom = new(gameState.SeedGenerator.Next());
     }
 
     public void CloneFrom(DeckState other)

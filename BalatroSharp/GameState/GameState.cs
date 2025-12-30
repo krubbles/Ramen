@@ -15,24 +15,13 @@ public sealed partial class GameState
     public GameState(GameData gameData)
     {
         GameData = gameData;
+        SeedGenerator = new(GameData.RandomizeSeed ? FastRandom.SeededByClock().Next() : GameData.Seed);
 
         ScoringState = new(this);
         DeckState = new(this);
         HandState = new(this);
         JokerState = new(this);
         PatternMatchingState = new(this);
-
-        if (GameData.RandomizeSeed)
-        {
-            // Choose a seed randomly and persist it back to GameData
-            int chosenSeed = FastRandom.SeededByClock().Next();
-            GameData.Seed = chosenSeed;
-            SeedGenerator = new(chosenSeed);
-        }
-        else
-        {
-            SeedGenerator = new(GameData.Seed);
-        }
 
         GameData.InitStartingDeck(this);
     }

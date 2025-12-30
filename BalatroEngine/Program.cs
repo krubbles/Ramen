@@ -83,30 +83,63 @@ class Program
         AIModels models = new();
 
         long totalTrainableParams = 0;
-        foreach (var named in models.parameters())
+        foreach (var param in models.Policy.parameters())
         {
-            if (named.requires_grad)
-                totalTrainableParams += named.numel();
+            if (param.requires_grad)
+                totalTrainableParams += param.numel();
         }
-        Console.WriteLine($"Total number of trainable parameters: {totalTrainableParams}");
+        Console.WriteLine($"Total number of trainable policy parameters: {totalTrainableParams}");
+
+        totalTrainableParams = 0;
+        foreach (var param in models.Evaluation.parameters())
+        {
+            if (param.requires_grad)
+                totalTrainableParams += param.numel();
+        }
+        Console.WriteLine($"Total number of trainable evaluation parameters: {totalTrainableParams}");
+
+
+        TrainingData.GenerateEvaluationTrainingData(models, 30000);
+        Training.TrainEvaluationModel(models, epochs: 4, batchSize: 32, validate: true);
+        TrainingData.GeneratePolicyTrainingData(models, samples: 4000);
+        Training.TrainPolicyModel(models, epochs: 4, batchSize: 64, validate: true);
+
+
+        TrainingData.EvaluationTrainingData.Clear();
+        TrainingData.PolicyTrainingData.Clear();
 
         ShowExampleMoveRewards();
 
+        TrainingData.GenerateEvaluationTrainingData(models, 40000);
+        Training.TrainEvaluationModel(models, epochs: 4, batchSize: 32, validate: true);
+        TrainingData.GeneratePolicyTrainingData(models, samples: 5000);
+        Training.TrainPolicyModel(models, epochs: 4, batchSize: 64, validate: true);
+
+        TrainingData.EvaluationTrainingData.Clear();
+        TrainingData.PolicyTrainingData.Clear();
+
+
         for (int i = 0; i < 10; ++i)
         {
-            TrainingData.EvaluationTrainingData.Clear();
-            TrainingData.GenerateEvaluationTrainingData(models, samples: 40000);
-            Training.TrainEvaluationModel(models, epochs: 20, batchSize: 64);
+            int evalSampleCount = 200000;
+            int policySampleCount = 25000;
+            TrainingData.GenerateEvaluationTrainingData(models, samples: evalSampleCount);
+            Training.TrainEvaluationModel(models, epochs: 6, batchSize: 64, validate: true);
 
-            TrainingData.GeneratePolicyTrainingData(models, samples: 20000);
-            Training.TrainPolicyModel(models, epochs: 30, batchSize: 64);
+            TrainingData.GeneratePolicyTrainingData(models, samples: policySampleCount);
+            Training.TrainPolicyModel(models, epochs: 6, batchSize: 64, validate: true);
 
             ShowExampleMoveRewards();
+
+            TrainingData.EvaluationTrainingData.Clear();
+            TrainingData.PolicyTrainingData.Clear();
         }
 
         void ShowExampleMoveRewards()
         {
-            for (int i = 0; i < 3; ++i)
+            Console.WriteLine();
+            Console.WriteLine("--- Example Move Rewards ---");
+            for (int i = 0; i < 5; ++i)
             {
                 FastRandom r = FastRandom.SeededByClock();
                 GameState gs = new GameState(new());
@@ -114,46 +147,13 @@ class Program
                 gs.StartRound();
                 Console.WriteLine(gs.HandToString());
                 AIGameState aigs = new(gs, models);
-                float[] rewards = (models.GetCardUseRewards(aigs.HandTensor, aigs.GameStateTensors.OtherState, aigs.InUseMaskTensor)).div(1f).softmax(dim: 1).data<float>().ToArray();
+                float[] rewards = (models.GetCardUseRewards(aigs.GameStateTensors.Hand, aigs.GameStateTensors.OtherState, aigs.InUseMaskTensor)).div(1f).softmax(dim: 1).data<float>().ToArray();
                 Console.WriteLine(LoggingUtility.FormatArray(rewards));
             }
+            Console.WriteLine("---------------------------");
+            Console.WriteLine();
         }
     }
 
 
-
-    class ResidualMLP : Module<Tensor, Tensor>
-    {
-        private ModuleList<Linear> upLayers = new();
-        private ModuleList<Linear> downLayers = new();
-
-        private ModuleList<LayerNorm> norms = new();
-        private ModuleList<GELU> activations = new();
-
-        public ResidualMLP(int size, int depth) : base("ResidualMLP")
-        {
-            for (int i = 0; i < depth; ++i)
-            {
-                upLayers.append(Linear(size, size * 4));
-                downLayers.append(Linear(size * 4, size));
-                activations.append(GELU());
-                norms.append(LayerNorm(size));
-            }
-
-            RegisterComponents();
-        }
-
-        public override Tensor forward(Tensor x)
-        {
-            for (int i = 0; i < upLayers.Count; i++)
-            {
-                Tensor normed = norms[i].forward(x);
-                Tensor up = upLayers[i].forward(x);
-                Tensor activated = activations[i].forward(up);
-                Tensor down = downLayers[i].forward(activated);
-                x = x / upLayers.Count + down;
-            }
-            return x;
-        }
-    }
 }

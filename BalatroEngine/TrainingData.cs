@@ -36,7 +36,7 @@ public static class TrainingData
                         }
                         aigsCopy.CloneFrom(aigs);
                         aigsCopy.MakeMove(move);
-                        float reward = models.GetExpectedReward(aigsCopy.HandTensor, aigsCopy.GameStateTensors.OtherState, aigsCopy.InUseMaskTensor).item<float>();
+                        float reward = models.GetExpectedReward(aigsCopy.GameStateTensors.Hand, aigsCopy.GameStateTensors.OtherState, aigsCopy.InUseMaskTensor).item<float>();
                         if (reward > bestReward)
                         {
                             bestReward = reward;
@@ -60,10 +60,11 @@ public static class TrainingData
                         lastLogCount += 1000;
                         Console.WriteLine($"Generated {PolicyTrainingData.Count - currentCount} / {samples} policy training samples");
                     }
-                    aigs.MakeMoveStochastic(1f);
+                    aigs.MakeMoveStochastic(TrainingConfig.ExploratoryPlayTemp);
                 }
             }
         }
+        Console.WriteLine("Final policy training data count: " + PolicyTrainingData.Count);
     }
 
     public static void GenerateEvaluationTrainingData(AIModels models, int samples)
@@ -87,7 +88,7 @@ public static class TrainingData
                 while (aigs.CurrentMaxMoveCount() > 0)
                 {
                     states.Add((aigs.GameStateTensors.Clone(), aigs.InUseMaskTensor.clone()));
-                    aigs.MakeMoveStochastic(TrainingConfig.GoodPlayTemperature);
+                    aigs.MakeMoveStochastic(TrainingConfig.GoodPlayTemp);
                 }
 
                 float finalReward = aigs.GetCurrentReward();
@@ -113,18 +114,54 @@ public static class TrainingData
                 target.Dispose();
             }
         }
+        Console.WriteLine("Final eval training data count: " + EvaluationTrainingData.Count);
     }
 
+    public static void GenerateEvalTrainingDataOneShotBestHand(int samples)
+    {
+        using var scope = NewDisposeScope();
+        int lastLogCount = 0;
+        int startingSampleCount = EvaluationTrainingData.Count;
+        FastRandom random = FastRandom.SeededByClock();
+        GameData gameData = new();
+        using (no_grad())
+        {
+            while (EvaluationTrainingData.Count < startingSampleCount + samples)
+            {
+                gameData.Seed = random.Next();
+                GameState gameState = new(gameData);
+                gameState.StartRound();
+
+                float finalReward = Testing.GetMaxOneShotScore(gameState) / 300f;
+                Tensor target = tensor(finalReward).unsqueeze(0).unsqueeze(0);
+
+                lock (EvaluationTrainingData)
+                {
+                    EvaluationTrainingData.Add(new()
+                    {
+                        GameStateTensors = GameStateTensors.Create(gameState).DetachFromDisposeScope(),
+                        Target = target.clone().DetachFromDisposeScope(),
+                        InUseMask = zeros(1, 9).DetachFromDisposeScope(),
+                    });
+                    if (EvaluationTrainingData.Count - startingSampleCount >= lastLogCount + 1000)
+                    {
+                        lastLogCount += 1000;
+                        Console.WriteLine($"Generated {EvaluationTrainingData.Count - startingSampleCount} / {samples} evaluation training samples");
+                    }
+                }
+            }
+        }
+    }
 }
 
 public struct GameStateTensors : IDisposable
 {
-    public Tensor FullHand;
+    public Tensor Hand;
     public Tensor OtherState;
 
-    public void MakeBatchSize1()
+    void MakeBatchSize1()
     {
-        FullHand = FullHand.unsqueeze(0);
+        Hand = Hand.unsqueeze(0);
         OtherState = OtherState.unsqueeze(0);
     }
 
@@ -134,13 +171,13 @@ public struct GameStateTensors : IDisposable
         Tensor[] otherStates = new Tensor[tensors.Count];
         for (int i = 0; i < tensors.Count; ++i)
         {
-            handStates[i] = tensors[i].FullHand;
+            handStates[i] = tensors[i].Hand;
             otherStates[i] = tensors[i].OtherState;
         }
 
         GameStateTensors result = new()
         {
-            FullHand = concat(handStates, dim: 0),
+            Hand = concat(handStates, dim: 0),
             OtherState = concat(otherStates, dim: 0),
         };
 
@@ -160,20 +197,20 @@ public struct GameStateTensors : IDisposable
     {
         return new()
         {
-            FullHand = FullHand?.clone(),
+            Hand = Hand?.clone(),
             OtherState = OtherState?.clone()
         };
     }
 
     public void Dispose()
     {
-        FullHand.Dispose();
+        Hand.Dispose();
         OtherState.Dispose();
     }
 
     public GameStateTensors DetachFromDisposeScope()
     {
-        FullHand = FullHand.DetachFromDisposeScope();
+        Hand = Hand.DetachFromDisposeScope();
         OtherState = OtherState.DetachFromDisposeScope();
         return this;
     }   
@@ -183,11 +220,14 @@ public struct GameStateTensors : IDisposable
         float[] otherVec = [(float)gameState.ScoringState.CurrentRoundTotalChips, gameState.HandState.RemainingDiscards, gameState.HandState.RemainingHands];
         Tensor otherState = otherVec;
 
-        return new GameStateTensors() { FullHand = EmbedHand(gameState.HandState.Hand), OtherState = otherState };
+        GameStateTensors result = new GameStateTensors() { Hand = EmbedHand(gameState.HandState.Hand), OtherState = otherState };
+        result.MakeBatchSize1();
+        return result;
     }
 
     public static Tensor EmbedHand(ReadOnlySpan<Card> hand)
     {
+        using var scope = NewDisposeScope();
         Tensor[] cards = new Tensor[hand.Length + 1];
         for (int i = 0; i < cards.Length - 1; ++i)
         {
@@ -196,30 +236,21 @@ public struct GameStateTensors : IDisposable
         cards[^1] = EmbedCard(Card.Null);
 
         Tensor handTensor = stack(cards);
-
-        foreach (Tensor card in cards)
-            card.Dispose();
-
-        return handTensor;
+        return handTensor.MoveToOuterDisposeScope();
     }
 
     public static Tensor EmbedCard(Card card)
     {
-        float[] handArray = new float[53];
-
-        int CardIndex(Card card) => ((int)card.Suit - 1) + (card.Rank - 2) * 4;
-
+        long value;
         if (card.IsNull)
         {
-            handArray[^1] = 1f;
+            value = 52; // Use index 52 for null cards
         }
         else
         {
-            handArray[CardIndex(card)] += 1;
+            value = card.Rank - 2 + ((int)card.Suit - 1) * 13;
         }
-
-        Tensor t = handArray;
-        return t;
+        return tensor(value, dtype: ScalarType.Int64);
     }
 
 }
