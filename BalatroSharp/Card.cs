@@ -1,4 +1,6 @@
-﻿namespace BalatroAI
+﻿using System.Diagnostics.CodeAnalysis;
+
+namespace BalatroAI
 {
     public enum Suit : byte
     {
@@ -10,11 +12,10 @@
         All,
     }
 
-
-    public struct Card
+    public readonly struct Card : IEquatable<Card>, IComparable<Card>
     {
-        public int Rank;
-        public Suit Suit;
+        public readonly int Rank;
+        public readonly Suit Suit;
 
         public Card(int rank, Suit suit) 
         {
@@ -42,8 +43,73 @@
 
         public static readonly Card Null = new();
 
+        public readonly bool Equals(Card other) => this == other;
+
+        public override bool Equals(object obj)
+        {
+            return obj is Card other && this == other;
+        }
+
+        public override readonly int GetHashCode()
+        {
+            return Rank * 100 + (int)Suit;
+        }
+
         public static bool operator ==(Card a, Card b) => a.Suit == b.Suit && a.Rank == b.Rank;
         public static bool operator !=(Card a, Card b) => a.Suit != b.Suit && a.Rank != b.Rank;
+
+        public readonly int CompareTo(Card other)
+        {
+            return RankComparer.Compare(this, other);
+        }
+
+        /// <summary>
+        /// IComparer that does rank-first comparison of cards.
+        /// </summary>
+        public static readonly RankCardComparer RankComparer = new();
+
+        /// <summary>
+        /// IComparer that does suit-first comparison of cards.
+        /// </summary>
+        public static readonly SuitCardComparer SuitCardComparer = new();
+    }
+    
+    /// <summary>
+    /// IComparer that does rank-first comparison of cards.
+    /// </summary>
+    public sealed class RankCardComparer : IComparer<Card>
+    {
+        public int Compare(Card a, Card b)
+        {
+            if (a.Rank > b.Rank)
+                return 1;
+            if (a.Rank < b.Rank)
+                return -1;
+            if (a.Suit > b.Suit)
+                return 1;
+            if (a.Suit < b.Suit)
+                return -1;
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// IComparer that does suit-first comparison of cards.
+    /// </summary>
+    public sealed class SuitCardComparer : IComparer<Card>
+    {
+        public int Compare(Card a, Card b)
+        {
+            if (a.Rank > b.Rank)
+                return 1;
+            if (a.Rank < b.Rank)
+                return -1;
+            if (a.Suit > b.Suit)
+                return 1;
+            if (a.Suit < b.Suit)
+                return -1;
+            return 0;
+        }
     }
 
     public static class CardUtils 
