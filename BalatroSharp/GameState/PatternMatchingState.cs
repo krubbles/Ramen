@@ -1,5 +1,8 @@
 ﻿namespace BalatroAI;
 
+/// <summary>
+/// A type of poker hand, like high card or flush.
+/// </summary>
 public enum HandType
 {
     None,
@@ -18,22 +21,68 @@ public enum HandType
 }
 
 
+/// <summary>
+/// Stores all the pattern matching results for a given hand, like whether it contains a flush or straight.
+/// </summary>
 public struct HandPatternResults
 {
+    /// <summary>
+    /// Number of cards in the hand.
+    /// </summary>
     public int CardCount;
 
+    /// <summary>
+    /// The resolved hand type of the hand. This is the highest tier hand type that can be made with the cards in the hand.
+    /// </summary>
     public HandType HandType;
+
+    /// <summary>
+    /// Whether the hand contains a flush. 
+    /// </summary>
     public bool ContainsFlush;
+
+    /// <summary>
+    /// Whether the hand contains a straight.
+    /// </summary>
     public bool ContainsStraight;
+
+    /// <summary>
+    /// The number of copies of the most common rank in the hand.
+    /// </summary>
     public int MaxNOfAKind;
+
+    /// <summary>
+    /// The number of copies of the second most common rank in the hand. Used to identify two pair and full house hands.
+    /// </summary>
     public int SecondMaxNOfAKind;
+
+    /// <summary>
+    /// A bit mask that specifies which cards in the hand were used to make the matched pattern. This determines what cards get triggered during scoring.
+    /// </summary>
     public int PlayedCardsMask;
 
+
+    /// NOTE: These properties need to be reworked, since they include cards that aren't in the played cards mask, which isn't the correct behaviour for page 1 jokers.
+
+    /// <summary>
+    /// Whether the hand contains a pair. May be part of a higher tier hand.
+    /// </summary>
     public readonly bool ContainsPair => MaxNOfAKind >= 2;
+
+    /// <summary>
+    /// Whether the hand contains a 3-of-a-kind. May be part of a higher tier hand.
+    /// </summary>
     public readonly bool Contains3OAK => MaxNOfAKind >= 3;
+
+    /// <summary>
+    /// Whether the hand contains at least a two-pair. May be part of a higher tier hand.
+    /// </summary>
     public readonly bool ContainsTwoPair => SecondMaxNOfAKind >= 2;
 }
 
+/// <summary>
+/// The state object for pattern matching operations on hands. Can be modified by jokers to change how patterns are matched.
+/// </summary>
 public class PatternMatchingState
 {
     public readonly GameState GameState;
@@ -50,6 +99,9 @@ public class PatternMatchingState
         _gameData = gameState.GameData;
     }
 
+    /// <summary>
+    /// Calculates the pattern matching results for a given hand.
+    /// </summary>
     public void MatchHand(ReadOnlySpan<Card> hand, out HandPatternResults results) 
     {
         results.CardCount = hand.Length;
@@ -111,7 +163,7 @@ public class PatternMatchingState
         }
     }
 
-    public void MatchNOfAKind(ReadOnlySpan<Card> hand, out int playedCardsMask, out int rank1, out int rank1Count, out int rank2, out int rank2Count)
+    internal void MatchNOfAKind(ReadOnlySpan<Card> hand, out int playedCardsMask, out int rank1, out int rank1Count, out int rank2, out int rank2Count)
     {
         if (hand.Length == 1) // optimization for special case of single-card hand
         {
@@ -179,7 +231,7 @@ public class PatternMatchingState
         }
     }
 
-    public bool MatchFlush(ReadOnlySpan<Card> hand, out int playedCardsMask, out Suit suit)
+    internal bool MatchFlush(ReadOnlySpan<Card> hand, out int playedCardsMask, out Suit suit)
     {
         playedCardsMask = 0;
         suit = Suit.None;
@@ -207,7 +259,7 @@ public class PatternMatchingState
         return true;
     }
 
-    public bool MatchStraight(ReadOnlySpan<Card> hand, out int playedCardsMask)
+    internal bool MatchStraight(ReadOnlySpan<Card> hand, out int playedCardsMask)
     {
         playedCardsMask = 0;
 
@@ -270,11 +322,17 @@ public class PatternMatchingState
         return true;
     }
 
+    /// <summary>
+    /// Determines if two ranks match. In vanilla Balatro this isn't modified by jokers, but use this utility in case of future changes.
+    /// </summary>
     public bool RanksMatch(int a, int b)
     {
         return a == b;
     }
 
+    /// <summary>
+    /// Determines if two suits match. Can be modified by jokers.
+    /// </summary>
     public bool SuitsMatch(Suit a, Suit b)
     {
         if (SmearSuits)
