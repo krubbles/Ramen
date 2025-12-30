@@ -81,7 +81,7 @@ public class ScoringState
             }
         }
 
-        GameState.JokerState.OnJokerTriggers();
+        GameState.JokerState.OnPlayHand();
 
         double score = CurrentHandChips * CurrentHandMult;
         CurrentRoundTotalChips += score;

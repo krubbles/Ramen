@@ -1,6 +1,9 @@
 ﻿namespace BalatroAI;
 
-public class HandState // Hand
+/// <summary>
+/// Holds the state of the player's hand including remaining plays and discards.
+/// </summary>
+public class HandState 
 {
     public readonly GameState GameState;
     readonly GameData _gameData;
@@ -11,14 +14,34 @@ public class HandState // Hand
 
     public Span<Card> Hand => _handBuffer.AsSpan(0, CardsInHand);
 
+    /// <summary>
+    /// The number of hands the player can still play this round.
+    /// </summary>
+    public int RemainingHands;
+    /// <summary>
+    /// The number of discards the player can still make this round.
+    /// </summary>
+    public int RemainingDiscards;
 
-    public int RemainingHands, RemainingDiscards;
-
+    /// <summary>
+    /// Pattern matching results for the currently active (played/discarded) hand. Used by jokers and scoring.
+    /// </summary>
     public HandPatternResults ActiveHandPatternResults;
-    
-    // Settings
-    public int MaxHandSize = 8;
-    public int HandsPerRound = 4, DiscardsPerRound = 3;
+
+    /// <summary>
+    /// If the player has less then this number of cards in their hand after playing/discarding, they will draw up to this number.
+    /// </summary>
+    public int HandSize = 8;
+
+    /// <summary>
+    /// The number of hands the player can play each round.
+    /// </summary>
+    public int HandsPerRound = 4;
+
+    /// <summary>
+    /// The number of discards the player can use each round.
+    /// </summary>
+    public int DiscardsPerRound = 3;
 
     public HandState(GameState gameState)
     {
@@ -34,29 +57,32 @@ public class HandState // Hand
         CardsInHand = other.CardsInHand;
 
         ActiveHandPatternResults = other.ActiveHandPatternResults;
-        MaxHandSize = other.MaxHandSize;
+        HandSize = other.HandSize;
         HandsPerRound = other.HandsPerRound;
         DiscardsPerRound = other.DiscardsPerRound;
     }
 
 
+    /// <summary>
+    /// Adds a card to the players hand. This card is not added to the deck and ceases to exist after being played.
+    /// </summary>
     public void AddCardToHand(Card card) 
     {
         _handBuffer[CardsInHand++] = card;
     }
 
-    public void RemoveCardFromHand(int index)
-    {
-        _handBuffer[index] = _handBuffer[--CardsInHand];
-    }
-
+    /// <summary>
+    /// If the player has less then <see cref="HandSize"/> cards in their hand, draw cards from the deck until they have <see cref="HandSize"/> cards.
+    /// </summary>
     public void DrawToHandSize()
     {
-        while (CardsInHand < MaxHandSize && GameState.DeckState.TryDraw(out Card card))
+        while (CardsInHand < HandSize && GameState.DeckState.TryDraw(out Card card))
             AddCardToHand(card);
     }
 
-
+    /// <summary>
+    /// Plays a hand.
+    /// </summary>
     public double PlayHand(ReadOnlySpan<int> cardIndices)
     {
         if (RemainingHands < 1)
@@ -82,7 +108,7 @@ public class HandState // Hand
         }
         CardsInHand = writeIndex;
 
-        GameState.JokerState.OnPlayHand();
+        GameState.JokerState.OnBeforePlayHand();
 
         double score = GameState.ScoringState.ScoreHand(playedHand);
 
@@ -91,6 +117,9 @@ public class HandState // Hand
         return score;
     }
 
+    /// <summary>
+    /// Discards a hand.
+    /// </summary>
     public void DiscardHand(ReadOnlySpan<int> cardIndices)
     {
         if (RemainingDiscards < 1)
@@ -118,6 +147,9 @@ public class HandState // Hand
         DrawToHandSize();
     }
 
+    /// <summary>
+    /// Resets the remaining hands and discards to the per-round values.
+    /// </summary>
     public void ResetRemainingHandsAndDiscards()
     {
         RemainingHands = HandsPerRound;

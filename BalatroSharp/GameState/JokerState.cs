@@ -1,6 +1,9 @@
 ﻿
 namespace BalatroAI
 {
+    /// <summary>
+    /// Stores the state of jokers in the game. Handles adding, removing, and triggering joker effects.
+    /// </summary>
     public class JokerState
     {
         public readonly GameState GameState;
@@ -28,7 +31,10 @@ namespace BalatroAI
             joker.JokerData.OnRemove?.Invoke(GameState, joker);
         }
 
-        public void OnJokerTriggers()
+        /// <summary>
+        /// Runs all joker effects that trigger when a hand is played. Ex: Jimbo
+        /// </summary>
+        public void OnPlayHand()
         {
             foreach (JokerInstance joker in Jokers)
             {
@@ -36,6 +42,9 @@ namespace BalatroAI
             }
         }
 
+        /// <summary>
+        /// Runs all joker effects that trigger when a card is scored. Ex: Greedy Joker
+        /// </summary>
         public void OnScoreCard(Card card)
         {
             foreach (JokerInstance joker in Jokers)
@@ -44,6 +53,9 @@ namespace BalatroAI
             }
         }
 
+        /// <summary>
+        /// Runs all joker effects that trigger right before a card is scored. Mostly used for retriggering jokers. Ex: Dusk
+        /// </summary>
         public void OnBeginScoringCard(Card card)
         {
             foreach (JokerInstance joker in Jokers)
@@ -52,6 +64,9 @@ namespace BalatroAI
             }
         }
 
+        /// <summary>
+        /// Runs all joker effects that trigger when a card is discarded. Ex: Mail-In Rebate
+        /// </summary>
         public void OnDiscardCard(Card card)
         {
             foreach (JokerInstance joker in Jokers)
@@ -60,8 +75,10 @@ namespace BalatroAI
             }
         }
 
-
-        public void OnPlayHand()
+        /// <summary>
+        /// Runs all joker effects that trigger before a hand is played. Ex: Space Joker
+        /// </summary>
+        public void OnBeforePlayHand()
         {
             foreach (JokerInstance joker in Jokers)
             {
@@ -69,6 +86,9 @@ namespace BalatroAI
             }
         }
 
+        /// <summary>
+        /// Runs all joker effects that trigger when a hand is discarded. Ex: Burnt Joker
+        /// </summary>
         public void OnDiscardHand()
         {
             foreach (JokerInstance joker in Jokers)

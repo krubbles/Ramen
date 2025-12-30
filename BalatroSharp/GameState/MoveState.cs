@@ -1,5 +1,8 @@
 ﻿namespace BalatroAI;
 
+/// <summary>
+/// Tracks the move history, generates valid move lists, and applies/reverts moves.
+/// </summary>
 public sealed class MoveState
 {
     public readonly GameState GameState;
@@ -19,6 +22,9 @@ public sealed class MoveState
         MoveHistory.AddRange(other.MoveHistory);
     }
 
+    /// <summary>
+    /// Gets the list of valid moves for the current game state.
+    /// </summary>
     public List<IMove> GetValidMoves()
     {
         return null;
