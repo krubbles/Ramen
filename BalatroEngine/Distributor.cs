@@ -3,66 +3,37 @@ using System.Runtime.CompilerServices;
 namespace BalatroAI;
 
 
-public class MeanDistributionAnalyzer
+public static class MeanDistributionAnalyzer
 {
-    private readonly int _width;
-    private readonly double[] _sum;
-    private readonly double[] _sumSq;
-    private int _count;
-
-    public MeanDistributionAnalyzer(int width)
+    public static int SampleFromDistribution(FastRandom random, float[] distribution)
     {
-        _width = width;
-        _sum = new double[width];
-        _sumSq = new double[width];
-    }
+        // Get a random value between 0.0 and 1.0
+        float r = random.NextPortion();
+        float cumulativeSum = 0.0f;
 
-    /// <summary>
-    /// Adds a vector sample. Internal accumulation uses doubles for numerical stability.
-    /// </summary>
-    public void AddSample(ReadOnlySpan<float> sample)
-    {
-        if (sample.Length != _width) throw new ArgumentException("Width mismatch");
-
-        for (int i = 0; i < _width; i++)
+        for (int i = 0; i < distribution.Length; i++)
         {
-            double val = sample[i];
-            _sum[i] += val;
-            _sumSq[i] += val * val;
-        }
-        _count++;
-    }
+            cumulativeSum += distribution[i];
 
+            // If the random number falls within this index's range
+            if (r <= cumulativeSum)
+            {
+                return i;
+            }
+        }
+
+        // Fallback: in case of minor floating point inaccuracies at the end of the array
+        return distribution.Length - 1;
+    }
     /// <summary>
     /// Returns the probability distribution using Clark's Approximation.
     /// Complexity: O(Width)
     /// </summary>
-    public float[] GetProbabilityDistribution()
+    public static float[] GetProbabilityDistribution(float[] means, float[] vars)
     {
+        int _width = means.Length;
         float[] result = new float[_width];
-        if (_count < 2)
-        {
-            float uniform = 1.0f / _width;
-            for (int i = 0; i < _width; i++) result[i] = uniform;
-            return result;
-        }
 
-        // 1. Calculate Mean and Variance of the Mean (Standard Error Squared)
-        // Using float for the distribution parameters to save memory/align with request
-        var means = new float[_width];
-        var vars = new float[_width];
-        double invN = 1.0 / _count;
-        double invNm1 = 1.0 / (_count - 1);
-
-        for (int i = 0; i < _width; i++)
-        {
-            means[i] = (float)(_sum[i] * invN);
-            double sampleVar = (_sumSq[i] - (_sum[i] * _sum[i] * invN)) * invNm1;
-            // The uncertainty of the mean is (sample variance / N)
-            vars[i] = (float)Math.Max(sampleVar * invN, 1e-12);
-        }
-
-        // 2. Prefix and Suffix passes to compute "Max of others" in linear time
         var prefixMaxM = new float[_width];
         var prefixMaxV = new float[_width];
         var suffixMaxM = new float[_width];

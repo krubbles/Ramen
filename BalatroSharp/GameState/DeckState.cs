@@ -13,7 +13,7 @@ public sealed class DeckState
     /// <summary>
     /// The cards remaining in the deck for the current round.
     /// </summary>
-    public ReadOnlySpan<Card> Deck => _deckBuffer.AsSpan(0, RemainingDeckCardCount);
+    public ReadOnlySpan<Card> RemainingDeck => _deckBuffer.AsSpan(0, RemainingDeckCardCount);
 
     /// <summary>
     /// All cards in the player's deck.
@@ -33,13 +33,13 @@ public sealed class DeckState
     {
         return
             463507903 +
-            Card.HashCardSetOrdered(Deck) * 210384047 +
+            Card.HashCardSetOrdered(RemainingDeck) * 210384047 +
             Card.HashCardSetOrdered(FullDeck);
     }
 
     internal void CloneFrom(DeckState other)
     {
-        other.Deck.CopyTo(_deckBuffer);
+        other.RemainingDeck.CopyTo(_deckBuffer);
         other.FullDeck.CopyTo(_fullDeckBuffer);
         RemainingDeckCardCount = other.RemainingDeckCardCount;
         FullDeckCardCount = other.FullDeckCardCount;

@@ -39,6 +39,7 @@ namespace BalatroAI
 
         public Tensor GetExpectedReward(Tensor fullHand, Tensor otherState, Tensor inUseMask)
             => Evaluation.forward(fullHand, otherState, inUseMask);
+
     }
 
     public class EvaluationModule : Module
@@ -81,6 +82,11 @@ namespace BalatroAI
             Tensor compressedWorkingHand = _workingHandProcessor.forward(embeddedHand.mul(inUseMask.unsqueeze(2)).sum(dim: 1));
             Tensor output = _mlp.forward(concat([compressedHand - compressedWorkingHand, otherState], dim: 1));
             return output;
+        }
+
+        public Tensor forward(GameStateTensors gameState)
+        {
+            return null;
         }
 
         public Tensor ProcessHand(Tensor hand)
