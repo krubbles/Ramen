@@ -62,7 +62,7 @@ public sealed class GameState
             case StageOfGame.InRoundPlayerChoice:
                 HandState.AppendLegalUseHandMoves(_currentLegalMovesBuffer);
                 break;
-            case StageOfGame.InRoundRedrawing:
+            case StageOfGame.InRoundAfterHandUsed:
                 _currentLegalMovesBuffer.Add(new AfterHandUsedMove());
                 break;
 
@@ -102,7 +102,7 @@ public sealed class StartRoundMove : Move
         if (gameState.Stage != StageOfGame.BeginRound)
             throw new InvalidOperationException("Cannot start round, gameState is not in the BeginRound GameStage");
 
-        gameState.Stage = StageOfGame.InRoundRedrawing;
+        gameState.Stage = StageOfGame.InRoundAfterHandUsed;
 
         gameState.HandState.ResetRemainingHandsAndDiscards();
         gameState.ScoringState.ResetCurrentRoundTotalChips();
@@ -126,5 +126,5 @@ public enum StageOfGame
     InStore,
     BeginRound,
     InRoundPlayerChoice,
-    InRoundRedrawing,
+    InRoundAfterHandUsed,
 }

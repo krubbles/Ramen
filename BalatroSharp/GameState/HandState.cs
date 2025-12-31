@@ -31,14 +31,38 @@ public class HandState
     /// </summary>
     public Span<Card> ActiveHand => _activeHandBuffer.AsSpan(0, ActiveHandCardCount);
 
+
+    int _remainingHands, _remainingDiscards;
+
     /// <summary>
     /// The number of hands the player can still play this round.
     /// </summary>
-    public int RemainingHands { get; private set; }
+    public int RemainingHands
+    {
+        get => _remainingHands;
+        internal set
+        {
+            if (_remainingHands == value)
+                return;
+            _remainingHands = value;
+            GameState.MoveState.ScheduleCallback(OnRemainingHandsOrDiscardsChanged);
+        }
+    }
+
     /// <summary>
-    /// The number of discards the player can still make this round.
+    /// The number of discard the player can still use this round.
     /// </summary>
-    public int RemainingDiscards { get; private set; }
+    public int RemainingDiscards
+    {
+        get => _remainingDiscards;
+        internal set
+        {
+            if (_remainingDiscards == value)
+                return;
+            _remainingDiscards = value;
+            GameState.MoveState.ScheduleCallback(OnRemainingHandsOrDiscardsChanged);
+        }
+    }
 
     /// <summary>
     /// Pattern matching results for the currently active (played/discarded) hand. Used by jokers and scoring. Not persistent state.
@@ -111,18 +135,6 @@ public class HandState
         GameState.MoveState.ScheduleCallback(OnHandChanged);
     }
 
-    internal void ChangeRemainingHands(int delta)
-    {
-        RemainingHands += delta;
-        GameState.MoveState.ScheduleCallback(OnHandChanged);
-    }
-
-    internal void ChangeRemainingDiscards(int delta)
-    {
-        RemainingDiscards += delta;
-        GameState.MoveState.ScheduleCallback(OnHandChanged);
-    }
-
     internal void ResetRemainingHandsAndDiscards()
     {
         RemainingHands = HandsPerRound;
@@ -158,7 +170,7 @@ public class HandState
     {
         if (RemainingHands < 1)
             throw new Exception("Cannot play hand, out of hands.");
-        ChangeRemainingHands(-1);
+        RemainingHands--;
 
         Span<Card> playedHand = stackalloc Card[cardIndices.Length];
         for (int i = 0; i < cardIndices.Length; i++)
@@ -192,7 +204,7 @@ public class HandState
     {
         if (RemainingDiscards < 1)
             throw new Exception("Cannot discard, out of discards");
-        ChangeRemainingDiscards(-1);
+        RemainingDiscards--;
 
         GameState.JokerState.OnDiscardHand();
         for (int i = 0; i < cardIndices.Length; i++)
@@ -289,7 +301,7 @@ public sealed class UseHandMove : Move
             gameState.HandState.PlayHand(CardIndices);
         }
 
-        gameState.Stage = StageOfGame.InRoundRedrawing;
+        gameState.Stage = StageOfGame.InRoundAfterHandUsed;
     }
 
     protected override void Revert()
@@ -298,9 +310,9 @@ public sealed class UseHandMove : Move
             gameState.HandState.AddCardToHand(_cards[i]);
         gameState.ScoringState.CurrentRoundTotalChips = _roundTotalChipsBeforePlay;
         if (IsDiscard)
-            gameState.HandState.ChangeRemainingDiscards(1);
+            gameState.HandState.RemainingDiscards++;
         else
-            gameState.HandState.ChangeRemainingHands(1);
+            gameState.HandState.RemainingHands++;
 
         gameState.Stage = StageOfGame.InRoundPlayerChoice;
     }
