@@ -37,7 +37,7 @@ public static class TrainingData
                         List<Move> moves = gameState.GetMoveOptions();
                         if (moves.Count == 0)
                             break;
-                        agent.MakeMoveStochastic();
+                        agent.MakeMoveStochastic(1f);
                         states.Add(agent.TensorsCloned);
                     }
 

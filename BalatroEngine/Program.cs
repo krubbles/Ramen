@@ -13,8 +13,9 @@ class Program
 {
     static void Main()
     {
-        set_num_threads(1);
-        set_num_interop_threads(1);
+        Console.WriteLine($"Num threads: {get_num_threads()}");
+        //set_num_threads(1);
+        //set_num_interop_threads(1);
 
         random.manual_seed(0);
         var device = CPU;
@@ -30,8 +31,27 @@ class Program
         Console.WriteLine($"Total number of trainable evaluation parameters: {totalTrainableParams}");
 
         TrainingData.GenerateEvaluationTrainingData(model, 1000);
-        Training.TrainEvaluationModel(model, 100, 16, true);
+        Training.TrainEvaluationModel(model, 50, 32, true);
+        Console.WriteLine("Av Score: " + Testing.GetAverageScore(model));
 
+        TrainingData.EvaluationTrainingData.Clear();
+        TrainingData.GenerateEvaluationTrainingData(model, 2000);
+        Training.TrainEvaluationModel(model, 20, 32, true);
+        Console.WriteLine("Av Score: " + Testing.GetAverageScore(model));
 
+        TrainingData.EvaluationTrainingData.Clear();
+        TrainingData.GenerateEvaluationTrainingData(model, 5000);
+        Training.TrainEvaluationModel(model, 20, 32, true);
+        Console.WriteLine("Av Score: " + Testing.GetAverageScore(model));
+
+        TrainingData.EvaluationTrainingData.Clear();
+        TrainingData.GenerateEvaluationTrainingData(model, 10000);
+        Training.TrainEvaluationModel(model, 20, 32, true);
+        Console.WriteLine("Av Score: " + Testing.GetAverageScore(model));
+
+        TrainingData.EvaluationTrainingData.Clear();
+        TrainingData.GenerateEvaluationTrainingData(model, 20000);
+        Training.TrainEvaluationModel(model, 20, 32, true);
+        Console.WriteLine("Av Score: " + Testing.GetAverageScore(model));
     }
 }
