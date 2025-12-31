@@ -31,23 +31,6 @@ class AIGameState
         Random = FastRandom.SeededByClock();
     }
 
-    public void CloneFrom(AIGameState other)
-    {
-        Models = other.Models;
-        GameState.CloneFrom(other.GameState);
-        GameState.Reseed(Random.Next());
-        _embeddedGameState = other._embeddedGameState.Clone();
-        _embeddedFullHandCache = other._embeddedFullHandCache?.clone();
-        _handCachesValid = other._handCachesValid;
-        _embeddedGameStateValid = other._embeddedGameStateValid;
-
-        ToUseCount = other.ToUseCount;
-        other.ToUseIndices.CopyTo(ToUseIndices.AsSpan(0, 30));
-        other.AlreadyPlayedCards.CopyTo(AlreadyPlayedCards.AsSpan(0, 30));
-
-        InUseMaskTensor.copy_(other.InUseMaskTensor);
-    }
-
     public int CurrentMaxMoveCount()
     {
         if (GameState.HandState.RemainingHands < 4)
