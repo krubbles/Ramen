@@ -11,70 +11,6 @@ using System.Buffers;
 
 class Program
 {
-
-    private static readonly object EvaluationDataLock = new();
-
-    public const int HandSize = 8;
-
-
-    public static Card[] ExtractHand(Tensor fullHand, Tensor hand)
-    {
-        Tensor capped = min(fullHand, hand);
-        float[] data = capped.data<float>().ToArray();
-        capped.Dispose();
-        List<Card> cards = new();
-        List<float> extras = new();
-        for (int i = 0; i < data.Length; ++i)
-        {
-            int count = (int)Math.Round(data[i]);
-            if (count == 0)
-                continue;
-            float extra = data[i] - count;
-            Card card = new(rank: (i / 4) + 2, suit: (Suit)(i % 4 + 1));
-            for (int j = 0; j < count; ++j)
-            {
-                cards.Add(card);
-                extras.Add(extra);
-                extra++;
-            }
-        }
-        while (cards.Count > 5)
-        {
-            int toRemoveIndex = 0;
-            float lowestExtra = float.MaxValue;
-            for (int i = 0; i < cards.Count; ++i)
-            {
-                if (extras[i] < lowestExtra)
-                {
-                    lowestExtra = extras[i];
-                    toRemoveIndex = i;
-                }
-            }
-            cards.RemoveAt(toRemoveIndex);
-            extras.RemoveAt(toRemoveIndex);
-        }
-        if (cards.Count > 0)
-        {
-            return cards.ToArray();
-        }
-        else
-        {
-            float strongestActivation = float.MinValue;
-            int strongestActivationIndex = 0;
-            for (int i = 0; i < data.Length; ++i)
-            {
-                float activation = data[i];
-                if (activation > strongestActivation)
-                {
-                    strongestActivation = activation;
-                    strongestActivationIndex = i;
-                }
-            }
-            return [new(rank: (strongestActivationIndex / 4) + 2, suit: (Suit)(strongestActivationIndex % 4 + 1))];
-        }
-    }
-
-
     static void Main()
     {
         random.manual_seed(0);
@@ -91,6 +27,4 @@ class Program
         Console.WriteLine($"Total number of trainable evaluation parameters: {totalTrainableParams}");
 
     }
-
-
 }
