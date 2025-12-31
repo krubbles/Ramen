@@ -154,10 +154,10 @@ public struct GameStateTensors : IDisposable
 
     public GameStateTensors DetachFromDisposeScope()
     {
-        Hand = Hand.DetachFromDisposeScope();
-        OtherState = OtherState.DetachFromDisposeScope();
-        FullDeck.DetachFromDisposeScope();
-        RemainingDeck.DetatchFromDisposeScope();
+        Hand?.DetachFromDisposeScope();
+        OtherState?.DetachFromDisposeScope();
+        FullDeck?.DetachFromDisposeScope();
+        RemainingDeck?.DetachFromDisposeScope();
         return this;
     }   
 }
