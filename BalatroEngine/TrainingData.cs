@@ -9,7 +9,7 @@ public static class TrainingData
 
     public const int PolicyOutputWidth = 9;
 
-    public static void GenerateEvaluationTrainingData(AIModels models, int samples)
+    public static void GenerateEvaluationTrainingData(GameEvalModel model, int samples)
     {
         using var scope = NewDisposeScope();
         int lastLogCount = 0;
@@ -21,7 +21,7 @@ public static class TrainingData
             while (EvaluationTrainingData.Count < startingSampleCount + samples)
             {
                 GameState gameState = new(gameData);
-                RamenAgent embedding = new(gameState);
+                RamenAgent agent = new(gameState, model);
 
                 List<GameStateTensors> states = new();
 
@@ -31,23 +31,8 @@ public static class TrainingData
                     List<Move> moves = gameState.GetMoveOptions();
                     if (moves.Count == 0)
                         break;
-                    float[] predictedRewards = new float[moves.Count];
-                    float[] predictedStdDevs = new float[moves.Count];
-                    for (int i = 0; i < moves.Count; ++i)
-                    {
-                        moves[i].Apply(gameState);
-                        Tensor predictions = models.Evaluation.forward(embedding.Tensors);
-                        float predictedReward = predictions[0, 0].item<float>();
-                        float predictedStdDev = MathF.Sqrt(MathF.Exp(predictions[0, 1].item<float>()));
-                        predictedRewards[i] = predictedReward;
-                        predictedStdDevs[i] = predictedStdDev;
-                        moves[i].Revert(gameState);
-                    }
-                    float[] probDist = MeanDistributionAnalyzer.GetProbabilityDistribution(predictedRewards, predictedStdDevs);
-                    int moveIndex = MeanDistributionAnalyzer.SampleFromDistribution(random, probDist);
-
-                    moves[moveIndex].Apply(gameState);
-                    states.Add(embedding.TensorsCloned);
+                    agent.MakeMoveStochastic();
+                    states.Add(agent.TensorsCloned);
                 }
 
                 float reward = (float)gameState.ScoringState.CurrentRoundTotalChips / 100f;

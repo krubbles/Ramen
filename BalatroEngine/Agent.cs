@@ -6,6 +6,7 @@ public class RamenAgent
 {
     public readonly GameState GameState;
     public readonly GameEvalModel Model;
+    public readonly FastRandom Random;
 
     GameStateTensors _tensors;
 
@@ -19,6 +20,8 @@ public class RamenAgent
     public RamenAgent(GameState gameState, GameEvalModel model)
     {
         GameState = gameState;
+        Model = model;
+        Random = FastRandom.SeededByClock();
         RegisterCallbacks();
     }
 
@@ -30,9 +33,40 @@ public class RamenAgent
         OtherState = OtherStateTensor,
     };
 
-    public Tensor GetPredictedRewardDistribution()
+    public (float mean, float dev) GetPredictedRewardDistribution()
     {
-        return Model.GetPredictedRewardDistribution(ProcessedHandTensor, OtherStateTensor);
+        Tensor result = Model.GetPredictedRewardDistribution(ProcessedHandTensor, OtherStateTensor);
+        float mean = result.data<float>()[0];
+        float dev = MathF.Sqrt(result.data<float>()[1]); // what model actually predicts is variance 
+        return (mean, dev);
+    }
+
+    public bool MakeMoveStochastic()
+    {
+        List<Move> moves = GameState.GetMoveOptions();
+        if (moves.Count == 0)
+            return false;
+        if (moves.Count == 1)
+        {
+            moves[0].Apply(GameState);
+            return true;
+        }
+        float[] predictedRewards = new float[moves.Count];
+        float[] predictedStdDevs = new float[moves.Count];
+        for (int i = 0; i < moves.Count; ++i)
+        {
+            moves[i].Apply(GameState);
+            (float predictedReward, float predictedStdDev) = GetPredictedRewardDistribution();
+            predictedRewards[i] = predictedReward;
+            predictedStdDevs[i] = predictedStdDev;
+            moves[i].Revert(GameState);
+        }
+
+        float[] probDist = MeanDistributionAnalyzer.GetProbabilityDistribution(predictedRewards, predictedStdDevs);
+        int moveIndex = MeanDistributionAnalyzer.SampleFromDistribution(Random, probDist);
+
+        moves[moveIndex].Apply(GameState);
+        return true;
     }
 
     public GameStateTensors TensorsCloned => _tensors.Clone().DetachFromDisposeScope();
