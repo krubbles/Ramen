@@ -33,6 +33,11 @@ public class RamenAgent
         OtherState = OtherStateTensor,
     };
 
+    public float CalculateCurrentReward()
+    {
+        return (float)GameState.ScoringState.CurrentRoundTotalChips / 100f;
+    }
+
     public (float mean, float dev) GetPredictedRewardDistribution()
     {
         Tensor result = Model.GetPredictedRewardDistribution(ProcessedHandTensor, OtherStateTensor);
@@ -41,8 +46,10 @@ public class RamenAgent
         return (mean, dev);
     }
 
-    public bool MakeMoveStochastic()
+    public bool MakeMoveStochastic(float temp)
     {
+        using var scope = NewDisposeScope();
+        using var noGrad = no_grad();
         List<Move> moves = GameState.GetMoveOptions();
         if (moves.Count == 0)
             return false;
@@ -51,18 +58,20 @@ public class RamenAgent
             moves[0].Apply(GameState);
             return true;
         }
-        float[] predictedRewards = new float[moves.Count];
-        float[] predictedStdDevs = new float[moves.Count];
+        GameStateTensors[] states = new GameStateTensors[moves.Count];
         for (int i = 0; i < moves.Count; ++i)
         {
             moves[i].Apply(GameState);
-            (float predictedReward, float predictedStdDev) = GetPredictedRewardDistribution();
-            predictedRewards[i] = predictedReward;
-            predictedStdDevs[i] = predictedStdDev;
+            states[i] = Tensors.Clone();
             moves[i].Revert(GameState);
         }
-
-        float[] probDist = MeanDistributionAnalyzer.GetProbabilityDistribution(predictedRewards, predictedStdDevs);
+        GameStateTensors batch = GameStateTensors.Stack(states, true);
+        Tensor rewardDist = Model.forward(batch);
+        float[] predictedRewards = rewardDist[TensorIndex.Colon, 0].data<float>().ToArray();
+        float[] predictedDevs = rewardDist[TensorIndex.Colon, 1].data<float>().ToArray();
+        for (int i = 0; i < predictedDevs.Length; ++i)
+            predictedDevs[i] = MathF.Sqrt(predictedDevs[i]);
+        float[] probDist = MeanDistributionAnalyzer.GetProbabilityDistribution(predictedRewards, predictedDevs);
         int moveIndex = MeanDistributionAnalyzer.SampleFromDistribution(Random, probDist);
 
         moves[moveIndex].Apply(GameState);
@@ -139,20 +148,20 @@ public class RamenAgent
     void EmbedHand()
     {
         _tensors.Hand?.Dispose();
-        _tensors.Hand = EmbedCardSet(GameState.HandState.Hand).unsqueeze(0).DetachFromDisposeScope();
+        _tensors.Hand = EmbedCardSet(GameState.HandState.Hand, 8).unsqueeze(0).DetachFromDisposeScope();
         _processedHand = Model.ProcessHand(_tensors.Hand);
     }
 
     void EmbedRemainingDeck()
     {
         _tensors.RemainingDeck?.Dispose();
-        _tensors.RemainingDeck = EmbedCardSet(GameState.DeckState.RemainingDeck).unsqueeze(0).DetachFromDisposeScope();
+        _tensors.RemainingDeck = EmbedCardSet(GameState.DeckState.RemainingDeck, 52).unsqueeze(0).DetachFromDisposeScope();
     }
 
     void EmbedFullDeck()
     {
         _tensors.FullDeck?.Dispose();
-        _tensors.FullDeck = EmbedCardSet(GameState.DeckState.FullDeck).unsqueeze(0).DetachFromDisposeScope();
+        _tensors.FullDeck = EmbedCardSet(GameState.DeckState.FullDeck, 52).unsqueeze(0).DetachFromDisposeScope();
     }
 
     void EmbedOtherState()
@@ -174,15 +183,14 @@ public class RamenAgent
         GameState.DeckState.OnFullDeckChanged += () => _fullDeckValid = false;
     }
 
-    static Tensor EmbedCardSet(ReadOnlySpan<Card> hand)
+    static Tensor EmbedCardSet(ReadOnlySpan<Card> hand, int embedSize)
     {
         using var scope = NewDisposeScope();
-        Tensor[] cards = new Tensor[hand.Length + 1];
-        for (int i = 0; i < cards.Length - 1; ++i)
+        Tensor[] cards = new Tensor[embedSize];
+        for (int i = 0; i < embedSize; ++i)
         {
-            cards[i] = EmbedCard(hand[i]);
+            cards[i] = i < hand.Length ? EmbedCard(hand[i]) : EmbedCard(Card.Null);
         }
-        cards[^1] = EmbedCard(Card.Null);
 
         Tensor handTensor = stack(cards);
         return handTensor.MoveToOuterDisposeScope();
