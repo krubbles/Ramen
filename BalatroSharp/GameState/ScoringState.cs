@@ -11,7 +11,7 @@ public class ScoringState
     /// <summary>
     /// Total number of chips earned by all hands played in the current round.
     /// </summary>
-    public double CurrentRoundTotalChips;
+    public double CurrentRoundTotalChips { get; private set; }
 
     /// <summary>
     /// Current hand's chip value. Not persistent state.
@@ -34,7 +34,7 @@ public class ScoringState
     public int CurrentScoringCardTriggerCount;
     
     // Settings
-    public readonly int[] HandLevels = new int[]
+    readonly int[] _handLevels = new int[]
     {
         0, // Null
         1,
@@ -51,6 +51,9 @@ public class ScoringState
         1,
     };
 
+    public Action OnHandLevelsChanged;
+    public Action OnCurrentRoundTotalChipsChanged; // not hooked in yet
+
     public ScoringState(GameState gameState)
     {
         GameState = gameState;
@@ -60,9 +63,9 @@ public class ScoringState
     public override int GetHashCode()
     {
         int handLevelsHash = 0;
-        for (int i = 0; i < HandLevels.Length; ++i)
+        for (int i = 0; i < _handLevels.Length; ++i)
         {
-            handLevelsHash += HandLevels[i];
+            handLevelsHash += _handLevels[i];
             handLevelsHash *= 449867969;
         }
         return 704315923 +
@@ -75,7 +78,7 @@ public class ScoringState
         CurrentRoundTotalChips = other.CurrentRoundTotalChips;
         CurrentHandChips = other.CurrentHandChips;
         CurrentHandMult = other.CurrentHandMult;
-        other.HandLevels.CopyTo(HandLevels, 0);
+        other._handLevels.CopyTo(_handLevels, 0);
     }
 
     public void AddChipsToCurrentHand(int chips) => CurrentHandChips += chips;
@@ -84,7 +87,6 @@ public class ScoringState
 
     public void ScoreCard(Card card)
     {        
-
         AddChipsToCurrentHand(GameData.BaseChipsForCardRank(card.Rank));
         GameState.JokerState.OnScoreCard(card);
     }
@@ -116,6 +118,7 @@ public class ScoringState
 
         double score = CurrentHandChips * CurrentHandMult;
         CurrentRoundTotalChips += score;
+        GameState.MoveState.ScheduleCallback(OnCurrentRoundTotalChipsChanged);
         (CurrentHandChips, CurrentHandMult) = (0, 0);
         return score;
     }
