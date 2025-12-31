@@ -13,6 +13,9 @@ class Program
 {
     static void Main()
     {
+        set_num_threads(1);
+        set_num_interop_threads(1);
+
         random.manual_seed(0);
         var device = CPU;
 
@@ -26,7 +29,9 @@ class Program
         }
         Console.WriteLine($"Total number of trainable evaluation parameters: {totalTrainableParams}");
 
-        TrainingData.GenerateEvaluationTrainingData(model, 10);
+        TrainingData.GenerateEvaluationTrainingData(model, 1000);
+        Training.TrainEvaluationModel(model, 100, 16, true);
+
 
     }
 }

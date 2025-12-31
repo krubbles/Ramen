@@ -16,8 +16,9 @@ namespace BalatroAI
         public readonly Sequential FinalNetwork;
 
         public const int EmbeddedCardWidth = 64;
+        public const int ProcessedHandWidth = 32 - 3;
         public const int OtherStateWidth = 3;
-        public const int FinalNetworkWidth = EmbeddedCardWidth + OtherStateWidth;
+        public const int FinalNetworkWidth = ProcessedHandWidth + OtherStateWidth;
 
         private readonly Sequential _mlp;
         private readonly Sequential _fullHandProcessor;
@@ -29,12 +30,14 @@ namespace BalatroAI
 
             HandProcessor = Sequential(
                 ReLU(),
-                new ResidualMLP(BestMovePredictor.EmbeddedCardWidth, 1)
+                new ResidualMLP(BestMovePredictor.EmbeddedCardWidth, 1),
+                ReLU(),
+                Linear(EmbeddedCardWidth, ProcessedHandWidth)
             );
 
             FinalNetwork = Sequential(
                 ReLU(),
-                new ResidualMLP(FinalNetworkWidth, 1),
+                Linear(FinalNetworkWidth, 32),
                 ReLU(),
                 Linear(FinalNetworkWidth, 2)
             );
@@ -45,7 +48,7 @@ namespace BalatroAI
         public Tensor ProcessHand(Tensor hand)
         {
             Tensor embeddedHand = _embedCard.forward(hand).sum(dim: 1);
-            Tensor result = embeddedHand;
+            Tensor result = HandProcessor.forward(embeddedHand);
             return result;
         }
 
@@ -53,6 +56,7 @@ namespace BalatroAI
         {
             Tensor input = concat([processedHand, otherState], dim: 1);
             Tensor output = FinalNetwork.forward(input);
+            output = concat([output.narrow(1, 0, 1), output.narrow(1, 1, 1).exp()], dim: 1);
             return output;
         }
 

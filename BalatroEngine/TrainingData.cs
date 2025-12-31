@@ -1,5 +1,6 @@
 ﻿namespace BalatroAI;
 
+using System.Diagnostics;
 using static TorchSharp.torch;
 
 public static class TrainingData
@@ -11,43 +12,58 @@ public static class TrainingData
 
     public static void GenerateEvaluationTrainingData(GameEvalModel model, int samples)
     {
-        using var scope = NewDisposeScope();
-        int lastLogCount = 0;
-        int startingSampleCount = EvaluationTrainingData.Count;
-        FastRandom random = FastRandom.SeededByClock();
-        GameData gameData = new();
-        using (no_grad())
+        Stopwatch watch = Stopwatch.StartNew();
+
+        Task[] tasks = new Task[8];
+        for (int i = 0; i < tasks.Length; ++i)
         {
-            while (EvaluationTrainingData.Count < startingSampleCount + samples)
+            tasks[i] = Task.Run(() =>
             {
-                GameState gameState = new(gameData);
-                gameState.AdvanceToNextPlayerChoice();
-                RamenAgent agent = new(gameState, model);
-
-                List<GameStateTensors> states = new();
-
-                while (gameState.HandState.RemainingHands > 0)
+                using var scope = NewDisposeScope();
+                using var nograd = no_grad();
+                FastRandom random = FastRandom.SeededByClock();
+                GameData gameData = new();
+                while (EvaluationTrainingData.Count < samples)
                 {
+                    GameState gameState = new(gameData);
                     gameState.AdvanceToNextPlayerChoice();
-                    List<Move> moves = gameState.GetMoveOptions();
-                    if (moves.Count == 0)
-                        break;
-                    agent.MakeMoveStochastic();
-                    states.Add(agent.TensorsCloned);
-                }
+                    RamenAgent agent = new(gameState, model);
 
-                float reward = (float)gameState.ScoringState.CurrentRoundTotalChips / 100f;
-                foreach (GameStateTensors state in states)
-                {
-                    EvaluationTrainingData.Add(new()
+                    List<GameStateTensors> states = new();
+
+                    while (gameState.HandState.RemainingHands > 0)
                     {
-                        GameStateTensors = state,
-                        Target = reward
-                    });
+                        gameState.AdvanceToNextPlayerChoice();
+                        List<Move> moves = gameState.GetMoveOptions();
+                        if (moves.Count == 0)
+                            break;
+                        agent.MakeMoveStochastic();
+                        states.Add(agent.TensorsCloned);
+                    }
+
+                    float reward = (float)gameState.ScoringState.CurrentRoundTotalChips / 100f;
+                    foreach (GameStateTensors state in states)
+                    {
+                        lock (EvaluationTrainingData)
+                        {
+                            EvaluationTrainingData.Add(new()
+                            {
+                                GameStateTensors = state,
+                                Target = tensor(reward).unsqueeze(0).unsqueeze(0).DetachFromDisposeScope()
+                            });
+                        }
+                    }
                 }
-            }
+            });
         }
-        Console.WriteLine("Final eval training data count: " + EvaluationTrainingData.Count);
+
+        while (EvaluationTrainingData.Count < samples)
+        {
+            Thread.Sleep(1000);
+            Console.WriteLine($"Samples {EvaluationTrainingData.Count}, time {watch.Elapsed.TotalSeconds:F1}, rate {EvaluationTrainingData.Count / watch.Elapsed.TotalSeconds:F1}");
+        }
+
+        Task.WaitAll(tasks);
     }
 
     public static void GenerateEvalTrainingDataOneShotBestHand(int samples)
@@ -126,10 +142,10 @@ public struct GameStateTensors : IDisposable
     {
         return new GameStateTensors()
         {
-            Hand = Hand[start..end],
-            FullDeck = FullDeck[start..end],
-            OtherState = OtherState[start..end],
-            RemainingDeck = RemainingDeck[start..end],
+            Hand = Hand?[start..end],
+            FullDeck = FullDeck?[start..end],
+            OtherState = OtherState?[start..end],
+            RemainingDeck = RemainingDeck?[start..end],
         };
     }
 
@@ -146,10 +162,10 @@ public struct GameStateTensors : IDisposable
 
     public void Dispose()
     {
-        Hand.Dispose();
-        OtherState.Dispose();
-        FullDeck.Dispose();
-        RemainingDeck.Dispose();
+        Hand?.Dispose();
+        OtherState?.Dispose();
+        FullDeck?.Dispose();
+        RemainingDeck?.Dispose();
     }
 
     public GameStateTensors DetachFromDisposeScope()

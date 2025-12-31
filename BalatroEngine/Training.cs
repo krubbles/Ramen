@@ -51,7 +51,7 @@ public static class Training
             valLossAvg /= Math.Max(1, valBatchCount);
             float trainLossAvg = 0f;
             int trainBatchCount = 0;
-            for (int i = trainCount; i < samples; i += batchSize)
+            for (int i = 0; i < trainCount; i += batchSize)
             {
                 int end = Math.Min(i + batchSize, samples);
                 GameStateTensors inputs = stacked.GameStateTensors.GetBatch(i, end);
