@@ -13,12 +13,12 @@ namespace BalatroAI
     public class AIModels
     {
         public BestMovePredictor Policy { get; }
-        public EvaluationModule Evaluation { get; }
+        public GameEvalModel Evaluation { get; }
 
         public AIModels()
         {
             Policy = new BestMovePredictor();
-            Evaluation = new EvaluationModule(Policy);
+            Evaluation = new GameEvalModel(Policy);
         }
 
         public IEnumerable<Parameter> parameters()
@@ -37,61 +37,61 @@ namespace BalatroAI
         public Tensor GetCardUseRewards(Tensor fullHand, Tensor otherState, Tensor inUseMask)
             => Policy.GetCardUseRewards(fullHand, otherState, inUseMask);
 
-        public Tensor GetExpectedReward(Tensor fullHand, Tensor otherState, Tensor inUseMask)
-            => Evaluation.forward(fullHand, otherState, inUseMask);
-
     }
 
-    public class EvaluationModule : Module
+    public class GameEvalModel : Module
     {
         private readonly Embedding _embedCard;
+
+        public readonly Sequential HandProcessor;
+        public readonly Sequential FinalNetwork;
+
+        public const int EmbeddedCardWidth = 64;
+        public const int OtherStateWidth = 3;
+        public const int FinalNetworkWidth = EmbeddedCardWidth + OtherStateWidth;
 
         private readonly Sequential _mlp;
         private readonly Sequential _fullHandProcessor;
         private readonly Sequential _workingHandProcessor;
 
-        public EvaluationModule(BestMovePredictor moveSelector) : base("EvaluationModule")
+        public GameEvalModel(BestMovePredictor moveSelector) : base("EvaluationModule")
         {
             _embedCard = Embedding(53, BestMovePredictor.EmbeddedCardWidth);
 
-            _fullHandProcessor = Sequential(
+            HandProcessor = Sequential(
                 ReLU(),
-                new ResidualMLP(BestMovePredictor.EmbeddedCardWidth, 1));
-            
-            _workingHandProcessor = Sequential(
-                ReLU(),
-                new ResidualMLP(BestMovePredictor.EmbeddedCardWidth, 1));
+                new ResidualMLP(BestMovePredictor.EmbeddedCardWidth, 1)
+            );
 
-
-            _mlp = Sequential(
+            FinalNetwork = Sequential(
                 ReLU(),
-                new ResidualMLP(BestMovePredictor.EmbeddedCardWidth + BestMovePredictor.OtherStateWidth, 1),
+                new ResidualMLP(FinalNetworkWidth, 1),
                 ReLU(),
-                Linear(BestMovePredictor.EmbeddedCardWidth + BestMovePredictor.OtherStateWidth, 32),
-                ReLU(),
-                Linear(32, 1)
+                Linear(FinalNetworkWidth, 2)
             );
 
             RegisterComponents();
         }
 
-        public Tensor forward(Tensor hand, Tensor otherState, Tensor inUseMask)
+        public Tensor GetProcessedHand(in GameStateTensors gameState)
         {
-            Tensor embeddedHand = _embedCard.forward(hand);
-            Tensor compressedHand = _fullHandProcessor.forward(embeddedHand.sum(dim: 1));
-            Tensor compressedWorkingHand = _workingHandProcessor.forward(embeddedHand.mul(inUseMask.unsqueeze(2)).sum(dim: 1));
-            Tensor output = _mlp.forward(concat([compressedHand - compressedWorkingHand, otherState], dim: 1));
+            Tensor embeddedHand = _embedCard.forward(gameState.Hand).sum(dim: 1);
+            Tensor result = embeddedHand;
+            return result;
+        }
+
+        public Tensor GetPredictedRewardDistribution(Tensor processedHand, Tensor otherState)
+        {
+            Tensor input = concat([processedHand, otherState], dim: 1);
+            Tensor output = FinalNetwork.forward(input);
             return output;
         }
 
         public Tensor forward(GameStateTensors gameState)
         {
-            return null;
-        }
-
-        public Tensor ProcessHand(Tensor hand)
-        {
-            return hand + _fullHandProcessor.forward(hand);
+            Tensor processedHand = GetProcessedHand(gameState);
+            Tensor output = GetPredictedRewardDistribution(processedHand, gameState.OtherState);
+            return output;
         }
     }
 
@@ -108,8 +108,9 @@ namespace BalatroAI
         {
             for (int i = 0; i < depth; ++i)
             {
-                upLayers.append(Linear(size, size));
-                downLayers.append(Linear(size, size));
+                int factor = 2;
+                upLayers.append(Linear(size, size * factor));
+                downLayers.append(Linear(size * factor, size));
                 activations.append(GELU());
                 norms.append(LayerNorm(size));
             }
