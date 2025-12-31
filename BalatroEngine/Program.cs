@@ -99,21 +99,8 @@ class Program
         Console.WriteLine($"Total number of trainable evaluation parameters: {totalTrainableParams}");
 
 
-        TrainingData.GenerateEvaluationTrainingData(models, 30000);
+        TrainingData.GenerateEvaluationTrainingData(models, 100);
         Training.TrainEvaluationModel(models, epochs: 4, batchSize: 32, validate: true);
-        TrainingData.GeneratePolicyTrainingData(models, samples: 4000);
-        Training.TrainPolicyModel(models, epochs: 4, batchSize: 64, validate: true);
-
-
-        TrainingData.EvaluationTrainingData.Clear();
-        TrainingData.PolicyTrainingData.Clear();
-
-        ShowExampleMoveRewards();
-
-        TrainingData.GenerateEvaluationTrainingData(models, 40000);
-        Training.TrainEvaluationModel(models, epochs: 4, batchSize: 32, validate: true);
-        TrainingData.GeneratePolicyTrainingData(models, samples: 5000);
-        Training.TrainPolicyModel(models, epochs: 4, batchSize: 64, validate: true);
 
         TrainingData.EvaluationTrainingData.Clear();
         TrainingData.PolicyTrainingData.Clear();
