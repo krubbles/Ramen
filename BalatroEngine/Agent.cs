@@ -139,20 +139,20 @@ public class RamenAgent
     void EmbedHand()
     {
         _tensors.Hand?.Dispose();
-        _tensors.Hand = EmbedCardSet(GameState.HandState.Hand).DetachFromDisposeScope();
+        _tensors.Hand = EmbedCardSet(GameState.HandState.Hand).unsqueeze(0).DetachFromDisposeScope();
         _processedHand = Model.ProcessHand(_tensors.Hand);
     }
 
     void EmbedRemainingDeck()
     {
         _tensors.RemainingDeck?.Dispose();
-        _tensors.RemainingDeck = EmbedCardSet(GameState.DeckState.RemainingDeck).DetachFromDisposeScope();
+        _tensors.RemainingDeck = EmbedCardSet(GameState.DeckState.RemainingDeck).unsqueeze(0).DetachFromDisposeScope();
     }
 
     void EmbedFullDeck()
     {
         _tensors.FullDeck?.Dispose();
-        _tensors.FullDeck = EmbedCardSet(GameState.DeckState.FullDeck).DetachFromDisposeScope();
+        _tensors.FullDeck = EmbedCardSet(GameState.DeckState.FullDeck).unsqueeze(0).DetachFromDisposeScope();
     }
 
     void EmbedOtherState()
@@ -163,7 +163,7 @@ public class RamenAgent
             (float)GameState.ScoringState.CurrentRoundTotalChips,
             GameState.HandState.RemainingHands,
             GameState.HandState.RemainingDiscards
-        ]).DetachFromDisposeScope();
+        ]).unsqueeze(0).DetachFromDisposeScope();
     }
 
     void RegisterCallbacks()
