@@ -12,11 +12,16 @@ public sealed class MoveState
     
     readonly List<Move> _moveBuffer = new();
 
+    // List of callbacks triggered by the currently applied move. Move runs them after application/reversion.
+    // This makes sure that each callback is only called once per move.
+    readonly HashSet<Action> _activatedCallbacks = new();
+
     public MoveState(GameState gameState)
     {
         GameState = gameState;
         _gameData = gameState.GameData;
     }
+
 
     public int MoveStep => MoveHistory.Count;
 
@@ -46,4 +51,16 @@ public sealed class MoveState
             RevertLastMove();
     }
 
+    internal void RegisterActivatedCallback(Action callback)
+    {
+        if (callback != null)
+            _activatedCallbacks.Add(callback);
+    }
+
+    internal void RunActivatedCallbacks()
+    {
+        foreach (Action action in _activatedCallbacks)
+            action.Invoke();
+        _activatedCallbacks.Clear();
+    }
 }

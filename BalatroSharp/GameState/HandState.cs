@@ -34,11 +34,11 @@ public class HandState
     /// <summary>
     /// The number of hands the player can still play this round.
     /// </summary>
-    public int RemainingHands;
+    public int RemainingHands { get; private set; }
     /// <summary>
     /// The number of discards the player can still make this round.
     /// </summary>
-    public int RemainingDiscards;
+    public int RemainingDiscards { get; private set; }
 
     /// <summary>
     /// Pattern matching results for the currently active (played/discarded) hand. Used by jokers and scoring. Not persistent state.
@@ -59,6 +59,9 @@ public class HandState
     /// The number of discards the player can use each round.
     /// </summary>
     public int DiscardsPerRound = 3;
+
+    public Action OnHandChanged;
+    public Action OnRemainingHandsOrDiscardsChanged;
 
     public HandState(GameState gameState)
     {
@@ -94,6 +97,7 @@ public class HandState
     internal void AddCardToHand(Card card)
     {
         _handBuffer[HandCardCount++] = card;
+        GameState.MoveState.RegisterActivatedCallback(OnHandChanged);
     }
 
     internal void RemoveCardFromHand(Card card)
@@ -104,6 +108,19 @@ public class HandState
         HandCardCount--;
         for (int i = index; i < HandCardCount; ++i)
             _handBuffer[i] = _handBuffer[i + 1];
+        GameState.MoveState.RegisterActivatedCallback(OnHandChanged);
+    }
+
+    internal void ChangeRemainingHands(int delta)
+    {
+        RemainingHands += delta;
+        GameState.MoveState.RegisterActivatedCallback(OnHandChanged);
+    }
+
+    internal void ChangeRemainingDiscards(int delta)
+    {
+        RemainingDiscards += delta;
+        GameState.MoveState.RegisterActivatedCallback(OnHandChanged);
     }
 
     internal Card[] Draw(int count)
@@ -127,6 +144,7 @@ public class HandState
         if (RemainingHands < 1)
             throw new Exception("Cannot play hand, out of hands.");
         RemainingHands--;
+        GameState.MoveState.RegisterActivatedCallback(OnRemainingHandsOrDiscardsChanged);
 
         Span<Card> playedHand = stackalloc Card[cardIndices.Length];
         for (int i = 0; i < cardIndices.Length; i++)
@@ -147,6 +165,7 @@ public class HandState
                 _handBuffer[writeIndex++] = card;
         }
         HandCardCount = writeIndex;
+        GameState.MoveState.RegisterActivatedCallback(OnHandChanged);
 
         GameState.JokerState.OnBeforePlayHand();
 

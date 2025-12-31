@@ -34,7 +34,6 @@ public static class TrainingData
                         {
                             continue;
                         }
-                        aigsCopy.CloneFrom(aigs);
                         aigsCopy.MakeMove(move);
                         float reward = models.GetExpectedReward(aigsCopy.GameStateTensors.Hand, aigsCopy.GameStateTensors.OtherState, aigsCopy.InUseMaskTensor).item<float>();
                         if (reward > bestReward)
@@ -154,15 +153,42 @@ public static class TrainingData
     }
 }
 
+public class GameStateEmbedder 
+{
+    public readonly GameState GameState;
+
+    GameStateTensors _tensors;
+
+    bool _handValid;
+    bool _remainingDeckValid;
+    bool _fullDeckValid;
+    bool _otherStateValid;
+
+    public GameStateEmbedder(GameState gameState)
+    {
+        GameState = gameState;
+    }
+}
 public struct GameStateTensors : IDisposable
 {
     public Tensor Hand;
+    public Tensor RemainingDeck;
+    public Tensor FullDeck;
     public Tensor OtherState;
 
-    void MakeBatchSize1()
+    public void UpdateHandTensor(GameState gameState)
     {
-        Hand = Hand.unsqueeze(0);
-        OtherState = OtherState.unsqueeze(0);
+        Hand = EmbedHand(gameState.HandState.Hand).unsqueeze(0);
+    }
+
+    public void UpdateOtherState(GameState other)
+    {
+        OtherState = tensor(
+        [
+            (float)other.ScoringState.CurrentRoundTotalChips,
+            other.HandState.RemainingDiscards,
+            other.HandState.RemainingHands
+        ]).unsqueeze(0);
     }
 
     public static GameStateTensors Stack(IReadOnlyList<GameStateTensors> tensors, bool disposeInputs)
@@ -214,16 +240,6 @@ public struct GameStateTensors : IDisposable
         OtherState = OtherState.DetachFromDisposeScope();
         return this;
     }   
-
-    public static GameStateTensors Create(GameState gameState)
-    {
-        float[] otherVec = [(float)gameState.ScoringState.CurrentRoundTotalChips, gameState.HandState.RemainingDiscards, gameState.HandState.RemainingHands];
-        Tensor otherState = otherVec;
-
-        GameStateTensors result = new GameStateTensors() { Hand = EmbedHand(gameState.HandState.Hand), OtherState = otherState };
-        result.MakeBatchSize1();
-        return result;
-    }
 
     public static Tensor EmbedHand(ReadOnlySpan<Card> hand)
     {

@@ -17,6 +17,8 @@ public abstract class Move
         _moveStep = gameState.MoveState.MoveHistory.Count;
         gameState.MoveState.MoveHistory.Add(this);
         Apply();
+
+        gameState.MoveState.RunActivatedCallbacks();
     }
 
     public void Revert(GameState gameState)
@@ -35,6 +37,8 @@ public abstract class Move
         this.gameState = null;
         _rngState = default;
         gameState.MoveState.MoveHistory.RemoveAt(gameState.MoveState.MoveHistory.Count - 1);
+
+        gameState.MoveState.RunActivatedCallbacks();
     }
 
     protected abstract void Apply();
