@@ -338,12 +338,25 @@ public struct GameStateTensors : IDisposable
         return result;
     }
 
+    public GameStateTensors GetBatch(int start, int end)
+    {
+        return new GameStateTensors()
+        {
+            Hand = Hand[start..end],
+            FullDeck = FullDeck[start..end],
+            OtherState = OtherState[start..end],
+            RemainingDeck = RemainingDeck[start..end],
+        };
+    }
+
     public GameStateTensors Clone()
     {
         return new()
         {
             Hand = Hand?.clone(),
-            OtherState = OtherState?.clone()
+            FullDeck = FullDeck?.clone(),
+            OtherState = OtherState?.clone(),
+            RemainingDeck = RemainingDeck?.clone(),
         };
     }
 
@@ -351,12 +364,16 @@ public struct GameStateTensors : IDisposable
     {
         Hand.Dispose();
         OtherState.Dispose();
+        FullDeck.Dispose();
+        RemainingDeck.Dispose();
     }
 
     public GameStateTensors DetachFromDisposeScope()
     {
         Hand = Hand.DetachFromDisposeScope();
         OtherState = OtherState.DetachFromDisposeScope();
+        FullDeck.DetachFromDisposeScope();
+        RemainingDeck.DetatchFromDisposeScope();
         return this;
     }   
 }
