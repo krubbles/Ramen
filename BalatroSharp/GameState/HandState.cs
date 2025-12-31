@@ -123,6 +123,13 @@ public class HandState
         GameState.MoveState.RegisterActivatedCallback(OnHandChanged);
     }
 
+    internal void ResetRemainingHandsAndDiscards()
+    {
+        RemainingHands = HandsPerRound;
+        RemainingDiscards = DiscardsPerRound;
+        GameState.MoveState.RegisterActivatedCallback(OnHandChanged);
+    }
+
     internal Card[] Draw(int count)
     {
         Card[] cards = new Card[count];
@@ -143,8 +150,7 @@ public class HandState
     {
         if (RemainingHands < 1)
             throw new Exception("Cannot play hand, out of hands.");
-        RemainingHands--;
-        GameState.MoveState.RegisterActivatedCallback(OnRemainingHandsOrDiscardsChanged);
+        ChangeRemainingHands(-1);
 
         Span<Card> playedHand = stackalloc Card[cardIndices.Length];
         for (int i = 0; i < cardIndices.Length; i++)
@@ -178,7 +184,7 @@ public class HandState
     {
         if (RemainingDiscards < 1)
             throw new Exception("Cannot discard, out of discards");
-        RemainingDiscards--;
+        ChangeRemainingDiscards(-1);
 
         GameState.JokerState.OnDiscardHand();
         for (int i = 0; i < cardIndices.Length; i++)
@@ -205,11 +211,6 @@ public class HandState
         hand.CopyTo(_activeHandBuffer);
     }
 
-    internal void ResetRemainingHandsAndDiscards()
-    {
-        RemainingHands = HandsPerRound;
-        RemainingDiscards = DiscardsPerRound;
-    }
 
     internal void AppendLegalUseHandMoves(List<Move> moves)
     {
@@ -285,14 +286,13 @@ public sealed class UseHandMove : Move
 
     protected override void Revert()
     {
-
         for (int i = 0; i < _cards.Length; ++i)
             gameState.HandState.AddCardToHand(_cards[i]);
         gameState.ScoringState.CurrentRoundTotalChips = _roundTotalChipsBeforePlay;
         if (IsDiscard)
-            gameState.HandState.RemainingDiscards++;
+            gameState.HandState.ChangeRemainingDiscards(1);
         else
-            gameState.HandState.RemainingHands++;
+            gameState.HandState.ChangeRemainingHands(1);
 
         gameState.Stage = StageOfGame.InRoundPlayerChoice;
     }
