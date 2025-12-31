@@ -21,15 +21,14 @@ public static class Training
         }
 
         var optimizer = optim.AdamW(models.Evaluation.parameters(), lr: TrainingConfig.LearningRate, weight_decay: 0.01f);
-        var lossFunc = MSELoss();
+        var lossFunc = GaussianNLLLoss();
 
         int samples = (int)stacked.Target.size(dim: 0);
-        int valCount = validate ? Math.Max(1, samples / 10) : 0; // last 10% for validation (at least 1)
+        int valCount = validate ? Math.Max(1, samples / 10) : 0; 
         int trainCount = Math.Max(0, samples - valCount);
 
         for (int epoch = 0; epoch < epochs; ++epoch)
         {
-            // validation
             float valLossAvg = 0f;
             int valBatchCount = 0;
             using (no_grad())
@@ -37,44 +36,46 @@ public static class Training
                 for (int i = trainCount; i < samples; i += batchSize)
                 {
                     int end = Math.Min(i + batchSize, samples);
-                    var batchFullHands = stacked.GameStateTensors.Hand[i..end];
-                    var batchOther = stacked.GameStateTensors.OtherState[i..end];
-                    var batchInUseMasks = stacked.InUseMask[i..end];
-                    var batchTargets = stacked.Target[i..end];
+                    GameStateTensors inputs = stacked.GameStateTensors.GetBatch(i, end);
+                    Tensor targets = stacked.Target[i..end];
 
-                    Tensor predictedReward = models.Evaluation.forward(batchFullHands, batchOther, batchInUseMasks);
-                    var loss = lossFunc.forward(predictedReward, batchTargets);
+                    Tensor predictions = models.Evaluation.forward(inputs);
+                    Tensor predictedMeans = predictions[TensorIndex.Colon, 0];
+                    Tensor predictedDeviations = predictions[TensorIndex.Colon, 1];
+                    var loss = lossFunc.forward(predictedMeans, targets, predictedDeviations);
                     valLossAvg += loss.item<float>();
                     valBatchCount++;
                 }
             }
 
             valLossAvg /= Math.Max(1, valBatchCount);
-            float lossAvg = 0f;
-            int batchCount = 0;
-            for (int i = 0; i < trainCount; i += batchSize)
+            float trainLossAvg = 0f;
+            int trainBatchCount = 0;
+            for (int i = trainCount; i < samples; i += batchSize)
             {
-                int end = Math.Min(i + batchSize, trainCount);
-                var batchFullHands = stacked.GameStateTensors.Hand[i..end];
-                var batchOther = stacked.GameStateTensors.OtherState[i..end];
-                var batchInUseMasks = stacked.InUseMask[i..end];
-                var batchTargets = stacked.Target[i..end];
+                int end = Math.Min(i + batchSize, samples);
+                GameStateTensors inputs = stacked.GameStateTensors.GetBatch(i, end);
+                Tensor targets = stacked.Target[i..end];
+
                 optimizer.zero_grad();
 
-                Tensor predictedReward = models.Evaluation.forward(batchFullHands, batchOther, batchInUseMasks);
-                var loss = lossFunc.forward(predictedReward, batchTargets);
+                Tensor predictions = models.Evaluation.forward(inputs);
+                Tensor predictedMeans = predictions[TensorIndex.Colon, 0];
+                Tensor predictedDeviations = predictions[TensorIndex.Colon, 1];
+                
+                var loss = lossFunc.forward(predictedMeans, targets, predictedDeviations);
                 loss.backward();
                 optimizer.step();
 
-                lossAvg += loss.item<float>();
-                batchCount++;
+                trainLossAvg += loss.item<float>();
+                trainBatchCount++;
             }
 
-            lossAvg /= Math.Max(1, batchCount);
+            trainLossAvg /= Math.Max(1, trainBatchCount);
 
 
 
-            Console.WriteLine($"Eval Epoch {epoch} | Train Loss = {lossAvg} | Val Loss = {valLossAvg}");
+            Console.WriteLine($"Eval Epoch {epoch} | Train Loss = {trainLossAvg} | Val Loss = {valLossAvg}");
         }
 
         stacked.Dispose();
