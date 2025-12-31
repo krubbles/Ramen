@@ -8,10 +8,19 @@ public class ScoringState
     public readonly GameState GameState;
     readonly GameData _gameData;
 
+    double _currentRoundTotalChips;
     /// <summary>
     /// Total number of chips earned by all hands played in the current round.
     /// </summary>
-    public double CurrentRoundTotalChips { get; private set; }
+    public double CurrentRoundTotalChips
+    {
+        get => _currentRoundTotalChips;
+        internal set
+        {
+            _currentRoundTotalChips = value;
+            GameState.MoveState.ScheduleCallback(OnCurrentRoundTotalChipsChanged);
+        }
+    }
 
     /// <summary>
     /// Current hand's chip value. Not persistent state.
@@ -81,6 +90,11 @@ public class ScoringState
         other._handLevels.CopyTo(_handLevels, 0);
     }
 
+    public void ResetCurrentRoundTotalChips()
+    {
+        CurrentRoundTotalChips = 0;
+    }
+
     public void AddChipsToCurrentHand(int chips) => CurrentHandChips += chips;
 
     public void AddMultToCurrentHand(int mult) => CurrentHandMult += mult;
@@ -118,13 +132,8 @@ public class ScoringState
 
         double score = CurrentHandChips * CurrentHandMult;
         CurrentRoundTotalChips += score;
-        GameState.MoveState.ScheduleCallback(OnCurrentRoundTotalChipsChanged);
         (CurrentHandChips, CurrentHandMult) = (0, 0);
         return score;
     }
 
-    public void ResetCurrentRoundTotalChips()
-    {
-        CurrentRoundTotalChips = 0;
-    }
 }

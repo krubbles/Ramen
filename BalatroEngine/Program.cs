@@ -143,7 +143,6 @@ class Program
             {
                 FastRandom r = FastRandom.SeededByClock();
                 GameState gs = new GameState(new());
-                gs.Reseed(r.Next());
                 gs.StartRound();
                 Console.WriteLine(gs.HandToString());
                 AIGameState aigs = new(gs, models);

@@ -138,7 +138,7 @@ public static class TrainingData
                 {
                     EvaluationTrainingData.Add(new()
                     {
-                        GameStateTensors = GameStateTensors.Create(gameState).DetachFromDisposeScope(),
+                        GameStateTensors =  default,
                         Target = target.clone().DetachFromDisposeScope(),
                         InUseMask = zeros(1, 9).DetachFromDisposeScope(),
                     });

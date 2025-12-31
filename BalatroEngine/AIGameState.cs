@@ -106,7 +106,6 @@ class AIGameState
         if (_embeddedGameStateValid)
             return;
         _embeddedGameStateValid = true;
-        _embeddedGameState = GameStateTensors.Create(GameState);
         _embeddedGameState.Hand.DetachFromDisposeScope();
         _embeddedGameState.OtherState.DetachFromDisposeScope();
     }
@@ -137,7 +136,6 @@ class AIGameState
                 output[move] = -1;
                 continue;
             }
-            copy.CloneFrom(this);
             copy.MakeMove(move);
             float reward = copy.EstimateTrueReward(samples, TrainingConfig.GoodPlayTemp);
             output[move] = reward;
@@ -153,7 +151,6 @@ class AIGameState
         float totalReward = 0;
         for (int i = 0; i < samples; ++i)
         {
-            tester.CloneFrom(this);
             while (tester.CurrentMaxMoveCount() > 0)
             {
                 tester.MakeMoveStochastic(temp);

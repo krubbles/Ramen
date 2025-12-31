@@ -130,6 +130,14 @@ public class HandState
         GameState.MoveState.ScheduleCallback(OnHandChanged);
     }
 
+    internal void ZeroRemainingHandsAndDiscards()
+    {
+        RemainingHands = 0;
+        RemainingDiscards = 0;
+        GameState.MoveState.ScheduleCallback(OnHandChanged);
+    }
+
+
     internal Card[] Draw(int count)
     {
         Card[] cards = new Card[count];

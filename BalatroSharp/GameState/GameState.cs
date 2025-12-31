@@ -114,8 +114,7 @@ public sealed class StartRoundMove : Move
     {
         gameState.Stage = StageOfGame.BeginRound;
 
-        gameState.HandState.RemainingHands = 0;
-        gameState.HandState.RemainingDiscards = 0;
+        gameState.HandState.ResetRemainingHandsAndDiscards();
     }
 }
 

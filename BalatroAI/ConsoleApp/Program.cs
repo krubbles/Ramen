@@ -9,6 +9,7 @@ for (int i = 0; i < 10; ++i)
     gameState.AdvanceToNextPlayerChoice();
     List<Move> moves = gameState.GetMoveOptions();
     Console.WriteLine(gameState.HandToString());
+    Console.WriteLine(gameState.GetHashCode());
 
     double bestScore = 0;
     foreach (Move move in moves)
@@ -17,5 +18,7 @@ for (int i = 0; i < 10; ++i)
         bestScore = Math.Max(bestScore, gameState.ScoringState.CurrentRoundTotalChips);
         move.Revert(gameState);
     }
+
+    Console.WriteLine(gameState.GetHashCode());
     Console.WriteLine(bestScore);
 }
