@@ -13,31 +13,19 @@ namespace BalatroAI
         private readonly Embedding _embedCard;
 
         public readonly Sequential HandProcessor;
+        public readonly Sequential OtherStateProcessor;
         public readonly Sequential FinalNetwork;
 
-        public const int EmbeddedCardWidth = 64;
-        public const int ProcessedHandWidth = 32 - 3;
+        public const int EmbeddedCardWidth = 64 - 3;
+        public const int FinalNetworkWidth = EmbeddedCardWidth + OtherStateWidth;
         public const int OtherStateWidth = 3;
-        public const int FinalNetworkWidth = ProcessedHandWidth + OtherStateWidth;
-
-        private readonly Sequential _mlp;
-        private readonly Sequential _fullHandProcessor;
-        private readonly Sequential _workingHandProcessor;
 
         public GameEvalModel() : base(nameof(GameEvalModel))
         {
-            _embedCard = Embedding(53, BestMovePredictor.EmbeddedCardWidth);
-
-            HandProcessor = Sequential(
-                ReLU(),
-                new ResidualMLP(BestMovePredictor.EmbeddedCardWidth, 1),
-                ReLU(),
-                Linear(EmbeddedCardWidth, ProcessedHandWidth)
-            );
+            _embedCard = Embedding(53, EmbeddedCardWidth);
 
             FinalNetwork = Sequential(
-                ReLU(),
-                Linear(FinalNetworkWidth, 32),
+                new ResidualMLP(FinalNetworkWidth, 1),
                 ReLU(),
                 Linear(FinalNetworkWidth, 2)
             );
@@ -48,7 +36,7 @@ namespace BalatroAI
         public Tensor ProcessHand(Tensor hand)
         {
             Tensor embeddedHand = _embedCard.forward(hand).sum(dim: 1);
-            Tensor result = HandProcessor.forward(embeddedHand);
+            Tensor result = embeddedHand.relu_();
             return result;
         }
 
@@ -56,7 +44,13 @@ namespace BalatroAI
         {
             Tensor input = concat([processedHand, otherState], dim: 1);
             Tensor output = FinalNetwork.forward(input);
-            output = concat([output.narrow(1, 0, 1), output.narrow(1, 1, 1).exp()], dim: 1);
+            output = concat([output.narrow(1, 0, 1), RemapVariance(output.narrow(1, 1, 1))], dim: 1);
+            return output;
+        }
+
+        static Tensor RemapVariance(Tensor output)
+        {
+            output = (output + sqrt(output.square() + 1)).square() * 0.25f;
             return output;
         }
 

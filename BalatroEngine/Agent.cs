@@ -15,7 +15,7 @@ public class RamenAgent
     bool _fullDeckValid;
     bool _otherStateValid;
 
-    Tensor _processedHand;
+    bool _disposeTensorsOnRegen = true;
 
     public RamenAgent(GameState gameState, GameEvalModel model)
     {
@@ -40,7 +40,7 @@ public class RamenAgent
 
     public (float mean, float dev) GetPredictedRewardDistribution()
     {
-        Tensor result = Model.GetPredictedRewardDistribution(ProcessedHandTensor, OtherStateTensor);
+        Tensor result = Model.forward(Tensors);
         float mean = result.data<float>()[0];
         float dev = MathF.Sqrt(result.data<float>()[1]); // what model actually predicts is variance 
         return (mean, dev);
@@ -59,12 +59,14 @@ public class RamenAgent
             return true;
         }
         GameStateTensors[] states = new GameStateTensors[moves.Count];
+        _disposeTensorsOnRegen = false;
         for (int i = 0; i < moves.Count; ++i)
         {
             moves[i].Apply(GameState);
-            states[i] = Tensors.Clone();
+            states[i] = Tensors;
             moves[i].Revert(GameState);
         }
+        _disposeTensorsOnRegen = true;
         GameStateTensors batch = GameStateTensors.Stack(states, true);
         Tensor rewardDist = Model.forward(batch);
         float[] predictedRewards = rewardDist[TensorIndex.Colon, 0].data<float>().ToArray();
@@ -78,13 +80,13 @@ public class RamenAgent
         return true;
     }
 
-    public GameStateTensors TensorsCloned => _tensors.Clone().DetachFromDisposeScope();
+    public GameStateTensors TensorsCloned => Tensors.Clone().DetachFromDisposeScope();
 
     public Tensor HandTensor
     {
         get
         {
-            if (!_handValid)
+            if (!_handValid || _tensors.Hand.IsInvalid)
             {
                 _handValid = true;
                 EmbedHand();
@@ -93,24 +95,11 @@ public class RamenAgent
         }
     }
 
-    public Tensor ProcessedHandTensor
-    {
-        get
-        {
-            if (!_handValid)
-            {
-                _handValid = true;
-                EmbedHand();
-            }
-            return _processedHand;
-        }
-    }
-
     public Tensor RemainingDeckTensor
     {
         get
         {
-            if (!_remainingDeckValid)
+            if (!_remainingDeckValid || _tensors.RemainingDeck.IsInvalid)
             {
                 _remainingDeckValid = true;
                 EmbedRemainingDeck();
@@ -123,7 +112,7 @@ public class RamenAgent
     {
         get
         {
-            if (!_fullDeckValid)
+            if (!_fullDeckValid || _tensors.FullDeck.IsInvalid)
             {
                 _fullDeckValid = true;
                 EmbedFullDeck();
@@ -136,7 +125,7 @@ public class RamenAgent
     {
         get
         {
-            if (!_otherStateValid)
+            if (!_otherStateValid || _tensors.OtherState.IsInvalid)
             {
                 _otherStateValid = true;
                 EmbedOtherState();
@@ -147,26 +136,29 @@ public class RamenAgent
 
     void EmbedHand()
     {
-        _tensors.Hand?.Dispose();
+        if (_disposeTensorsOnRegen)
+            _tensors.Hand?.Dispose();
         _tensors.Hand = EmbedCardSet(GameState.HandState.Hand, 8).unsqueeze(0).DetachFromDisposeScope();
-        _processedHand = Model.ProcessHand(_tensors.Hand);
     }
 
     void EmbedRemainingDeck()
     {
-        _tensors.RemainingDeck?.Dispose();
+        if (_disposeTensorsOnRegen)
+            _tensors.RemainingDeck?.Dispose();
         _tensors.RemainingDeck = EmbedCardSet(GameState.DeckState.RemainingDeck, 52).unsqueeze(0).DetachFromDisposeScope();
     }
 
     void EmbedFullDeck()
     {
-        _tensors.FullDeck?.Dispose();
+        if (_disposeTensorsOnRegen)
+            _tensors.FullDeck?.Dispose();
         _tensors.FullDeck = EmbedCardSet(GameState.DeckState.FullDeck, 52).unsqueeze(0).DetachFromDisposeScope();
     }
 
     void EmbedOtherState()
     {
-        _tensors.OtherState?.Dispose();
+        if (_disposeTensorsOnRegen)
+            _tensors.OtherState?.Dispose();
         _tensors.OtherState = tensor(
         [
             (float)GameState.ScoringState.CurrentRoundTotalChips,
@@ -185,29 +177,14 @@ public class RamenAgent
 
     static Tensor EmbedCardSet(ReadOnlySpan<Card> hand, int embedSize)
     {
-        using var scope = NewDisposeScope();
-        Tensor[] cards = new Tensor[embedSize];
+        int[] cards = new int[embedSize];
         for (int i = 0; i < embedSize; ++i)
         {
-            cards[i] = i < hand.Length ? EmbedCard(hand[i]) : EmbedCard(Card.Null);
+            cards[i] = i < hand.Length ? hand[i].Rank - 2 + ((int)hand[i].Suit - 1) * 13 : 52;
         }
 
-        Tensor handTensor = stack(cards);
+        Tensor handTensor = tensor(cards);
         return handTensor.MoveToOuterDisposeScope();
-    }
-
-    static Tensor EmbedCard(Card card)
-    {
-        long value;
-        if (card.IsNull)
-        {
-            value = 52; // Use index 52 for null cards
-        }
-        else
-        {
-            value = card.Rank - 2 + ((int)card.Suit - 1) * 13;
-        }
-        return tensor(value, dtype: ScalarType.Int64);
     }
 }
 

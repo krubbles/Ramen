@@ -10,60 +10,78 @@ public static class TrainingData
 
     public const int PolicyOutputWidth = 9;
 
+    static void GenerateEvalTrainingDataJob(GameEvalModel model, int samples)
+    {
+        using var scope = NewDisposeScope();
+        using var nograd = no_grad();
+        FastRandom random = FastRandom.SeededByClock();
+        GameData gameData = new();
+        while (EvaluationTrainingData.Count < samples)
+        {
+            GameState gameState = new(gameData);
+            gameState.AdvanceToNextPlayerChoice();
+            RamenAgent agent = new(gameState, model);
+
+            List<GameStateTensors> states = new();
+
+            while (gameState.HandState.RemainingHands > 0)
+            {
+                gameState.AdvanceToNextPlayerChoice();
+                List<Move> moves = gameState.GetMoveOptions();
+                if (moves.Count == 0)
+                    break;
+                agent.MakeMoveStochastic(0.4f);
+                states.Add(agent.TensorsCloned);
+            }
+
+            float reward = (float)gameState.ScoringState.CurrentRoundTotalChips / 100f;
+            foreach (GameStateTensors state in states)
+            {
+                lock (EvaluationTrainingData)
+                {
+                    EvaluationTrainingData.Add(new()
+                    {
+                        GameStateTensors = state,
+                        Target = tensor(reward).unsqueeze(0).unsqueeze(0).DetachFromDisposeScope()
+                    });
+                }
+            }
+        }
+    }
+
     public static void GenerateEvaluationTrainingData(GameEvalModel model, int samples)
     {
         Stopwatch watch = Stopwatch.StartNew();
 
-        Task[] tasks = new Task[8];
-        for (int i = 0; i < tasks.Length; ++i)
+        if (true)
         {
-            tasks[i] = Task.Run(() =>
+
+            Task[] tasks = new Task[8];
+            for (int i = 0; i < tasks.Length; ++i)
             {
-                using var scope = NewDisposeScope();
-                using var nograd = no_grad();
-                FastRandom random = FastRandom.SeededByClock();
-                GameData gameData = new();
-                while (EvaluationTrainingData.Count < samples)
+                tasks[i] = Task.Run(() =>
                 {
-                    GameState gameState = new(gameData);
-                    gameState.AdvanceToNextPlayerChoice();
-                    RamenAgent agent = new(gameState, model);
+                    GenerateEvalTrainingDataJob(model, samples);
+                });
+            }
 
-                    List<GameStateTensors> states = new();
-
-                    while (gameState.HandState.RemainingHands > 0)
-                    {
-                        gameState.AdvanceToNextPlayerChoice();
-                        List<Move> moves = gameState.GetMoveOptions();
-                        if (moves.Count == 0)
-                            break;
-                        agent.MakeMoveStochastic(1f);
-                        states.Add(agent.TensorsCloned);
-                    }
-
-                    float reward = (float)gameState.ScoringState.CurrentRoundTotalChips / 100f;
-                    foreach (GameStateTensors state in states)
-                    {
-                        lock (EvaluationTrainingData)
-                        {
-                            EvaluationTrainingData.Add(new()
-                            {
-                                GameStateTensors = state,
-                                Target = tensor(reward).unsqueeze(0).unsqueeze(0).DetachFromDisposeScope()
-                            });
-                        }
-                    }
+            while (EvaluationTrainingData.Count < samples)
+            {
+                Thread.Sleep(1000);
+                Console.WriteLine($"Samples {EvaluationTrainingData.Count}, time {watch.Elapsed.TotalSeconds:F1}, rate {EvaluationTrainingData.Count / watch.Elapsed.TotalSeconds:F1}");
+                foreach (Task task in tasks)
+                {
+                    if (task.Exception != null)
+                        throw task.Exception;
                 }
-            });
-        }
+            }
 
-        while (EvaluationTrainingData.Count < samples)
+            Task.WaitAll(tasks);
+        }
+        else
         {
-            Thread.Sleep(1000);
-            Console.WriteLine($"Samples {EvaluationTrainingData.Count}, time {watch.Elapsed.TotalSeconds:F1}, rate {EvaluationTrainingData.Count / watch.Elapsed.TotalSeconds:F1}");
+            GenerateEvalTrainingDataJob(model, samples);
         }
-
-        Task.WaitAll(tasks);
     }
 
     public static void GenerateEvalTrainingDataOneShotBestHand(int samples)

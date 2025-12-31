@@ -30,28 +30,31 @@ class Program
         }
         Console.WriteLine($"Total number of trainable evaluation parameters: {totalTrainableParams}");
 
+        Console.WriteLine("Av Score: " + Testing.GetAverageScore(model));
+
         TrainingData.GenerateEvaluationTrainingData(model, 1000);
-        Training.TrainEvaluationModel(model, 50, 32, true);
+        Training.TrainEvaluationModel(model, 10, 32, true);
         Console.WriteLine("Av Score: " + Testing.GetAverageScore(model));
 
         TrainingData.EvaluationTrainingData.Clear();
         TrainingData.GenerateEvaluationTrainingData(model, 2000);
-        Training.TrainEvaluationModel(model, 20, 32, true);
+        Training.TrainEvaluationModel(model, 10, 32, true);
         Console.WriteLine("Av Score: " + Testing.GetAverageScore(model));
 
         TrainingData.EvaluationTrainingData.Clear();
-        TrainingData.GenerateEvaluationTrainingData(model, 5000);
-        Training.TrainEvaluationModel(model, 20, 32, true);
+        TrainingData.GenerateEvaluationTrainingData(model, 4000);
+        Training.TrainEvaluationModel(model, 10, 32, true);
         Console.WriteLine("Av Score: " + Testing.GetAverageScore(model));
 
         TrainingData.EvaluationTrainingData.Clear();
-        TrainingData.GenerateEvaluationTrainingData(model, 10000);
-        Training.TrainEvaluationModel(model, 20, 32, true);
+        TrainingData.GenerateEvaluationTrainingData(model, 8000);
+        Training.TrainEvaluationModel(model, 10, 32, true);
         Console.WriteLine("Av Score: " + Testing.GetAverageScore(model));
 
         TrainingData.EvaluationTrainingData.Clear();
-        TrainingData.GenerateEvaluationTrainingData(model, 20000);
-        Training.TrainEvaluationModel(model, 20, 32, true);
+        TrainingData.GenerateEvaluationTrainingData(model, 16000);
+        Training.TrainEvaluationModel(model, 10, 32, true);
         Console.WriteLine("Av Score: " + Testing.GetAverageScore(model));
+
     }
 }
