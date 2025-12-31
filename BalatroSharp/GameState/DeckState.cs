@@ -1,85 +1,98 @@
 ﻿namespace BalatroAI;
 
-public class DeckState
+public sealed class DeckState
 {
     public readonly GameState GameState;
     readonly GameData _gameData;
 
-    FastRandom _shuffleRandom;
-
-
     readonly Card[] _deckBuffer = new Card[100], _fullDeckBuffer = new Card[100];
 
-    public int DeckSize { get; private set; }
-    public int FullDeckSize { get; private set; }
+    public int RemainingDeckCardCount { get; private set; }
+    public int FullDeckCardCount { get; private set; }
 
-    public Span<Card> Deck => _deckBuffer.AsSpan(0, DeckSize);
-    public Span<Card> FullDeck => _fullDeckBuffer.AsSpan(0, FullDeckSize);
+    /// <summary>
+    /// The cards remaining in the deck for the current round.
+    /// </summary>
+    public ReadOnlySpan<Card> Deck => _deckBuffer.AsSpan(0, RemainingDeckCardCount);
+
+    /// <summary>
+    /// All cards in the player's deck.
+    /// </summary>
+    public ReadOnlySpan<Card> FullDeck => _fullDeckBuffer.AsSpan(0, FullDeckCardCount);
 
     public DeckState(GameState gameState)
     {
         GameState = gameState;
         _gameData = gameState.GameData;
-        _shuffleRandom = new(gameState.SeedGenerator.Next());
     }
 
-    public void CloneFrom(DeckState other)
+    public override int GetHashCode()
     {
-        _shuffleRandom = new(other._shuffleRandom);
+        return
+            463507903 +
+            Card.HashCardSet(Deck) * 210384047 +
+            Card.HashCardSet(FullDeck);
+    }
+
+    internal void CloneFrom(DeckState other)
+    {
         other.Deck.CopyTo(_deckBuffer);
         other.FullDeck.CopyTo(_fullDeckBuffer);
-        DeckSize = other.DeckSize;
-        FullDeckSize = other.FullDeckSize;
+        RemainingDeckCardCount = other.RemainingDeckCardCount;
+        FullDeckCardCount = other.FullDeckCardCount;
     }
 
     public void AddCardToFullDeck(Card card)
     {
-        _fullDeckBuffer[FullDeckSize++] = card;
+        _fullDeckBuffer[FullDeckCardCount++] = card;
     }
 
-    public void AddCardToDeck(Card card)
-    {
-        int lastIndex = DeckSize++;
-        _deckBuffer[lastIndex] = card;
-        int index = _shuffleRandom.Next(Deck.Length);
-        (_deckBuffer[index], _deckBuffer[lastIndex]) = (_deckBuffer[lastIndex], _deckBuffer[index]);
-    }
-
-    public void ResetAndShuffleDeck()
+    /// <summary>
+    /// Resets <see cref="Deck"/> back to the <see cref="FullDeck"/>
+    /// </summary>
+    public void ResetDeck()
     {
         FullDeck.CopyTo(_deckBuffer);
-        DeckSize = FullDeckSize;
-        ShuffleDeck();
+        RemainingDeckCardCount = FullDeckCardCount;
     }
 
-    public void ShuffleDeck()
+    internal void Draw(Span<Card> cards)
     {
-        Span<Card> deck = Deck;
-        for (int i = 0; i < deck.Length; ++i)
-        {
-            int index = _shuffleRandom.NextInRange(i, deck.Length);
-            (_deckBuffer[i], _deckBuffer[index]) = (_deckBuffer[index], _deckBuffer[i]);
-        }
+        int count = cards.Length;
+        Span<int> indices = stackalloc int[count];
+        for (int i = 0; i < count; ++i)
+            indices[i] = GameState.Random.Next(RemainingDeckCardCount - i);
+        for (int i = 0; i < count; ++i)
+            cards[i] = Draw(indices[i]);
     }
 
-    public bool TryDraw(out Card card)
+    internal void UnDraw(ReadOnlySpan<Card> cards)
     {
-        if (DeckSize > 0)
-        {
-            DeckSize--;
-            card = _deckBuffer[DeckSize];
-            return true;
-        }
-        else
-        {
-            card = default;
-            return false;
-        }
+        int count = cards.Length;
+        Span<int> indices = stackalloc int[count];
+        for (int i = 0; i < count; ++i)
+            indices[i] = GameState.Random.Next(RemainingDeckCardCount - i);
+
+        for (int i = indices.Length - 1; i >= 0; --i)
+            UnDraw(indices[i], cards[i]);
     }
 
-    public void Reseed(int seed)
+    Card Draw(int index)
     {
-        _shuffleRandom = new(seed);
-        ShuffleDeck();
+        if (index < 0 || index >= RemainingDeckCardCount)
+            throw new IndexOutOfRangeException($"Index {index} out of range [0, {RemainingDeckCardCount})");
+
+        Card card = _deckBuffer[index];
+        _deckBuffer[index] = _deckBuffer[--RemainingDeckCardCount];
+        return card;
+    }
+
+    void UnDraw(int index, Card card)
+    {
+        if (index < 0 || index >= RemainingDeckCardCount)
+            throw new IndexOutOfRangeException($"Index {index} out of range [0, {RemainingDeckCardCount})");
+
+        _deckBuffer[RemainingDeckCardCount++] = _deckBuffer[index];
+        _deckBuffer[index] = card;
     }
 }

@@ -1,36 +1,21 @@
 ﻿using BalatroAI;
 using BalatroAI.ConsoleApp;
 
+FastRandom random = FastRandom.SeededByClock();
 GameData gameData = new();
-GameState gameState = new(gameData);
-gameState.StartRound();
-gameState.JokerState.AddJoker(Jokers.SlyJoker);
-while (true)
+for (int i = 0; i < 10; ++i)
 {
+    GameState gameState = new(gameData);
+    gameState.AdvanceToNextPlayerChoice();
+    List<Move> moves = gameState.GetMoveOptions();
+    Console.WriteLine(gameState.HandToString());
 
-    Console.WriteLine();
-    Console.WriteLine("Current Round Chips: " + gameState.ScoringState.CurrentRoundTotalChips);
-    Console.WriteLine("Remaining Hands: " + gameState.HandState.RemainingHands);
-    Console.WriteLine("Remaining Discards: " + gameState.HandState.RemainingDiscards);
-    Console.WriteLine("Hand: " + gameState.HandToString());
-    Console.WriteLine();
-
-    ConsoleCommandContext command = new(Console.ReadLine());
-    switch (command.Name)
+    double bestScore = 0;
+    foreach (Move move in moves)
     {
-        case "play":
-            Span<int> hand = new int[command.NumberOfArguments];
-            for (int i = 0; i < command.NumberOfArguments; i++)
-                hand[i] = command.GetIntArg(i);
-            Console.WriteLine();
-            Console.WriteLine("Hand Scored: " + gameState.HandState.PlayHand(hand));
-            break;
-        case "discard":
-            Span<int> discard = new int[command.NumberOfArguments];
-            for (int i = 0; i < command.NumberOfArguments; i++)
-                discard[i] = command.GetIntArg(i);
-            gameState.HandState.DiscardHand(discard);
-            break;
-
+        move.Apply(gameState);
+        bestScore = Math.Max(bestScore, gameState.ScoringState.CurrentRoundTotalChips);
+        move.Revert(gameState);
     }
+    Console.WriteLine(bestScore);
 }

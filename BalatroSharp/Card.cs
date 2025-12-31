@@ -52,7 +52,9 @@ namespace BalatroAI
 
         public override readonly int GetHashCode()
         {
-            return Rank * 100 + (int)Suit;
+            int value = Rank * 717109843 + (int)Suit * 504865909;
+            value *= value;
+            return value;
         }
 
         public static bool operator ==(Card a, Card b) => a.Suit == b.Suit && a.Rank == b.Rank;
@@ -72,6 +74,14 @@ namespace BalatroAI
         /// IComparer that does suit-first comparison of cards.
         /// </summary>
         public static readonly SuitCardComparer SuitCardComparer = new();
+
+        public static int HashCardSet(ReadOnlySpan<Card> cards)
+        {
+            int hash = 314122021;
+            for (int i = 0; i < cards.Length; ++i)
+                hash ^= cards[i].GetHashCode();
+            return hash;
+        }
     }
     
     /// <summary>

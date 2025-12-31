@@ -1,14 +1,16 @@
 ﻿namespace BalatroAI;
 
 /// <summary>
-/// Tracks the move history, generates valid move lists, and applies/reverts moves.
+/// Manages all state transitions for the GameState, including player choices. 
 /// </summary>
 public sealed class MoveState
 {
     public readonly GameState GameState;
     readonly GameData _gameData;
 
-    public readonly List<IMove> MoveHistory = new();
+    public readonly List<Move> MoveHistory = new();
+    
+    readonly List<Move> _moveBuffer = new();
 
     public MoveState(GameState gameState)
     {
@@ -16,24 +18,32 @@ public sealed class MoveState
         _gameData = gameState.GameData;
     }
 
-    internal void CloneFrom(MoveState other)
+    public int MoveStep => MoveHistory.Count;
+
+
+    internal void CloneFrom(in MoveState other)
     {
         MoveHistory.Clear();
         MoveHistory.AddRange(other.MoveHistory);
     }
 
-    /// <summary>
-    /// Gets the list of valid moves for the current game state.
-    /// </summary>
-    public List<IMove> GetValidMoves()
-    {
-        return null;
-    }
-
-    public void MakeMove(IMove move)
+    public void MakeMove(Move move)
     {
         move.Apply(GameState);
-        MoveHistory.Add(move);
+    }
+
+    public void RevertLastMove()
+    {
+        if (MoveHistory.Count == 0)
+            throw new InvalidOperationException("No moves to revert");
+        MoveHistory[^1].Revert(GameState);
+    }
+
+    public void RevertToStep(int moveStep)
+    {
+        int toRevertCount = MoveHistory.Count - moveStep;
+        for (int i = 0; i < toRevertCount; ++i)
+            RevertLastMove();
     }
 
 }

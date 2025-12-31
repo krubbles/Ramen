@@ -3,7 +3,7 @@
 /// <summary>
 /// Holds the state of the player's hand including remaining plays and discards.
 /// </summary>
-public class HandState 
+public class HandState
 {
     public readonly GameState GameState;
     readonly GameData _gameData;
@@ -13,22 +13,23 @@ public class HandState
     /// <summary>
     /// Number of cards in the player's hand currently.
     /// </summary>
-    public int CardsInHand { get; private set; }
+    public int HandCardCount { get; private set; }
 
     /// <summary>
-    /// Number of cards in the currently active hand (played or discarded). Zero if no active hand.
+    /// Number of cards in the currently active hand (played or discarded). Zero if no active hand. Not persistent state.
     /// </summary>
-    public int CardsInActiveHand { get; private set; }
+    public int ActiveHandCardCount { get; private set; }
 
     /// <summary>
     /// The player's hand.
     /// </summary>
-    public Span<Card> Hand => _handBuffer.AsSpan(0, CardsInHand);
+    public Span<Card> Hand => _handBuffer.AsSpan(0, HandCardCount);
 
     /// <summary>
     /// The hand the player is currently playing or discarding, if applicable.
+    /// Not persistent state.
     /// </summary>
-    public Span<Card> ActiveHand => _activeHandBuffer.AsSpan(0, CardsInActiveHand);
+    public Span<Card> ActiveHand => _activeHandBuffer.AsSpan(0, ActiveHandCardCount);
 
     /// <summary>
     /// The number of hands the player can still play this round.
@@ -40,9 +41,9 @@ public class HandState
     public int RemainingDiscards;
 
     /// <summary>
-    /// Pattern matching results for the currently active (played/discarded) hand. Used by jokers and scoring.
+    /// Pattern matching results for the currently active (played/discarded) hand. Used by jokers and scoring. Not persistent state.
     /// </summary>
-    public HandPatternResults ActiveHandPatterns;
+    public HandPatterns ActiveHandPatterns;
 
     /// <summary>
     /// If the player has less then this number of cards in their hand after playing/discarding, they will draw up to this number.
@@ -65,12 +66,24 @@ public class HandState
         _gameData = gameState.GameData;
     }
 
-    public void CloneFrom(HandState other)
+    public override int GetHashCode()
+    {
+        return
+            463507903 +
+            Card.HashCardSet(Hand) * 210384047 +
+            RemainingDiscards * 991603139 +
+            RemainingHands * 845702419 +
+            HandSize * 422750039 +
+            HandsPerRound * 226922317 +
+            DiscardsPerRound * 535572281;
+    }
+
+    internal void CloneFrom(HandState other)
     {
         RemainingHands = other.RemainingHands;
         RemainingDiscards = other.RemainingDiscards;
         other.Hand.CopyTo(_handBuffer);
-        CardsInHand = other.CardsInHand;
+        HandCardCount = other.HandCardCount;
 
         ActiveHandPatterns = other.ActiveHandPatterns;
         HandSize = other.HandSize;
@@ -78,28 +91,38 @@ public class HandState
         DiscardsPerRound = other.DiscardsPerRound;
     }
 
-
-    /// <summary>
-    /// Adds a card to the players hand. This card is not added to the deck and ceases to exist after being played.
-    /// </summary>
-    public void AddCardToHand(Card card) 
+    internal void AddCardToHand(Card card)
     {
-        _handBuffer[CardsInHand++] = card;
+        _handBuffer[HandCardCount++] = card;
     }
 
-    /// <summary>
-    /// If the player has less then <see cref="HandSize"/> cards in their hand, draw cards from the deck until they have <see cref="HandSize"/> cards.
-    /// </summary>
-    public void DrawToHandSize()
+    internal void RemoveCardFromHand(Card card)
     {
-        while (CardsInHand < HandSize && GameState.DeckState.TryDraw(out Card card))
-            AddCardToHand(card);
+        int index = Array.IndexOf(_handBuffer, card, 0, HandCardCount);
+        if (index < 0)
+            throw new ArgumentException($"Card {card} not found in hand, cannot be removed");
+        HandCardCount--;
+        for (int i = index; i < HandCardCount; ++i)
+            _handBuffer[i] = _handBuffer[i + 1];
     }
 
-    /// <summary>
-    /// Plays a hand.
-    /// </summary>
-    public double PlayHand(ReadOnlySpan<int> cardIndices)
+    internal Card[] Draw(int count)
+    {
+        Card[] cards = new Card[count];
+        GameState.DeckState.Draw(cards);
+        for (int i = 0; i < count; ++i)
+            AddCardToHand(cards[i]);
+        return cards;
+    }
+
+    internal void UnDraw(Card[] cards)
+    {
+        GameState.DeckState.UnDraw(cards);
+        for (int i = 0; i < cards.Length; ++i)
+            RemoveCardFromHand(cards[i]);
+    }
+
+    internal double PlayHand(ReadOnlySpan<int> cardIndices)
     {
         if (RemainingHands < 1)
             throw new Exception("Cannot play hand, out of hands.");
@@ -117,33 +140,22 @@ public class HandState
 
         // remove played cards
         int writeIndex = 0;
-        for (int i = 0; i < CardsInHand; ++i)
+        for (int i = 0; i < HandCardCount; ++i)
         {
             Card card = _handBuffer[i];
             if (!card.IsNull)
                 _handBuffer[writeIndex++] = card;
         }
-        CardsInHand = writeIndex;
+        HandCardCount = writeIndex;
 
         GameState.JokerState.OnBeforePlayHand();
 
         double score = GameState.ScoringState.ScoreActiveHand();
 
-        DrawToHandSize();
-
         return score;
     }
 
-    internal void SetActiveHand(ReadOnlySpan<Card> hand)
-    {
-        CardsInActiveHand = hand.Length;
-        hand.CopyTo(_activeHandBuffer);
-    }
-
-    /// <summary>
-    /// Discards a hand.
-    /// </summary>
-    public void DiscardHand(ReadOnlySpan<int> cardIndices)
+    internal void DiscardHand(ReadOnlySpan<int> cardIndices)
     {
         if (RemainingDiscards < 1)
             throw new Exception("Cannot discard, out of discards");
@@ -154,28 +166,164 @@ public class HandState
         {
             GameState.JokerState.OnDiscardCard(_handBuffer[cardIndices[i]]);
             _handBuffer[cardIndices[i]] = Card.Null;
-        } 
+        }
 
         // remove discarded cards
         int writeIndex = 0;
-        for (int i = 0; i < CardsInHand; ++i)
+        for (int i = 0; i < HandCardCount; ++i)
         {
             Card card = _handBuffer[i];
             if (!card.IsNull)
                 _handBuffer[writeIndex++] = card;
         }
-        CardsInHand = writeIndex;
+        HandCardCount = writeIndex;
 
-        
-        DrawToHandSize();
     }
 
-    /// <summary>
-    /// Resets the remaining hands and discards to the per-round values.
-    /// </summary>
-    public void ResetRemainingHandsAndDiscards()
+    internal void SetActiveHand(ReadOnlySpan<Card> hand)
+    {
+        ActiveHandCardCount = hand.Length;
+        hand.CopyTo(_activeHandBuffer);
+    }
+
+    internal void ResetRemainingHandsAndDiscards()
     {
         RemainingHands = HandsPerRound;
         RemainingDiscards = DiscardsPerRound;
+    }
+
+    internal void AppendLegalUseHandMoves(List<Move> moves)
+    {
+        if (RemainingDiscards == 0 && RemainingHands == 0)
+            return;
+
+        Span<int> indices = stackalloc int[5];
+        for (int playMask = 1; playMask < (1 << HandCardCount); ++playMask)
+        {
+            int handSize = 0;
+            bool skip = false;
+            for (int i = 0; i < 8; ++i)
+            {
+                if (((playMask >> i) & 1) != 0)
+                {
+                    if (handSize >= indices.Length)
+                    {
+                        skip = true;
+                        break;
+                    }
+                    indices[handSize++] = i;
+                }
+            }
+            if (skip)
+                continue;
+            int[] indicesArray = indices[0..handSize].ToArray();
+            if (RemainingHands > 0)
+                moves.Add(new UseHandMove(false, indicesArray));
+            if (RemainingDiscards > 0)
+                moves.Add(new UseHandMove(true, indicesArray));
+        }
+    }
+}
+
+
+/// <summary>
+/// Move for playing or discarding a hand.
+/// </summary>
+public sealed class UseHandMove : Move
+{
+    public readonly bool IsDiscard;
+    public readonly int[] CardIndices;
+
+    Card[] _cards;
+    double _roundTotalChipsBeforePlay;
+
+    public UseHandMove(bool isDiscard, params int[] cardIndices)
+    {
+        IsDiscard = isDiscard;
+        CardIndices = cardIndices;
+    }
+
+    protected override void Apply()
+    {
+        gameState.AssertIsStage(StageOfGame.InRoundPlayerChoice);
+
+        _roundTotalChipsBeforePlay = gameState.ScoringState.CurrentRoundTotalChips;
+        _cards = new Card[CardIndices.Length];
+        for (int i = 0; i < CardIndices.Length; ++i)
+            _cards[i] = gameState.HandState.Hand[CardIndices[i]];
+
+        if (IsDiscard)
+        {
+            gameState.HandState.DiscardHand(CardIndices);
+        }
+        else
+        {
+            gameState.HandState.PlayHand(CardIndices);
+        }
+
+        gameState.Stage = StageOfGame.InRoundRedrawing;
+    }
+
+    protected override void Revert()
+    {
+
+        for (int i = 0; i < _cards.Length; ++i)
+            gameState.HandState.AddCardToHand(_cards[i]);
+        gameState.ScoringState.CurrentRoundTotalChips = _roundTotalChipsBeforePlay;
+        if (IsDiscard)
+            gameState.HandState.RemainingDiscards++;
+        else
+            gameState.HandState.RemainingHands++;
+
+        gameState.Stage = StageOfGame.InRoundPlayerChoice;
+    }
+}
+
+/// <summary>
+/// Move for drawing a fixed quantity of cards.
+/// </summary>
+public sealed class DrawCardsMove : Move
+{
+    public readonly int Count;
+    
+    Card[] _cards;
+
+    public DrawCardsMove(int count)
+    {
+        Count = count;
+    }
+
+    protected override void Apply()
+    {
+        int toDraw = Math.Min(gameState.DeckState.RemainingDeckCardCount, Count);
+        _cards = gameState.HandState.Draw(toDraw);
+    }
+
+    protected override void Revert()
+    {
+        gameState.HandState.UnDraw(_cards);
+    }
+}
+
+/// <summary>
+/// Move for all automatic state changes that happen after a hand is played/discarded. (Mostly redrawing to hand size)
+/// </summary>
+public sealed class AfterHandUsedMove : Move
+{
+    Card[] _cards;
+    StageOfGame _stage;
+
+    protected override void Apply()
+    {
+        _stage = gameState.Stage;
+        int toDraw = Math.Clamp(gameState.HandState.HandSize - gameState.HandState.HandCardCount, 0, gameState.DeckState.RemainingDeckCardCount);
+        _cards = gameState.HandState.Draw(toDraw);
+        gameState.Stage = StageOfGame.InRoundPlayerChoice;      
+    }
+
+    protected override void Revert()
+    {
+        gameState.Stage = _stage;
+        gameState.HandState.UnDraw(_cards);
     }
 }

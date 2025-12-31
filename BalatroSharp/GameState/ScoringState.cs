@@ -14,18 +14,21 @@ public class ScoringState
     public double CurrentRoundTotalChips;
 
     /// <summary>
-    /// Current hand's chip value
+    /// Current hand's chip value. Not persistent state.
     /// </summary>
     public double CurrentHandChips;
 
     /// <summary>
-    /// Current hand's mult value
+    /// Current hand's mult value. Not persistent state.
     /// </summary>
     public double CurrentHandMult;
 
 
     /// <summary>
-    /// If a is being scored, this is the hand being played.
+    /// The number of triggers remaining on the scoring current card. 
+    /// A joker can make a card retrigger N times by adding N to this value during the
+    /// <see cref="Joker.OnBeginScoringCard"/> hook.
+    /// <para>Not persistent state.</para>
     /// </summary>
 
     public int CurrentScoringCardTriggerCount;
@@ -54,6 +57,19 @@ public class ScoringState
         _gameData = gameState.GameData;
     }
 
+    public override int GetHashCode()
+    {
+        int handLevelsHash = 0;
+        for (int i = 0; i < HandLevels.Length; ++i)
+        {
+            handLevelsHash += HandLevels[i];
+            handLevelsHash *= 449867969;
+        }
+        return 704315923 +
+            handLevelsHash + 
+            CurrentRoundTotalChips.GetHashCode() * 687577043;
+    }
+
     public void CloneFrom(in ScoringState other)
     {
         CurrentRoundTotalChips = other.CurrentRoundTotalChips;
@@ -78,7 +94,7 @@ public class ScoringState
         return ScoreHand(GameState.HandState.ActiveHand, GameState.HandState.ActiveHandPatterns);
     }
 
-    public double ScoreHand(ReadOnlySpan<Card> hand, in HandPatternResults patterns)
+    public double ScoreHand(ReadOnlySpan<Card> hand, in HandPatterns patterns)
     {
         (CurrentHandChips, CurrentHandMult) = _gameData.GetHandBaseScore(patterns.HandType, 1);
         int playedCardsMask = patterns.PlayedCardsMask;

@@ -28,7 +28,7 @@ public static class Testing
                 continue;
             gameState.PatternMatchingState.MatchHand(hand[..handSize], out gameState.HandState.ActiveHandPatterns);
             gameState.ScoringState.ResetCurrentRoundTotalChips();
-            float score = (float)gameState.ScoringState.ScoreHand(hand[..handSize]);
+            float score = (float)gameState.ScoringState.ScoreHand(hand[..handSize], gameState.HandState.ActiveHandPatterns);
             if (score > maxScore)
             {
                 maxScore = score;

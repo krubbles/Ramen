@@ -53,7 +53,7 @@ class AIGameState
         if (GameState.HandState.RemainingHands < 4)
             return 0;
 
-        int cardsInHand = GameState.HandState.CardsInHand;
+        int cardsInHand = GameState.HandState.HandCardCount;
         if (ToUseCount == 0)
             return cardsInHand;
         else
@@ -70,7 +70,7 @@ class AIGameState
         ToUseIndices[ToUseCount] = move;
         ToUseCount++;
 
-        if (ToUseCount >= GameData.MaxPlayedHandSize || move >= GameState.HandState.CardsInHand) // play hand
+        if (ToUseCount >= GameData.MaxPlayedHandSize || move >= GameState.HandState.HandCardCount) // play hand
         {
             PlayCurrentHand();
             return;
@@ -182,7 +182,7 @@ class AIGameState
 
     int PlayRandomMove(float[] weights, float temp, bool allowPlayNothing)
     {
-        int moves = GameState.HandState.CardsInHand + (allowPlayNothing ? 1 : 0);
+        int moves = GameState.HandState.HandCardCount + (allowPlayNothing ? 1 : 0);
         float totalWeight = 0;
         for (int i = 0; i < moves; ++i)
         {
@@ -225,7 +225,6 @@ class AIGameState
 
     void PlayCurrentHand()
     {
-        GameState.HandState.PlayHand(ToUseIndices[0..ToUseCount]);
         MarkGameStateChanged();
         ResetUseCardsState();
     }

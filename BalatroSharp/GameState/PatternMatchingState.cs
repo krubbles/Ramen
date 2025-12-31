@@ -24,7 +24,7 @@ public enum HandType
 /// <summary>
 /// Stores all the pattern matching results for a given hand, like whether it contains a flush or straight.
 /// </summary>
-public struct HandPatternResults
+public struct HandPatterns
 {
     /// <summary>
     /// Number of cards in the hand.
@@ -102,7 +102,7 @@ public class PatternMatchingState
     /// <summary>
     /// Calculates the pattern matching results for a given hand.
     /// </summary>
-    public void MatchHand(ReadOnlySpan<Card> hand, out HandPatternResults results) 
+    public void MatchHand(ReadOnlySpan<Card> hand, out HandPatterns results) 
     {
         results.CardCount = hand.Length;
         results.ContainsFlush = MatchFlush(hand, out int flushPlayedCardsMask, out Suit flushSuit);
