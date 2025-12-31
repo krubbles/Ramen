@@ -7,37 +7,6 @@ namespace BalatroAI
     using static TorchSharp.torch;
     using static TorchSharp.torch.nn;
 
-    // Scaffolding container for the collection of AI models that make up an AI.
-    // Currently only contains the MoveSelectorModule but provides delegation methods
-    // so existing code can interact with the models through this single object.
-    public class AIModels
-    {
-        public BestMovePredictor Policy { get; }
-        public GameEvalModel Evaluation { get; }
-
-        public AIModels()
-        {
-            Policy = new BestMovePredictor();
-            Evaluation = new GameEvalModel(Policy);
-        }
-
-        public IEnumerable<Parameter> parameters()
-        {
-            // return parameters from both modules
-            return Policy.parameters().Concat(Evaluation.parameters());
-        }
-
-        public IEnumerable<(string, Parameter)> named_parameters()
-        {
-            return Policy.named_parameters().Concat(Evaluation.named_parameters());
-        }
-
-        public Tensor EmbedCards(Tensor cards) => Policy.EmbedCards(cards);
-
-        public Tensor GetCardUseRewards(Tensor fullHand, Tensor otherState, Tensor inUseMask)
-            => Policy.GetCardUseRewards(fullHand, otherState, inUseMask);
-
-    }
 
     public class GameEvalModel : Module
     {
@@ -54,7 +23,7 @@ namespace BalatroAI
         private readonly Sequential _fullHandProcessor;
         private readonly Sequential _workingHandProcessor;
 
-        public GameEvalModel(BestMovePredictor moveSelector) : base("EvaluationModule")
+        public GameEvalModel() : base(nameof(GameEvalModel))
         {
             _embedCard = Embedding(53, BestMovePredictor.EmbeddedCardWidth);
 

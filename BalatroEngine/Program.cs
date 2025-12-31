@@ -79,66 +79,17 @@ class Program
     {
         random.manual_seed(0);
         var device = CPU;
-        
-        AIModels models = new();
+
+        GameEvalModel model = new();
 
         long totalTrainableParams = 0;
-        foreach (var param in models.Policy.parameters())
-        {
-            if (param.requires_grad)
-                totalTrainableParams += param.numel();
-        }
-        Console.WriteLine($"Total number of trainable policy parameters: {totalTrainableParams}");
-
-        totalTrainableParams = 0;
-        foreach (var param in models.Evaluation.parameters())
+        foreach (var param in model.parameters())
         {
             if (param.requires_grad)
                 totalTrainableParams += param.numel();
         }
         Console.WriteLine($"Total number of trainable evaluation parameters: {totalTrainableParams}");
 
-
-        TrainingData.GenerateEvaluationTrainingData(models, 100);
-        Training.TrainEvaluationModel(models, epochs: 4, batchSize: 32, validate: true);
-
-        TrainingData.EvaluationTrainingData.Clear();
-        TrainingData.PolicyTrainingData.Clear();
-
-
-        for (int i = 0; i < 10; ++i)
-        {
-            int evalSampleCount = 200000;
-            int policySampleCount = 25000;
-            TrainingData.GenerateEvaluationTrainingData(models, samples: evalSampleCount);
-            Training.TrainEvaluationModel(models, epochs: 6, batchSize: 64, validate: true);
-
-            TrainingData.GeneratePolicyTrainingData(models, samples: policySampleCount);
-            Training.TrainPolicyModel(models, epochs: 6, batchSize: 64, validate: true);
-
-            ShowExampleMoveRewards();
-
-            TrainingData.EvaluationTrainingData.Clear();
-            TrainingData.PolicyTrainingData.Clear();
-        }
-
-        void ShowExampleMoveRewards()
-        {
-            Console.WriteLine();
-            Console.WriteLine("--- Example Move Rewards ---");
-            for (int i = 0; i < 5; ++i)
-            {
-                FastRandom r = FastRandom.SeededByClock();
-                GameState gs = new GameState(new());
-                gs.StartRound();
-                Console.WriteLine(gs.HandToString());
-                AIGameState aigs = new(gs, models);
-                float[] rewards = (models.GetCardUseRewards(aigs.GameStateTensors.Hand, aigs.GameStateTensors.OtherState, aigs.InUseMaskTensor)).div(1f).softmax(dim: 1).data<float>().ToArray();
-                Console.WriteLine(LoggingUtility.FormatArray(rewards));
-            }
-            Console.WriteLine("---------------------------");
-            Console.WriteLine();
-        }
     }
 
 
