@@ -97,7 +97,7 @@ public class HandState
     internal void AddCardToHand(Card card)
     {
         _handBuffer[HandCardCount++] = card;
-        GameState.MoveState.RegisterActivatedCallback(OnHandChanged);
+        GameState.MoveState.ScheduleCallback(OnHandChanged);
     }
 
     internal void RemoveCardFromHand(Card card)
@@ -108,26 +108,26 @@ public class HandState
         HandCardCount--;
         for (int i = index; i < HandCardCount; ++i)
             _handBuffer[i] = _handBuffer[i + 1];
-        GameState.MoveState.RegisterActivatedCallback(OnHandChanged);
+        GameState.MoveState.ScheduleCallback(OnHandChanged);
     }
 
     internal void ChangeRemainingHands(int delta)
     {
         RemainingHands += delta;
-        GameState.MoveState.RegisterActivatedCallback(OnHandChanged);
+        GameState.MoveState.ScheduleCallback(OnHandChanged);
     }
 
     internal void ChangeRemainingDiscards(int delta)
     {
         RemainingDiscards += delta;
-        GameState.MoveState.RegisterActivatedCallback(OnHandChanged);
+        GameState.MoveState.ScheduleCallback(OnHandChanged);
     }
 
     internal void ResetRemainingHandsAndDiscards()
     {
         RemainingHands = HandsPerRound;
         RemainingDiscards = DiscardsPerRound;
-        GameState.MoveState.RegisterActivatedCallback(OnHandChanged);
+        GameState.MoveState.ScheduleCallback(OnHandChanged);
     }
 
     internal Card[] Draw(int count)
@@ -171,7 +171,7 @@ public class HandState
                 _handBuffer[writeIndex++] = card;
         }
         HandCardCount = writeIndex;
-        GameState.MoveState.RegisterActivatedCallback(OnHandChanged);
+        GameState.MoveState.ScheduleCallback(OnHandChanged);
 
         GameState.JokerState.OnBeforePlayHand();
 

@@ -20,6 +20,9 @@ public sealed class DeckState
     /// </summary>
     public ReadOnlySpan<Card> FullDeck => _fullDeckBuffer.AsSpan(0, FullDeckCardCount);
 
+    public Action OnRemainingDeckChanged;
+    public Action OnFullDeckChanged;
+
     public DeckState(GameState gameState)
     {
         GameState = gameState;
@@ -30,8 +33,8 @@ public sealed class DeckState
     {
         return
             463507903 +
-            Card.HashCardSet(Deck) * 210384047 +
-            Card.HashCardSet(FullDeck);
+            Card.HashCardSetOrdered(Deck) * 210384047 +
+            Card.HashCardSetOrdered(FullDeck);
     }
 
     internal void CloneFrom(DeckState other)
@@ -42,18 +45,17 @@ public sealed class DeckState
         FullDeckCardCount = other.FullDeckCardCount;
     }
 
-    public void AddCardToFullDeck(Card card)
+    internal void AddCardToFullDeck(Card card)
     {
         _fullDeckBuffer[FullDeckCardCount++] = card;
+        GameState.MoveState.ScheduleCallback(OnFullDeckChanged);
     }
 
-    /// <summary>
-    /// Resets <see cref="Deck"/> back to the <see cref="FullDeck"/>
-    /// </summary>
-    public void ResetDeck()
+    internal void ResetDeck()
     {
         FullDeck.CopyTo(_deckBuffer);
         RemainingDeckCardCount = FullDeckCardCount;
+        GameState.MoveState.ScheduleCallback(OnRemainingDeckChanged);
     }
 
     internal void Draw(Span<Card> cards)
@@ -64,6 +66,8 @@ public sealed class DeckState
             indices[i] = GameState.Random.Next(RemainingDeckCardCount - i);
         for (int i = 0; i < count; ++i)
             cards[i] = Draw(indices[i]);
+
+        GameState.MoveState.ScheduleCallback(OnRemainingDeckChanged);
     }
 
     internal void UnDraw(ReadOnlySpan<Card> cards)
@@ -75,7 +79,11 @@ public sealed class DeckState
 
         for (int i = indices.Length - 1; i >= 0; --i)
             UnDraw(indices[i], cards[i]);
+
+        GameState.MoveState.ScheduleCallback(OnRemainingDeckChanged);
     }
+
+    // these functions don't call events, so must be private.
 
     Card Draw(int index)
     {

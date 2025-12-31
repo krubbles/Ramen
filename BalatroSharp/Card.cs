@@ -82,8 +82,20 @@ namespace BalatroAI
                 hash ^= cards[i].GetHashCode();
             return hash;
         }
+
+        public static int HashCardSetOrdered(ReadOnlySpan<Card> cards)
+        {
+            int hash = 314122021;
+            for (int i = 0; i < cards.Length; ++i)
+            {
+                hash ^= cards[i].GetHashCode();
+                hash *= 883906643;
+            }
+            return hash;
+        }
+
     }
-    
+
     /// <summary>
     /// IComparer that does rank-first comparison of cards.
     /// </summary>

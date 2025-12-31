@@ -51,7 +51,7 @@ public sealed class MoveState
             RevertLastMove();
     }
 
-    internal void RegisterActivatedCallback(Action callback)
+    internal void ScheduleCallback(Action callback)
     {
         if (callback != null)
             _activatedCallbacks.Add(callback);
