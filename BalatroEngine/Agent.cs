@@ -5,6 +5,7 @@ using static TorchSharp.torch;
 public class RamenAgent
 {
     public readonly GameState GameState;
+    public readonly GameEvalModel Model;
 
     GameStateTensors _tensors;
 
@@ -13,7 +14,9 @@ public class RamenAgent
     bool _fullDeckValid;
     bool _otherStateValid;
 
-    public RamenAgent(GameState gameState)
+    Tensor _processedHand;
+
+    public RamenAgent(GameState gameState, GameEvalModel model)
     {
         GameState = gameState;
         RegisterCallbacks();
@@ -27,6 +30,11 @@ public class RamenAgent
         OtherState = OtherStateTensor,
     };
 
+    public Tensor GetPredictedRewardDistribution()
+    {
+        return Model.GetPredictedRewardDistribution(ProcessedHandTensor, OtherStateTensor);
+    }
+
     public GameStateTensors TensorsCloned => _tensors.Clone().DetachFromDisposeScope();
 
     public Tensor HandTensor
@@ -39,6 +47,19 @@ public class RamenAgent
                 EmbedHand();
             }
             return _tensors.Hand;
+        }
+    }
+
+    public Tensor ProcessedHandTensor
+    {
+        get
+        {
+            if (!_handValid)
+            {
+                _handValid = true;
+                EmbedHand();
+            }
+            return _processedHand;
         }
     }
 
@@ -85,6 +106,7 @@ public class RamenAgent
     {
         _tensors.Hand?.Dispose();
         _tensors.Hand = EmbedCardSet(GameState.HandState.Hand).DetachFromDisposeScope();
+        _processedHand = Model.ProcessHand(_tensors.Hand);
     }
 
     void EmbedRemainingDeck()

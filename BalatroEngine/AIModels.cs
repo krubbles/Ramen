@@ -73,9 +73,9 @@ namespace BalatroAI
             RegisterComponents();
         }
 
-        public Tensor GetProcessedHand(in GameStateTensors gameState)
+        public Tensor ProcessHand(Tensor hand)
         {
-            Tensor embeddedHand = _embedCard.forward(gameState.Hand).sum(dim: 1);
+            Tensor embeddedHand = _embedCard.forward(hand).sum(dim: 1);
             Tensor result = embeddedHand;
             return result;
         }
@@ -89,7 +89,7 @@ namespace BalatroAI
 
         public Tensor forward(GameStateTensors gameState)
         {
-            Tensor processedHand = GetProcessedHand(gameState);
+            Tensor processedHand = ProcessHand(gameState.Hand);
             Tensor output = GetPredictedRewardDistribution(processedHand, gameState.OtherState);
             return output;
         }
