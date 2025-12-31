@@ -21,6 +21,7 @@ public static class TrainingData
             while (EvaluationTrainingData.Count < startingSampleCount + samples)
             {
                 GameState gameState = new(gameData);
+                gameState.AdvanceToNextPlayerChoice();
                 RamenAgent agent = new(gameState, model);
 
                 List<GameStateTensors> states = new();

@@ -26,5 +26,7 @@ class Program
         }
         Console.WriteLine($"Total number of trainable evaluation parameters: {totalTrainableParams}");
 
+        TrainingData.GenerateEvaluationTrainingData(model, 10);
+
     }
 }

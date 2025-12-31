@@ -132,7 +132,7 @@ public class RamenAgent
                 _otherStateValid = true;
                 EmbedOtherState();
             }
-            return _tensors.FullDeck;
+            return _tensors.OtherState;
         }
     }
 
