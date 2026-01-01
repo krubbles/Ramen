@@ -23,7 +23,6 @@ public static class TrainingData
             RamenAgent agent = new(gameState, model);
 
             List<GameStateTensors> states = new();
-
             while (gameState.HandState.RemainingHands > 0)
             {
                 gameState.AdvanceToNextPlayerChoice();
@@ -33,10 +32,11 @@ public static class TrainingData
                 agent.MakeMoveStochastic(0.4f);
                 states.Add(agent.TensorsCloned);
             }
+            float reward = agent.GetCurrentReward();
 
-            float reward = (float)gameState.ScoringState.CurrentRoundTotalChips / 100f;
-            foreach (GameStateTensors state in states)
+            for (int i = 0; i < states.Count; i++) 
             {
+                GameStateTensors state = states[i];
                 lock (EvaluationTrainingData)
                 {
                     EvaluationTrainingData.Add(new()

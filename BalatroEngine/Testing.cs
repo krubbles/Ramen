@@ -47,7 +47,7 @@ public static class Testing
             while (agent.MakeMoveStochastic(0.01f))
             {
             }
-            totalReward += agent.CalculateCurrentReward();
+            totalReward += agent.GetCurrentReward();
         }
         return totalReward / samples;
     }

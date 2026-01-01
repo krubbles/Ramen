@@ -33,7 +33,7 @@ public class RamenAgent
         OtherState = OtherStateTensor,
     };
 
-    public float CalculateCurrentReward()
+    public float GetCurrentReward()
     {
         return (float)GameState.ScoringState.CurrentRoundTotalChips / 100f;
     }
@@ -69,11 +69,11 @@ public class RamenAgent
         _disposeTensorsOnRegen = true;
         GameStateTensors batch = GameStateTensors.Stack(states, true);
         Tensor rewardDist = Model.forward(batch);
-        float[] predictedRewards = rewardDist[TensorIndex.Colon, 0].data<float>().ToArray();
+        float[] rewardOffsets = rewardDist[TensorIndex.Colon, 0].data<float>().ToArray();
         float[] predictedDevs = rewardDist[TensorIndex.Colon, 1].data<float>().ToArray();
         for (int i = 0; i < predictedDevs.Length; ++i)
             predictedDevs[i] = MathF.Sqrt(predictedDevs[i]);
-        float[] probDist = MeanDistributionAnalyzer.GetProbabilityDistribution(predictedRewards, predictedDevs);
+        float[] probDist = MeanDistributionAnalyzer.GetProbabilityDistribution(rewardOffsets, predictedDevs);
         int moveIndex = MeanDistributionAnalyzer.SampleFromDistribution(Random, probDist);
 
         moves[moveIndex].Apply(GameState);
