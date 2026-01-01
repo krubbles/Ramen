@@ -29,6 +29,8 @@ public static class Training
 
         for (int epoch = 0; epoch < epochs; ++epoch)
         {
+            stacked.Shuffle();
+
             float valLossAvg = 0f;
             int valBatchCount = 0;
             using (no_grad())

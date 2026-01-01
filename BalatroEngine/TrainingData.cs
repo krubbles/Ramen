@@ -6,7 +6,6 @@ using static TorchSharp.torch;
 public static class TrainingData
 {
     public static readonly List<EvaluationTrainingSample> EvaluationTrainingData = new();
-    public static readonly List<PolicyTrainingSample> PolicyTrainingData = new();
 
     public const int PolicyOutputWidth = 9;
 
@@ -29,7 +28,7 @@ public static class TrainingData
                 while (gameState.HandState.RemainingHands > 0)
                 {
                     gameState.AdvanceToNextPlayerChoice();
-                    if (!agent.MakeMoveStochastic(0.01f))
+                    if (!agent.MakeMoveStochastic(1f))
                         break;
                     moves.Add(gameState.MoveState.MoveHistory[^1]);
                     states.Add(agent.TensorsCloned);
@@ -61,24 +60,25 @@ public static class TrainingData
                         }
                     }
                 }
-
+                /*
                 int forkDepth = random.Next(states.Count);
                 moves[forkDepth].Revert(gameState);
                 states.Clear();
-                int highTempMoveCount = random.NextFlip(0.75f) ? 1 : 2;
+                int highTempMoveCount = 1;
                 for (int i = 0; i < highTempMoveCount; ++i)
                 {
                     gameState.AdvanceToNextPlayerChoice();
-                    agent.MakeMoveStochastic(0.8f);
+                    agent.MakeMoveStochastic(1f);
                 }
                 while (gameState.HandState.RemainingHands > 0)
                 {
                     gameState.AdvanceToNextPlayerChoice();
-                    if (!agent.MakeMoveStochastic(0.01f))
+                    if (!agent.MakeMoveStochastic(0.15f))
                         break;
                     moves.Add(gameState.MoveState.MoveHistory[^1]);
                 }
                 AddTrainingData();
+                                */
             }
         }
     }
@@ -164,27 +164,17 @@ public struct GameStateTensors : IDisposable
 
     public static GameStateTensors Stack(IReadOnlyList<GameStateTensors> tensors, bool disposeInputs)
     {
-        Tensor[] handStates = new Tensor[tensors.Count];
-        Tensor[] otherStates = new Tensor[tensors.Count];
-        for (int i = 0; i < tensors.Count; ++i)
-        {
-            handStates[i] = tensors[i].Hand;
-            otherStates[i] = tensors[i].OtherState;
-        }
-
         GameStateTensors result = new()
         {
-            Hand = concat(handStates, dim: 0),
-            OtherState = concat(otherStates, dim: 0),
+            Hand = cat(tensors.Select(t => t.Hand).ToArray(), dim: 0),
+            RemainingDeck = cat(tensors.Select(t => t.RemainingDeck).ToArray(), dim: 0),
+            FullDeck = cat(tensors.Select(t => t.FullDeck).ToArray(), dim: 0),
+            OtherState = cat(tensors.Select(t => t.OtherState).ToArray(), dim: 0),
         };
 
         if (disposeInputs)
         {
-            for (int i = 0; i < tensors.Count; ++i)
-            {
-                handStates[i].Dispose();
-                otherStates[i].Dispose();
-            }
+            foreach (var t in tensors) t.Dispose();
         }
 
         return result;
@@ -198,6 +188,17 @@ public struct GameStateTensors : IDisposable
             FullDeck = FullDeck?[start..end],
             OtherState = OtherState?[start..end],
             RemainingDeck = RemainingDeck?[start..end],
+        };
+    }
+
+    public GameStateTensors IndexSelect(Tensor indices)
+    {
+        return new GameStateTensors()
+        {
+            Hand = Hand?.index_select(0, indices),
+            RemainingDeck = RemainingDeck?.index_select(0, indices),
+            FullDeck = FullDeck?.index_select(0, indices),
+            OtherState = OtherState?.index_select(0, indices),
         };
     }
 
@@ -227,87 +228,47 @@ public struct GameStateTensors : IDisposable
         FullDeck?.DetachFromDisposeScope();
         RemainingDeck?.DetachFromDisposeScope();
         return this;
-    }   
-}
-
-public struct PolicyTrainingSample : IDisposable
-{
-    public GameStateTensors GameStateTensors;
-    public Tensor InUseMask;
-    public Tensor Output;
-
-    public static PolicyTrainingSample Stack(IReadOnlyList<PolicyTrainingSample> samples, bool disposeInputs)
-    {
-        GameStateTensors[] gameStates = new GameStateTensors[samples.Count];
-        Tensor[] outputs = new Tensor[samples.Count];
-        Tensor[] workingHands = new Tensor[samples.Count];
-
-        for (int i = 0; i < samples.Count; ++i)
-        {
-            gameStates[i] = samples[i].GameStateTensors;
-            outputs[i] = samples[i].Output;
-            workingHands[i] = samples[i].InUseMask;
-        }
-        PolicyTrainingSample result = new()
-        {
-            GameStateTensors = GameStateTensors.Stack(gameStates, disposeInputs),
-            Output = concat(outputs, dim: 0),
-            InUseMask = concat(workingHands, dim: 0)
-        };
-        if (disposeInputs)
-        {
-            for (int i = 0; i < samples.Count; ++i)
-            {
-                samples[i].Dispose();
-            }
-        }
-        return result;
-    }
-
-    public void Dispose()
-    {
-        GameStateTensors.Dispose();
-        InUseMask.Dispose();
-        Output.Dispose();
     }
 }
 
 public struct EvaluationTrainingSample : IDisposable
 {
     public GameStateTensors GameStateTensors;
-    public Tensor Target; // scalar reward
+    public Tensor Target;
 
     public static EvaluationTrainingSample Stack(IReadOnlyList<EvaluationTrainingSample> samples, bool disposeInputs)
     {
-        GameStateTensors[] gameStates = new GameStateTensors[samples.Count];
-        Tensor[] targets = new Tensor[samples.Count];
-
-        for (int i = 0; i < samples.Count; ++i)
-        {
-            gameStates[i] = samples[i].GameStateTensors;
-            targets[i] = samples[i].Target;
-        }
-
         EvaluationTrainingSample result = new()
         {
-            GameStateTensors = GameStateTensors.Stack(gameStates, disposeInputs),
-            Target = concat(targets, dim: 0),
+            GameStateTensors = GameStateTensors.Stack(samples.Select(s => s.GameStateTensors).ToList(), disposeInputs),
+            Target = cat(samples.Select(s => s.Target).ToArray(), dim: 0),
         };
 
         if (disposeInputs)
         {
-            for (int i = 0; i < samples.Count; ++i)
-            {
-                samples[i].Dispose();
-            }
+            foreach (var s in samples) 
+                s.Target?.Dispose();
         }
 
         return result;
     }
 
+    public EvaluationTrainingSample Shuffle()
+    {
+        long n = Target.shape[0];
+        using (Tensor indices = randperm(n, device: Target.device))
+        {
+            return new EvaluationTrainingSample()
+            {
+                GameStateTensors = GameStateTensors.IndexSelect(indices),
+                Target = Target.index_select(0, indices)
+            };
+        }
+    }
+
     public void Dispose()
     {
         GameStateTensors.Dispose();
-        Target.Dispose();
+        Target?.Dispose();
     }
 }

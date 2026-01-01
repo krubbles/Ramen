@@ -35,7 +35,7 @@ public class RamenAgent
 
     public float GetCurrentReward()
     {
-        return (float)GameState.ScoringState.CurrentRoundTotalChips / 100f;
+        return (float)GameState.ScoringState.CurrentRoundTotalChips / 300f;
     }
 
     public (float mean, float dev) GetPredictedRewardDistribution()
@@ -62,26 +62,35 @@ public class RamenAgent
         int moveCount = moves.Count;
 
         int[,] hands = new int[moveCount, 8];
-        float[,] otherStates = new float[moveCount, 3];
+        float[,] otherStates = new float[moveCount, 12];
 
         HandState handState = GameState.HandState;
         ScoringState scoringState = GameState.ScoringState;
+        int hash = GameState.GetHashCode();
         for (int move = 0; move < moveCount; ++move)
         {
             moves[move].Apply(GameState);
 
             Span<Card> hand = handState.Hand;
-            for (int i = 0; i < 8; ++i)
-            {
-                hands[move, i] = i < hand.Length ? hand[i].ToIndex() : 0;
-            }
 
-            otherStates[move, 0] = (float)scoringState.CurrentRoundTotalChips;
+            otherStates[move, 0] = (float)scoringState.CurrentRoundTotalChips / 300f;
             otherStates[move, 1] = handState.RemainingHands;
-            otherStates[move, 2] = handState.RemainingDiscards;
+            otherStates[move, 2] = handState.RemainingHands == 4 ? 1f : 0f;
+            otherStates[move, 3] = handState.RemainingHands == 3 ? 1f : 0f;
+            otherStates[move, 4] = handState.RemainingHands == 2 ? 1f : 0f;
+            otherStates[move, 5] = handState.RemainingHands == 1 ? 1f : 0f;
+            otherStates[move, 1] = handState.RemainingDiscards;
+            otherStates[move, 7] = handState.RemainingDiscards == 4 ? 1f : 0f;
+            otherStates[move, 8] = handState.RemainingDiscards == 3 ? 1f : 0f;
+            otherStates[move, 9] = handState.RemainingDiscards == 2 ? 1f : 0f;
+            otherStates[move, 10] = handState.RemainingDiscards == 1 ? 1f : 0f;
+            otherStates[move, 11] = handState.RemainingDiscards == 0 ? 1f : 0f;
+
 
             moves[move].Revert(GameState);
         }
+        if (GameState.GetHashCode() != hash)
+            throw new Exception("eeee err");
 
         Tensor handsTensor = tensor(hands);
         Tensor otherStatesTensor = tensor(otherStates);
@@ -196,9 +205,20 @@ public class RamenAgent
             _tensors.OtherState?.Dispose();
         _tensors.OtherState = tensor(
         [
-            (float)GameState.ScoringState.CurrentRoundTotalChips,
+            (float)GameState.ScoringState.CurrentRoundTotalChips / 300f,
+            
             GameState.HandState.RemainingHands,
-            GameState.HandState.RemainingDiscards
+            GameState.HandState.RemainingHands == 4 ? 1f : 0f,
+            GameState.HandState.RemainingHands == 3 ? 1f : 0f,
+            GameState.HandState.RemainingHands == 2 ? 1f : 0f,
+            GameState.HandState.RemainingHands == 1 ? 1f : 0f,
+
+            GameState.HandState.RemainingDiscards,
+            GameState.HandState.RemainingDiscards == 4 ? 1f : 0f,
+            GameState.HandState.RemainingDiscards == 3 ? 1f : 0f,
+            GameState.HandState.RemainingDiscards == 2 ? 1f : 0f,
+            GameState.HandState.RemainingDiscards == 1 ? 1f : 0f,
+            GameState.HandState.RemainingDiscards == 0 ? 1f : 0f,
         ]).unsqueeze(0).DetachFromDisposeScope();
     }
 

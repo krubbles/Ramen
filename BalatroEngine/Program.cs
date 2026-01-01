@@ -32,20 +32,13 @@ class Program
 
         Console.WriteLine("Av Score: " + Testing.GetAverageScore(model));
 
-        TrainingData.GenerateEvaluationTrainingData(model, 100);
-        Training.TrainEvaluationModel(model, 20, 256, true);
-        Console.WriteLine("Av Score: " + Testing.GetAverageScore(model));
-
-        TrainingData.EvaluationTrainingData.Clear();
-        TrainingData.GenerateEvaluationTrainingData(model, 300);
-        Training.TrainEvaluationModel(model, 20, 256, true);
-        Console.WriteLine("Av Score: " + Testing.GetAverageScore(model));
-
-        TrainingData.EvaluationTrainingData.Clear();
-        TrainingData.GenerateEvaluationTrainingData(model, 500);
-        Training.TrainEvaluationModel(model, 20, 256, true);
-        Console.WriteLine("Av Score: " + Testing.GetAverageScore(model));
-
-
+        int dataSize = 100;
+        for (int i = 0; i < 100; i++)
+        {
+            TrainingData.GenerateEvaluationTrainingData(model, dataSize);
+            Training.TrainEvaluationModel(model, 4, 256, false);
+            Console.WriteLine("Av Score: " + Testing.GetAverageScore(model));
+            dataSize += 100;
+        }
     }
 }
