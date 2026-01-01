@@ -33,17 +33,17 @@ class Program
         Console.WriteLine("Av Score: " + Testing.GetAverageScore(model));
 
         TrainingData.GenerateEvaluationTrainingData(model, 100);
-        Training.TrainEvaluationModel(model, 10, 256, true);
+        Training.TrainEvaluationModel(model, 20, 256, true);
         Console.WriteLine("Av Score: " + Testing.GetAverageScore(model));
 
         TrainingData.EvaluationTrainingData.Clear();
         TrainingData.GenerateEvaluationTrainingData(model, 300);
-        Training.TrainEvaluationModel(model, 30, 256, true);
+        Training.TrainEvaluationModel(model, 20, 256, true);
         Console.WriteLine("Av Score: " + Testing.GetAverageScore(model));
 
         TrainingData.EvaluationTrainingData.Clear();
         TrainingData.GenerateEvaluationTrainingData(model, 500);
-        Training.TrainEvaluationModel(model, 30, 256, true);
+        Training.TrainEvaluationModel(model, 20, 256, true);
         Console.WriteLine("Av Score: " + Testing.GetAverageScore(model));
 
 

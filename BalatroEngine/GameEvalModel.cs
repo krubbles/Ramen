@@ -27,7 +27,7 @@ namespace BalatroAI
             FinalNetwork = Sequential(
                 new ResidualMLP(FinalNetworkWidth, 1),
                 ReLU(),
-                Linear(FinalNetworkWidth, 2)
+                Linear(FinalNetworkWidth, 1)
             );
 
             RegisterComponents();
@@ -44,7 +44,6 @@ namespace BalatroAI
         {
             Tensor input = concat([processedHand, otherState], dim: 1);
             Tensor output = FinalNetwork.forward(input);
-            output = concat([output.narrow(1, 0, 1), RemapVariance(output.narrow(1, 1, 1))], dim: 1);
             return output;
         }
 

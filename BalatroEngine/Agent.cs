@@ -93,14 +93,23 @@ public class RamenAgent
         };
 
         Tensor rewardDist = Model.forward(batch);
-        float[] rewardOffsets = rewardDist[TensorIndex.Colon, 0].data<float>().ToArray();
-        float[] predictedDevs = rewardDist[TensorIndex.Colon, 1].data<float>().ToArray();
-        for (int i = 0; i < predictedDevs.Length; ++i)
-            predictedDevs[i] = MathF.Sqrt(predictedDevs[i]);
-        float[] probDist = MeanDistributionAnalyzer.GetProbabilityDistribution(rewardOffsets, predictedDevs);
-        int moveIndex = MeanDistributionAnalyzer.SampleFromDistribution(Random, probDist);
+        float[] rewards = rewardDist[TensorIndex.Colon, 0].data<float>().ToArray();
+        float max = float.MinValue;
+        for (int i = 0; i < rewards.Length; ++i)
+            max = Math.Max(max, rewards[i]);
+        float total = 0;
+        for (int i = 0; i < rewards.Length; ++i)
+        {
+            float r = MathF.Exp((rewards[i] - max) / Math.Max(temp, 0.0001f));
+            rewards[i] = r;
+            total += r;
+        }
+        for (int i = 0; i < rewards.Length; ++i)
+            rewards[i] /= total;
 
+        int moveIndex = MeanDistributionAnalyzer.SampleFromDistribution(Random, rewards);
         moves[moveIndex].Apply(GameState);
+
         return true;
     }
 

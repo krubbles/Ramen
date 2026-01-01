@@ -37,15 +37,16 @@ public static class Testing
         return maxScore;
     }
 
-    public static float GetAverageScore(GameEvalModel model, int samples = 30)
+    public static float GetAverageScore(GameEvalModel model, int samples = 100)
     {
         float totalReward = 0;
         for (int i = 0; i < samples; ++i)
         {
             GameState gameState = new(new());
             RamenAgent agent = new(gameState, model);
-            while (agent.MakeMoveStochastic(0.01f))
+            while (agent.MakeMoveStochastic(0.001f))
             {
+
             }
             totalReward += agent.GetCurrentReward();
         }

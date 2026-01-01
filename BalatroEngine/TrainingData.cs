@@ -13,38 +13,72 @@ public static class TrainingData
     static void GenerateEvalTrainingDataJob(GameEvalModel model, int samples)
     {
         using var scope = NewDisposeScope();
-        using var nograd = no_grad();
-        FastRandom random = FastRandom.SeededByClock();
-        GameData gameData = new();
-        while (EvaluationTrainingData.Count < samples)
+        using (no_grad())
         {
-            GameState gameState = new(gameData);
-            gameState.AdvanceToNextPlayerChoice();
-            RamenAgent agent = new(gameState, model);
-
-            List<GameStateTensors> states = new();
-            while (gameState.HandState.RemainingHands > 0)
+            FastRandom random = FastRandom.SeededByClock();
+            GameData gameData = new();
+            List<EvaluationTrainingSample> batch = new();
+            while (EvaluationTrainingData.Count < samples)
             {
+                GameState gameState = new(gameData);
                 gameState.AdvanceToNextPlayerChoice();
-                List<Move> moves = gameState.GetMoveOptions();
-                if (moves.Count == 0)
-                    break;
-                agent.MakeMoveStochastic(0.4f);
-                states.Add(agent.TensorsCloned);
-            }
-            float reward = agent.GetCurrentReward();
+                RamenAgent agent = new(gameState, model);
 
-            for (int i = 0; i < states.Count; i++) 
-            {
-                GameStateTensors state = states[i];
-                lock (EvaluationTrainingData)
+                List<GameStateTensors> states = new();
+                List<Move> moves = new();
+                while (gameState.HandState.RemainingHands > 0)
                 {
-                    EvaluationTrainingData.Add(new()
-                    {
-                        GameStateTensors = state,
-                        Target = tensor(reward).unsqueeze(0).unsqueeze(0).DetachFromDisposeScope()
-                    });
+                    gameState.AdvanceToNextPlayerChoice();
+                    if (!agent.MakeMoveStochastic(0.01f))
+                        break;
+                    moves.Add(gameState.MoveState.MoveHistory[^1]);
+                    states.Add(agent.TensorsCloned);
                 }
+                AddTrainingData();
+
+                void AddTrainingData()
+                {
+                    float reward = agent.GetCurrentReward();
+
+                    for (int i = 0; i < states.Count; i++)
+                    {
+                        GameStateTensors state = states[i];
+                        batch.Add(new()
+                        {
+                            GameStateTensors = state,
+                            Target = tensor(reward).unsqueeze(0).unsqueeze(0)
+                        });
+                        if (batch.Count >= 100)
+                        {
+                            EvaluationTrainingSample toAdd = EvaluationTrainingSample.Stack(batch, true);
+                            batch.Clear();
+                            toAdd.GameStateTensors.DetachFromDisposeScope();
+                            toAdd.Target.DetachFromDisposeScope();
+                            lock (EvaluationTrainingData)
+                            {
+                                EvaluationTrainingData.Add(toAdd);
+                            }
+                        }
+                    }
+                }
+
+                int forkDepth = random.Next(states.Count);
+                moves[forkDepth].Revert(gameState);
+                states.Clear();
+                int highTempMoveCount = random.NextFlip(0.75f) ? 1 : 2;
+                for (int i = 0; i < highTempMoveCount; ++i)
+                {
+                    gameState.AdvanceToNextPlayerChoice();
+                    agent.MakeMoveStochastic(0.8f);
+                }
+                while (gameState.HandState.RemainingHands > 0)
+                {
+                    gameState.AdvanceToNextPlayerChoice();
+                    if (!agent.MakeMoveStochastic(0.01f))
+                        break;
+                    moves.Add(gameState.MoveState.MoveHistory[^1]);
+                }
+                AddTrainingData();
             }
         }
     }
@@ -56,7 +90,7 @@ public static class TrainingData
         if (true)
         {
 
-            Task[] tasks = new Task[8];
+            Task[] tasks = new Task[1];
             for (int i = 0; i < tasks.Length; ++i)
             {
                 tasks[i] = Task.Run(() =>
@@ -68,7 +102,7 @@ public static class TrainingData
             while (EvaluationTrainingData.Count < samples)
             {
                 Thread.Sleep(1000);
-                Console.WriteLine($"Samples {EvaluationTrainingData.Count}, time {watch.Elapsed.TotalSeconds:F1}, rate {EvaluationTrainingData.Count / watch.Elapsed.TotalSeconds:F1}");
+                Console.WriteLine($"Samples {EvaluationTrainingData.Count * 100}, time {watch.Elapsed.TotalSeconds:F1}, rate {EvaluationTrainingData.Count * 100f / watch.Elapsed.TotalSeconds:F1}");
                 foreach (Task task in tasks)
                 {
                     if (task.Exception != null)

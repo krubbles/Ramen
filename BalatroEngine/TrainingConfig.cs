@@ -9,7 +9,7 @@ namespace BalatroAI
     public static class TrainingConfig
     {
         public const int BatchSize = 64;
-        public const float LearningRate = 0.0004f;
+        public const float LearningRate = 0.001f;
 
         public const float GoodPlayTemp = 1.2f;
         public const float ExploratoryPlayTemp = 2f;

@@ -21,7 +21,7 @@ public static class Training
         }
 
         var optimizer = optim.AdamW(model.parameters(), lr: TrainingConfig.LearningRate, weight_decay: 0.001f);
-        var lossFunc = GaussianNLLLoss(eps: 0.001f);
+        var lossFunc = MSELoss();
 
         int samples = (int)stacked.Target.size(dim: 0);
         int valCount = validate ? Math.Max(1, samples / 10) : 0; 
@@ -40,9 +40,7 @@ public static class Training
                     Tensor targets = stacked.Target[i..end];
 
                     Tensor predictions = model.forward(inputs);
-                    Tensor predictedMeans = predictions[TensorIndex.Colon, 0];
-                    Tensor predictedDeviations = predictions[TensorIndex.Colon, 1];
-                    var loss = lossFunc.forward(predictedMeans, targets, predictedDeviations);
+                    var loss = lossFunc.forward(predictions, targets);
                     valLossAvg += loss.item<float>();
                     valBatchCount++;
                 }
@@ -60,10 +58,8 @@ public static class Training
                 optimizer.zero_grad();
 
                 Tensor predictions = model.forward(inputs);
-                Tensor predictedMeans = predictions[TensorIndex.Colon, 0];
-                Tensor predictedDeviations = predictions[TensorIndex.Colon, 1];
-                
-                var loss = lossFunc.forward(predictedMeans, targets, predictedDeviations);
+
+                var loss = lossFunc.forward(predictions, targets);
                 loss.backward();
                 optimizer.step();
 
