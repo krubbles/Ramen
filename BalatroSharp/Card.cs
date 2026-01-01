@@ -94,6 +94,7 @@ namespace BalatroAI
             return hash;
         }
 
+        public int ToIndex() => Rank == 0 ? 0 : Rank - 1 + ((int)Suit - 1) * 13;
     }
 
     /// <summary>

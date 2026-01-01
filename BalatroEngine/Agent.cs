@@ -58,16 +58,40 @@ public class RamenAgent
             moves[0].Apply(GameState);
             return true;
         }
-        GameStateTensors[] states = new GameStateTensors[moves.Count];
-        _disposeTensorsOnRegen = false;
-        for (int i = 0; i < moves.Count; ++i)
+
+        int moveCount = moves.Count;
+
+        int[,] hands = new int[moveCount, 8];
+        float[,] otherStates = new float[moveCount, 3];
+
+        HandState handState = GameState.HandState;
+        ScoringState scoringState = GameState.ScoringState;
+        for (int move = 0; move < moveCount; ++move)
         {
-            moves[i].Apply(GameState);
-            states[i] = Tensors;
-            moves[i].Revert(GameState);
+            moves[move].Apply(GameState);
+
+            Span<Card> hand = handState.Hand;
+            for (int i = 0; i < 8; ++i)
+            {
+                hands[move, i] = i < hand.Length ? hand[i].ToIndex() : 0;
+            }
+
+            otherStates[move, 0] = (float)scoringState.CurrentRoundTotalChips;
+            otherStates[move, 1] = handState.RemainingHands;
+            otherStates[move, 2] = handState.RemainingDiscards;
+
+            moves[move].Revert(GameState);
         }
-        _disposeTensorsOnRegen = true;
-        GameStateTensors batch = GameStateTensors.Stack(states, true);
+
+        Tensor handsTensor = tensor(hands);
+        Tensor otherStatesTensor = tensor(otherStates);
+
+        GameStateTensors batch = new()
+        {
+            Hand = handsTensor,
+            OtherState = otherStatesTensor
+        };
+
         Tensor rewardDist = Model.forward(batch);
         float[] rewardOffsets = rewardDist[TensorIndex.Colon, 0].data<float>().ToArray();
         float[] predictedDevs = rewardDist[TensorIndex.Colon, 1].data<float>().ToArray();
@@ -79,6 +103,8 @@ public class RamenAgent
         moves[moveIndex].Apply(GameState);
         return true;
     }
+
+
 
     public GameStateTensors TensorsCloned => Tensors.Clone().DetachFromDisposeScope();
 
@@ -180,7 +206,7 @@ public class RamenAgent
         int[] cards = new int[embedSize];
         for (int i = 0; i < embedSize; ++i)
         {
-            cards[i] = i < hand.Length ? hand[i].Rank - 2 + ((int)hand[i].Suit - 1) * 13 : 52;
+            cards[i] = i < hand.Length ? hand[i].ToIndex() : 0;
         }
 
         Tensor handTensor = tensor(cards);
