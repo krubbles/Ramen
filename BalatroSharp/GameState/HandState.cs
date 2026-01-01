@@ -120,7 +120,15 @@ public class HandState
 
     internal void AddCardToHand(Card card)
     {
-        _handBuffer[HandCardCount++] = card;
+        int index = Array.BinarySearch(_handBuffer, 0, HandCardCount, card);
+        if (index < 0)
+            index = ~index;
+        for (int i = HandCardCount; i > index; --i)
+        {
+            _handBuffer[i] = _handBuffer[i - 1];
+        }
+        _handBuffer[index] = card;
+        HandCardCount++;
         GameState.MoveState.ScheduleCallback(OnHandChanged);
     }
 
