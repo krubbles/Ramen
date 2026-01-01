@@ -21,7 +21,7 @@ public static class Training
         }
 
         var optimizer = optim.AdamW(model.parameters(), lr: TrainingConfig.LearningRate, weight_decay: 0.001f);
-        var lossFunc = GaussianNLLLoss();
+        var lossFunc = GaussianNLLLoss(eps: 0.001f);
 
         int samples = (int)stacked.Target.size(dim: 0);
         int valCount = validate ? Math.Max(1, samples / 10) : 0; 
