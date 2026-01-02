@@ -16,7 +16,7 @@ namespace BalatroAI
         public readonly Sequential OtherStateProcessor;
         public readonly Sequential FinalNetwork;
 
-        public const int EmbeddedCardWidth = 32 - OtherStateWidth;
+        public const int EmbeddedCardWidth = 128 - OtherStateWidth;
         public const int FinalNetworkWidth = EmbeddedCardWidth + OtherStateWidth;
         public const int OtherStateWidth = 12;
 
@@ -25,9 +25,9 @@ namespace BalatroAI
             _embedCard = Embedding(53, EmbeddedCardWidth);
 
             FinalNetwork = Sequential(
-                Linear(OtherStateWidth, 32),
+                Linear(FinalNetworkWidth, 128),
                 ReLU(),
-                Linear(32, 16),
+                Linear(128, 16),
                 ReLU(),
                 Linear(16, 1)
             );
@@ -44,8 +44,8 @@ namespace BalatroAI
 
         public Tensor GetPredictedRewardDistribution(Tensor processedHand, Tensor otherState)
         {
-            // Tensor input = concat([processedHand, otherState], dim: 1);
-            Tensor output = FinalNetwork.forward(otherState);
+            Tensor input = concat([processedHand, otherState], dim: 1);
+            Tensor output = FinalNetwork.forward(input);
             return output;
         }
 

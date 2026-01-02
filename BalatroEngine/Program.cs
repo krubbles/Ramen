@@ -30,15 +30,21 @@ class Program
         }
         Console.WriteLine($"Total number of trainable evaluation parameters: {totalTrainableParams}");
 
-        Console.WriteLine("Av Score: " + Testing.GetAverageScore(model));
+        Console.WriteLine("Av Score: " + Testing.GetAverageScore(model, 100));
 
-        int dataSize = 100;
-        for (int i = 0; i < 100; i++)
+        List<float> avgScores = new();
+        for (int i = 0; i < 1000; i++)
         {
-            TrainingData.GenerateEvaluationTrainingData(model, dataSize);
-            Training.TrainEvaluationModel(model, 4, 256, false);
-            Console.WriteLine("Av Score: " + Testing.GetAverageScore(model));
-            dataSize += 100;
+            if (i % 10 == 0)
+            {
+                avgScores.Add(Testing.GetAverageScore(model, 100));
+                Console.WriteLine("scores:");
+                foreach (float score in avgScores)
+                    Console.WriteLine(score);
+            }
+            TrainingData.EvaluationTrainingData.Clear();
+            TrainingData.GenerateEvaluationTrainingData(model, 10000);
+            Training.TrainEvaluationModelStackless(model, 5, 1, true);
         }
     }
 }

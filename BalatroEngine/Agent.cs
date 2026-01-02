@@ -46,8 +46,11 @@ public class RamenAgent
         return (mean, dev);
     }
 
-    public bool MakeMoveStochastic(float temp)
+    public bool MakeMoveStochastic(float temp) => MakeMoveStochastic(temp, out _);
+
+    public bool MakeMoveStochastic(float temp, out EvaluationTrainingSample sample, bool generateSample = false)
     {
+        sample = default;
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
         List<Move> moves = GameState.GetMoveOptions();
@@ -72,6 +75,8 @@ public class RamenAgent
             moves[move].Apply(GameState);
 
             Span<Card> hand = handState.Hand;
+            for (int i = 0; i < 8; ++i)
+                hands[move, i] = i < hand.Length ? hand[i].ToIndex() : 0;
 
             otherStates[move, 0] = (float)scoringState.CurrentRoundTotalChips / 300f;
             otherStates[move, 1] = handState.RemainingHands;
@@ -117,6 +122,17 @@ public class RamenAgent
             rewards[i] /= total;
 
         int moveIndex = MeanDistributionAnalyzer.SampleFromDistribution(Random, rewards);
+
+        if (generateSample)
+        {
+            Tensor target = zeros(moves.Count, 1);
+            target[moveIndex, 0] = 1;
+            sample = new()
+            {
+                Target = target.DetachFromDisposeScope(),
+                GameStateTensors = batch.DetachFromDisposeScope(),
+            };
+        }
         moves[moveIndex].Apply(GameState);
 
         return true;

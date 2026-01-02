@@ -9,77 +9,48 @@ public static class TrainingData
 
     public const int PolicyOutputWidth = 9;
 
-    static void GenerateEvalTrainingDataJob(GameEvalModel model, int samples)
+    static void GenerateGRPOTrainingDataGroup(GameEvalModel model, int groupSize = 8)
     {
+        FastRandom random = FastRandom.SeededByClock();
+        GameData gameData = new();
         using var scope = NewDisposeScope();
+        List<EvaluationTrainingSample>[] groupGames = new List<EvaluationTrainingSample>[groupSize];
+        float[] groupRewards = new float[groupSize];
         using (no_grad())
         {
-            FastRandom random = FastRandom.SeededByClock();
-            GameData gameData = new();
-            List<EvaluationTrainingSample> batch = new();
-            while (EvaluationTrainingData.Count < samples)
+            for (int group = 0; group < groupSize; ++group)
             {
+                List<EvaluationTrainingSample> gameSamples = new();
+                groupGames[group] = gameSamples;
                 GameState gameState = new(gameData);
-                gameState.AdvanceToNextPlayerChoice();
                 RamenAgent agent = new(gameState, model);
 
-                List<GameStateTensors> states = new();
-                List<Move> moves = new();
+                gameState.AdvanceToNextPlayerChoice();
+
                 while (gameState.HandState.RemainingHands > 0)
                 {
                     gameState.AdvanceToNextPlayerChoice();
-                    if (!agent.MakeMoveStochastic(1f))
+                    if (!agent.MakeMoveStochastic(1f, out EvaluationTrainingSample sample, true))
                         break;
-                    moves.Add(gameState.MoveState.MoveHistory[^1]);
-                    states.Add(agent.TensorsCloned);
+                    gameSamples.Add(sample);
                 }
-                AddTrainingData();
 
-                void AddTrainingData()
-                {
-                    float reward = agent.GetCurrentReward();
-
-                    for (int i = 0; i < states.Count; i++)
-                    {
-                        GameStateTensors state = states[i];
-                        batch.Add(new()
-                        {
-                            GameStateTensors = state,
-                            Target = tensor(reward).unsqueeze(0).unsqueeze(0)
-                        });
-                        if (batch.Count >= 100)
-                        {
-                            EvaluationTrainingSample toAdd = EvaluationTrainingSample.Stack(batch, true);
-                            batch.Clear();
-                            toAdd.GameStateTensors.DetachFromDisposeScope();
-                            toAdd.Target.DetachFromDisposeScope();
-                            lock (EvaluationTrainingData)
-                            {
-                                EvaluationTrainingData.Add(toAdd);
-                            }
-                        }
-                    }
-                }
-                /*
-                int forkDepth = random.Next(states.Count);
-                moves[forkDepth].Revert(gameState);
-                states.Clear();
-                int highTempMoveCount = 1;
-                for (int i = 0; i < highTempMoveCount; ++i)
-                {
-                    gameState.AdvanceToNextPlayerChoice();
-                    agent.MakeMoveStochastic(1f);
-                }
-                while (gameState.HandState.RemainingHands > 0)
-                {
-                    gameState.AdvanceToNextPlayerChoice();
-                    if (!agent.MakeMoveStochastic(0.15f))
-                        break;
-                    moves.Add(gameState.MoveState.MoveHistory[^1]);
-                }
-                AddTrainingData();
-                                */
+                groupRewards[group] = agent.GetCurrentReward();
             }
+        }
+        Array.Sort(groupRewards, groupGames);
+        for (int group = groupSize / 2; group < groupSize; ++group)
+        {
+            foreach (EvaluationTrainingSample sample in groupGames[group])
+                EvaluationTrainingData.Add(sample);
+        }
+    }
+
+    static void GenerateEvalTrainingDataJob(GameEvalModel model, int samples)
+    {
+        while (EvaluationTrainingData.Count < samples)
+        {
+            GenerateGRPOTrainingDataGroup(model);
         }
     }
 
