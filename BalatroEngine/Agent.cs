@@ -46,9 +46,9 @@ public class RamenAgent
         return (mean, dev);
     }
 
-    public bool MakeMoveStochastic(float temp) => MakeMoveStochastic(temp, out _);
+    public bool MakeMoveStochastic(float temp) => MakeMoveStochastic(temp, out _, 1);
 
-    public bool MakeMoveStochastic(float temp, out EvaluationTrainingSample sample, bool generateSample = false)
+    public bool MakeMoveStochastic(float temp, out EvaluationTrainingSample sample, int sampleCount = 12, bool generateSample = false)
     {
         sample = default;
         using var scope = NewDisposeScope();
@@ -103,42 +103,27 @@ public class RamenAgent
         GameStateTensors batch = new()
         {
             Hand = handsTensor,
-            OtherState = otherStatesTensor
+            OtherState = otherStatesTensor,
+            RemainingDeck = RemainingDeckTensor.expand([moveCount, RemainingDeckTensor.size(1)])
         };
 
-        Tensor rewardDist = Model.forward(batch);
-        float[] rewards = rewardDist[TensorIndex.Colon, 0].data<float>().ToArray();
-        float max = float.MinValue;
-        for (int i = 0; i < rewards.Length; ++i)
-            max = Math.Max(max, rewards[i]);
-        float total = 0;
-        for (int i = 0; i < rewards.Length; ++i)
-        {
-            float r = MathF.Exp((rewards[i] - max) / Math.Max(temp, 0.0001f));
-            rewards[i] = r;
-            total += r;
-        }
-        for (int i = 0; i < rewards.Length; ++i)
-            rewards[i] /= total;
-
-        int moveIndex = MeanDistributionAnalyzer.SampleFromDistribution(Random, rewards);
-
+        Tensor rewardDist = (Model.forward(batch) / Math.Max(temp, 0.0001f)).softmax(0).squeeze_(1);
+        Tensor indices = multinomial(rewardDist, sampleCount, replacement: false);
+        long moveIndex = indices.data<long>()[0];
         if (generateSample)
         {
-            Tensor target = zeros(moves.Count, 1);
-            target[moveIndex, 0] = 1;
+            Tensor target = zeros(sampleCount, 1);
+            target[0, 0] = 1;
             sample = new()
             {
-                Target = target.DetachFromDisposeScope(),
-                GameStateTensors = batch.DetachFromDisposeScope(),
+                ProbDist = rewardDist.index_select(0, indices).DetachFromDisposeScope(),
+                GameStateTensors = batch.IndexSelect(indices).DetachFromDisposeScope(),
             };
         }
-        moves[moveIndex].Apply(GameState);
+        moves[(int)moveIndex].Apply(GameState);
 
         return true;
     }
-
-
 
     public GameStateTensors TensorsCloned => Tensors.Clone().DetachFromDisposeScope();
 

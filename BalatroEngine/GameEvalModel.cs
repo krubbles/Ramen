@@ -16,8 +16,8 @@ namespace BalatroAI
         public readonly Sequential OtherStateProcessor;
         public readonly Sequential FinalNetwork;
 
-        public const int EmbeddedCardWidth = 128 - OtherStateWidth;
-        public const int FinalNetworkWidth = EmbeddedCardWidth + OtherStateWidth;
+        public const int EmbeddedCardWidth = 128;
+        public const int FinalNetworkWidth = EmbeddedCardWidth * 2 + OtherStateWidth;
         public const int OtherStateWidth = 12;
 
         public GameEvalModel() : base(nameof(GameEvalModel))
@@ -25,11 +25,11 @@ namespace BalatroAI
             _embedCard = Embedding(53, EmbeddedCardWidth);
 
             FinalNetwork = Sequential(
-                Linear(FinalNetworkWidth, 128),
+                Linear(FinalNetworkWidth, 256),
                 ReLU(),
-                Linear(128, 16),
+                Linear(256, 128),
                 ReLU(),
-                Linear(16, 1)
+                Linear(128, 1)
             );
 
             RegisterComponents();
@@ -37,14 +37,14 @@ namespace BalatroAI
 
         public Tensor ProcessHand(Tensor hand)
         {
-            Tensor embeddedHand = _embedCard.forward(hand).sum(dim: 1);
+            Tensor embeddedHand = _embedCard.forward(hand).sum(dim: hand.Dimensions - 1);
             Tensor result = embeddedHand.relu_();
             return result;
         }
 
-        public Tensor GetPredictedRewardDistribution(Tensor processedHand, Tensor otherState)
+        public Tensor GetPredictedRewardDistribution(Tensor processedHand, Tensor processedDeck, Tensor otherState)
         {
-            Tensor input = concat([processedHand, otherState], dim: 1);
+            Tensor input = concat([processedHand, processedDeck, otherState], dim: otherState.Dimensions - 1);
             Tensor output = FinalNetwork.forward(input);
             return output;
         }
@@ -58,7 +58,8 @@ namespace BalatroAI
         public Tensor forward(GameStateTensors gameState)
         {
             Tensor processedHand = ProcessHand(gameState.Hand);
-            Tensor output = GetPredictedRewardDistribution(processedHand, gameState.OtherState);
+            Tensor processedDeck = ProcessHand(gameState.RemainingDeck);
+            Tensor output = GetPredictedRewardDistribution(processedHand, processedDeck, gameState.OtherState);
             return output;
         }
     }

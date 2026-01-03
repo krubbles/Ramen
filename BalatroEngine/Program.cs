@@ -35,7 +35,7 @@ class Program
         List<float> avgScores = new();
         for (int i = 0; i < 1000; i++)
         {
-            if (i % 10 == 0)
+            if (i % 10 == 9)
             {
                 avgScores.Add(Testing.GetAverageScore(model, 100));
                 Console.WriteLine("scores:");
@@ -43,8 +43,8 @@ class Program
                     Console.WriteLine(score);
             }
             TrainingData.EvaluationTrainingData.Clear();
-            TrainingData.GenerateEvaluationTrainingData(model, 10000);
-            Training.TrainEvaluationModelStackless(model, 5, 1, true);
+            TrainingData.GenerateEvaluationTrainingData(model, i < 100 ? 1000 : 2000);
+            Training.TrainEvaluationModel(model, 5,  128, true);
         }
     }
 }

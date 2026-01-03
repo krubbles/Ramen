@@ -10,6 +10,9 @@ using static TorchSharp.torch.nn;
 
 public static class Training
 {
+    public const float epsilon = 0.2f;
+    public const float entropyCoeff = 0f;
+
     public static void TrainEvaluationModelStackless(GameEvalModel model, int epochs, int batchSize, bool validate = false)
     {
         Console.WriteLine($"Training evaluation model for {epochs} epochs, batch size {batchSize}");
@@ -32,7 +35,7 @@ public static class Training
                 for (int i = trainCount; i < samples; i += batchSize)
                 {
                     Tensor predictions = model.forward(TrainingData.EvaluationTrainingData[i].GameStateTensors);
-                    var loss = lossFunc.forward(predictions, TrainingData.EvaluationTrainingData[i].Target);
+                    var loss = lossFunc.forward(predictions, TrainingData.EvaluationTrainingData[i].ProbDist);
                     valLossAvg += loss.item<float>();
                     valBatchCount++;
                 }
@@ -47,7 +50,7 @@ public static class Training
             for (int i = 0; i < trainCount; i += batchSize)
             {
                 Tensor predictions = model.forward(TrainingData.EvaluationTrainingData[i].GameStateTensors).squeeze(1);
-                var loss = lossFunc.forward(predictions, TrainingData.EvaluationTrainingData[i].Target.squeeze(1));
+                var loss = lossFunc.forward(predictions, TrainingData.EvaluationTrainingData[i].ProbDist.squeeze(1));
                 loss.backward();
 
                 trainLossAvg += loss.item<float>();
@@ -66,12 +69,13 @@ public static class Training
 
     public static void TrainEvaluationModel(GameEvalModel model, int epochs, int batchSize, bool validate = false)
     {
+
         Console.WriteLine($"Training evaluation model for {epochs} epochs, batch size {batchSize}");
 
         EvaluationTrainingSample stacked;
         lock (TrainingData.EvaluationTrainingData)
         {
-            stacked = EvaluationTrainingSample.Stack(TrainingData.EvaluationTrainingData, false);
+            stacked = EvaluationTrainingSample.Stack(TrainingData.EvaluationTrainingData, false, false);
         }
 
         stacked.Shuffle();
@@ -94,11 +98,18 @@ public static class Training
                 for (int i = trainCount; i < samples; i += batchSize)
                 {
                     int end = Math.Min(i + batchSize, samples);
-                    GameStateTensors inputs = stacked.GameStateTensors.GetBatch(i, end);
-                    Tensor targets = stacked.Target[i..end];
+                    EvaluationTrainingSample inputs = stacked.GetBatch(i, end);
 
-                    Tensor predictions = model.forward(inputs);
-                    var loss = lossFunc.forward(predictions, targets);
+                   Tensor logits = model.forward(inputs.GameStateTensors).squeeze(2); 
+
+                    var logQ = log(inputs.ProbDist + 1e-9);
+                    var logitsAdjusted = logits - logQ;
+
+                    var currentBatchSize = logits.shape[0];
+                    var targets = zeros([currentBatchSize], ScalarType.Int64, device: logits.device);
+                    var ceLoss = functional.cross_entropy(logitsAdjusted, targets, reduction: Reduction.None);
+                    var loss = (ceLoss * inputs.Advantage).mean();
+
                     valLossAvg += loss.item<float>();
                     valBatchCount++;
                 }
@@ -108,25 +119,38 @@ public static class Training
             float trainLossAvg = 0f;
             int trainBatchCount = 0;
 
-            optimizer.zero_grad();
 
             for (int i = 0; i < trainCount; i += batchSize)
             {
+                optimizer.zero_grad();
+
                 int end = Math.Min(i + batchSize, samples);
-                GameStateTensors inputs = stacked.GameStateTensors.GetBatch(i, end);
-                Tensor targets = stacked.Target[i..end];
+                EvaluationTrainingSample inputs = stacked.GetBatch(i, end);
 
+                Tensor logits = model.forward(inputs.GameStateTensors).squeeze(2);
+                var logProbs = functional.log_softmax(logits, dim: 1);
+                var logPiNew = logProbs.select(1, 0);
 
-                Tensor predictions = model.forward(inputs);
+                var probs = exp(logProbs);
+                var entropy = -(probs * logProbs).sum(1).mean();
 
-                var loss = lossFunc.forward(predictions, targets);
+                var logPiOld = log(inputs.ProbDist + 1e-9).select(1, 0);
+
+                var ratio = exp(logPiNew - logPiOld);
+
+                var advantage = inputs.Advantage;
+                var surr1 = ratio * advantage;
+                var surr2 = clamp(ratio, 1.0f - epsilon, 1.0f + epsilon) * advantage;
+
+                var loss = -min(surr1, surr2).mean() - entropyCoeff;
+
                 loss.backward();
+                optimizer.step();
 
                 trainLossAvg += loss.item<float>();
                 trainBatchCount++;
             }
 
-            optimizer.step();
 
             trainLossAvg /= Math.Max(1, trainBatchCount);
 
