@@ -73,6 +73,8 @@ public class RamenAgent
         int[,] hands = new int[moveCount, 8];
         float[,] otherStates = new float[moveCount, 12];
 
+        Tensor fullHand = HandTensor.clone();
+
         HandState handState = GameState.HandState;
         ScoringState scoringState = GameState.ScoringState;
         int hash = GameState.GetHashCode();
@@ -110,7 +112,8 @@ public class RamenAgent
         {
             Hand = handsTensor,
             OtherState = otherStatesTensor,
-            RemainingDeck = RemainingDeckTensor.expand([moveCount, RemainingDeckTensor.size(1)])
+            RemainingDeck = RemainingDeckTensor.expand([moveCount, RemainingDeckTensor.size(1)]),
+            FullHand = fullHand.expand([moveCount, fullHand.size(1)]),
         };
 
         Tensor rewardDist = (Model.forward(batch) / Math.Max(temp, 0.0001f)).softmax(0).squeeze_(1);

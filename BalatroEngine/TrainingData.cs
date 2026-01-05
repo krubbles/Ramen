@@ -214,6 +214,7 @@ public static class TrainingData
 public struct GameStateTensors : IDisposable
 {
     public Tensor Hand;
+    public Tensor FullHand;
     public Tensor RemainingDeck;
     public Tensor FullDeck;
     public Tensor OtherState;
@@ -222,6 +223,7 @@ public struct GameStateTensors : IDisposable
     {
         GameStateTensors result = new()
         {
+            FullHand = concat ? cat(tensors.Select(t => t.FullHand).ToArray(), dim: 0) : stack(tensors.Select(t => t.FullHand).ToArray()),
             Hand = concat ? cat(tensors.Select(t => t.Hand).ToArray(), dim: 0) : stack(tensors.Select(t => t.Hand).ToArray()),
             // RemainingDeck = concat ? cat(tensors.Select(t => t.RemainingDeck).ToArray(), dim: 0) : stack(tensors.Select(t => t.RemainingDeck).ToArray()),
             // FullDeck = concat ? cat(tensors.Select(t => t.FullDeck).ToArray(), dim: 0) : stack(tensors.Select(t => t.FullDeck).ToArray()),
@@ -243,6 +245,7 @@ public struct GameStateTensors : IDisposable
         return new GameStateTensors()
         {
             Hand = Hand?[start..end],
+            FullHand = FullHand?[start..end],
             FullDeck = FullDeck?[start..end],
             OtherState = OtherState?[start..end],
             RemainingDeck = RemainingDeck?[start..end],
@@ -254,6 +257,7 @@ public struct GameStateTensors : IDisposable
         return new GameStateTensors()
         {
             Hand = Hand?.index_select(0, indices),
+            FullHand = FullHand?.index_select(0, indices),
             RemainingDeck = RemainingDeck?.index_select(0, indices),
             FullDeck = FullDeck?.index_select(0, indices),
             OtherState = OtherState?.index_select(0, indices),
@@ -265,6 +269,7 @@ public struct GameStateTensors : IDisposable
         return new()
         {
             Hand = Hand?.clone(),
+            FullHand = FullHand?.clone(),
             FullDeck = FullDeck?.clone(),
             OtherState = OtherState?.clone(),
             RemainingDeck = RemainingDeck?.clone(),
@@ -274,6 +279,7 @@ public struct GameStateTensors : IDisposable
     public void Dispose()
     {
         Hand?.Dispose();
+        FullHand?.Dispose();
         OtherState?.Dispose();
         FullDeck?.Dispose();
         RemainingDeck?.Dispose();
@@ -285,6 +291,7 @@ public struct GameStateTensors : IDisposable
         OtherState?.DetachFromDisposeScope();
         FullDeck?.DetachFromDisposeScope();
         RemainingDeck?.DetachFromDisposeScope();
+        FullHand?.DetachFromDisposeScope();
         return this;
     }
 }

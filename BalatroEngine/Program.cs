@@ -40,8 +40,7 @@ class Program
                     Console.WriteLine(score);
             }
             TrainingData.EvaluationTrainingData.Clear();
-            float temp = 0.5f;
-            TrainingData.GenerateEvaluationTrainingData(model, multiplier * 1000, temp);
+            TrainingData.GenerateEvaluationTrainingData(model, multiplier * 1000, 1f);
             Training.entropyCoeff = 0.02f;
             Training.kldCoeff = 0.05f;
             if (i > 300)
