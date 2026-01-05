@@ -1,7 +1,8 @@
-﻿namespace BalatroAI;
+﻿namespace Ramen.AI;
 
 using System.Diagnostics;
 using static TorchSharp.torch;
+using Ramen.Game;
 
 public static class TrainingData
 {
@@ -9,7 +10,7 @@ public static class TrainingData
 
     public const int PolicyOutputWidth = 9;
 
-    static void GenerateGRPOTrainingDataGroup(GameEvalModel model, int groupSize = 8)
+    static void GenerateGRPOTrainingDataGroup(GameEvalModel model, int groupSize = 32, float temp = 1f)
     {
         FastRandom random = FastRandom.SeededByClock();
         GameData gameData = new();
@@ -27,10 +28,10 @@ public static class TrainingData
 
                 gameState.AdvanceToNextPlayerChoice();
 
-                while (gameState.HandState.RemainingHands > 0)
+                while (gameState.HandState.RemainingHands > 0 && gameState.ScoringState.CurrentRoundTotalChips < 300)
                 {
                     gameState.AdvanceToNextPlayerChoice();
-                    if (!agent.MakeMoveStochastic(1f, out EvaluationTrainingSample sample, 12, true))
+                    if (!agent.MakeMoveStochastic(temp, out EvaluationTrainingSample sample, 12, true))
                         break;
                     gameSamples.Add(sample);
                 }
@@ -38,6 +39,30 @@ public static class TrainingData
                 groupRewards[group] = agent.GetCurrentReward();
             }
         }
+#if true 
+        float sum = 0;
+        float sqSum = 0;
+
+        for (int group = 0; group < groupSize; ++group)
+        {
+            sum += groupRewards[group];
+            sqSum += groupRewards[group] * groupRewards[group];
+        }
+
+        float mean = sum / groupSize;
+        float ss = sqSum - sum * mean;
+        float stdDev = MathF.Sqrt(ss / (groupSize - 1));
+
+        Array.Sort(groupRewards, groupGames);
+        for (int group = 0; group < groupSize; ++group)
+        {
+            float advantage = (groupRewards[group] - mean) / MathF.Max(stdDev, 1e-8f);
+
+            foreach (EvaluationTrainingSample sample in groupGames[group])
+                EvaluationTrainingData.Add(sample with { Advantage = tensor(advantage).DetachFromDisposeScope() });
+        }
+
+#else // Renormalizing advantage
         Array.Sort(groupRewards, groupGames);
         for (int group = 0; group < groupSize; ++group)
         {
@@ -47,6 +72,7 @@ public static class TrainingData
             foreach (EvaluationTrainingSample sample in groupGames[group])
                 EvaluationTrainingData.Add(sample with { Advantage = tensor(advantage).DetachFromDisposeScope() });
         }
+#endif
     }
 
     static double RationalApproximation(double t)
@@ -105,15 +131,15 @@ public static class TrainingData
         }
     }
 
-    static void GenerateEvalTrainingDataJob(GameEvalModel model, int samples)
+    static void GenerateEvalTrainingDataJob(GameEvalModel model, int samples, float temp)
     {
         while (EvaluationTrainingData.Count < samples)
         {
-            GenerateGRPOTrainingDataGroup(model);
+            GenerateGRPOTrainingDataGroup(model, temp: temp);
         }
     }
 
-    public static void GenerateEvaluationTrainingData(GameEvalModel model, int samples)
+    public static void GenerateEvaluationTrainingData(GameEvalModel model, int samples, float temp)
     {
         Stopwatch watch = Stopwatch.StartNew();
 
@@ -125,7 +151,7 @@ public static class TrainingData
             {
                 tasks[i] = Task.Run(() =>
                 {
-                    GenerateEvalTrainingDataJob(model, samples);
+                    GenerateEvalTrainingDataJob(model, samples, temp);
                 });
             }
 
@@ -144,7 +170,7 @@ public static class TrainingData
         }
         else
         {
-            GenerateEvalTrainingDataJob(model, samples);
+            GenerateEvalTrainingDataJob(model, samples, temp);
         }
     }
 

@@ -1,4 +1,4 @@
-﻿namespace BalatroAI;
+﻿namespace Ramen.Game;
 
 /// <summary>
 /// Holds all state used for scoring hands and tracking total chips earned in the current round.

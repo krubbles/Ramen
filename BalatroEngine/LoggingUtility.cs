@@ -1,4 +1,4 @@
-﻿namespace BalatroAI;
+﻿namespace Ramen.AI;
 
 using System.Text;
 

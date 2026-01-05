@@ -1,39 +1,38 @@
-﻿namespace BalatroAI
+﻿namespace Ramen.Game;
+
+public class Joker
 {
-    public class Joker
+    public string Name;
+    public Rarity Rarity;
+
+    public Action<GameState, JokerInstance>
+        OnAdd,
+        OnRemove,
+        OnPlayHand,
+        OnDiscardHand,
+        OnJokerTrigger;
+
+    public Action<GameState, JokerInstance, Card>
+        OnBeginScoringCard,
+        OnScoreCard,
+        OnDiscardCard;
+}
+
+public class JokerInstance
+{
+    public readonly Joker JokerData;
+    public int State = 0;
+
+    public JokerInstance(Joker jokerData)
     {
-        public string Name;
-        public Rarity Rarity;
-
-        public Action<GameState, JokerInstance>
-            OnAdd,
-            OnRemove,
-            OnPlayHand,
-            OnDiscardHand,
-            OnJokerTrigger;
-
-        public Action<GameState, JokerInstance, Card>
-            OnBeginScoringCard,
-            OnScoreCard,
-            OnDiscardCard;
+        JokerData = jokerData;
     }
+}
 
-    public class JokerInstance
-    {
-        public readonly Joker JokerData;
-        public int State = 0;
-
-        public JokerInstance(Joker jokerData)
-        {
-            JokerData = jokerData;
-        }
-    }
-
-    public enum Rarity
-    {
-        Common,
-        Uncommon,
-        Rare,
-        Legendary
-    }
+public enum Rarity
+{
+    Common,
+    Uncommon,
+    Rare,
+    Legendary
 }

@@ -1,7 +1,7 @@
-﻿using BalatroAI;
-using System.Text;
+﻿namespace Ramen.ConsoleApp;
 
-namespace BalatroAI.ConsoleApp;
+using System.Text;
+using Ramen.Game;
 
 public class ConsoleCommandContext
 {

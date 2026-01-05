@@ -1,4 +1,6 @@
-﻿namespace BalatroAI;
+﻿namespace Ramen.Game;
+
+using System.Text;
 
 /// <summary>
 /// Manages all state transitions for the GameState, including player choices. 
@@ -62,5 +64,19 @@ public sealed class MoveState
         foreach (Action action in _activatedCallbacks)
             action.Invoke();
         _activatedCallbacks.Clear();
+    }
+
+    public string GameToString()
+    {
+        StringBuilder sb = new();
+        Move[] moves = MoveHistory.ToArray();
+        moves[0].Revert(GameState);
+        foreach (Move move in moves)
+        {
+            sb.AppendLine(GameState.ToString());
+            move.Apply(GameState);
+            sb.AppendLine(move.ToString());
+        }
+        return sb.ToString();
     }
 }

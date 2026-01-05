@@ -1,10 +1,8 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.14.36414.22 d17.14
+# Visual Studio Version 18
+VisualStudioVersion = 18.3.11312.210 d18.3
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ConsoleApp", "BalatroAI\ConsoleApp.csproj", "{21BCB3C1-EA47-48E0-B289-A10635464EE9}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Game", "BalatroSharp\Game.csproj", "{5237C616-DE15-40C9-A916-00EB70F26C60}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AI", "BalatroEngine\AI.csproj", "{97E50E8F-02A6-4E8F-ADB9-B4A822A81E7B}"
@@ -15,10 +13,6 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{21BCB3C1-EA47-48E0-B289-A10635464EE9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{21BCB3C1-EA47-48E0-B289-A10635464EE9}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{21BCB3C1-EA47-48E0-B289-A10635464EE9}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{21BCB3C1-EA47-48E0-B289-A10635464EE9}.Release|Any CPU.Build.0 = Release|Any CPU
 		{5237C616-DE15-40C9-A916-00EB70F26C60}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{5237C616-DE15-40C9-A916-00EB70F26C60}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5237C616-DE15-40C9-A916-00EB70F26C60}.Release|Any CPU.ActiveCfg = Release|Any CPU

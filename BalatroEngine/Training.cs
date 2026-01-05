@@ -1,17 +1,15 @@
 ﻿#define STACKLESS
-namespace BalatroAI;
+namespace Ramen.AI;
 
-using System.Collections.Generic;
 using System.Linq;
-using TorchSharp;
-using TorchSharp.Modules;
 using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
 
 public static class Training
 {
     public const float epsilon = 0.2f;
-    public const float entropyCoeff = 0f;
+    public static float entropyCoeff = 0.01f;
+    public static float kldCoeff = 0.05f;
 
     public static void TrainEvaluationModelStackless(GameEvalModel model, int epochs, int batchSize, bool validate = false)
     {
@@ -134,15 +132,21 @@ public static class Training
                 var probs = exp(logProbs);
                 var entropy = -(probs * logProbs).sum(1).mean();
 
-                var logPiOld = log(inputs.ProbDist + 1e-9).select(1, 0);
+                var logProbsOld = log(inputs.ProbDist + 1e-9);
+                var logPiOld = logProbsOld.select(1, 0);
 
                 var ratio = exp(logPiNew - logPiOld);
+
+                var kld = (inputs.ProbDist * (logProbsOld - logProbs)).sum(dim: 1);
 
                 var advantage = inputs.Advantage;
                 var surr1 = ratio * advantage;
                 var surr2 = clamp(ratio, 1.0f - epsilon, 1.0f + epsilon) * advantage;
 
-                var loss = -min(surr1, surr2).mean() - entropyCoeff;
+                var policyReward = min(surr1, surr2);
+                var entropyReward = entropyCoeff * entropy;
+                var kldLoss = kld * kldCoeff;
+                var loss = (kldLoss - policyReward - entropyReward).mean();
 
                 loss.backward();
                 optimizer.step();

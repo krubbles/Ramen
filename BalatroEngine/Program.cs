@@ -1,13 +1,7 @@
-﻿namespace BalatroAI;
+﻿namespace Ramen.AI;
 
 using System;
-using TorchSharp;
 using static TorchSharp.torch;
-using static TorchSharp.torch.nn;
-using TorchSharp.Modules;
-using BalatroAI;
-using BalatroAI.ConsoleApp;
-using System.Buffers;
 
 class Program
 {
@@ -35,16 +29,24 @@ class Program
         List<float> avgScores = new();
         for (int i = 0; i < 1000; i++)
         {
+            int multiplier = 1;
+
             if (i % 10 == 9)
             {
-                avgScores.Add(Testing.GetAverageScore(model, 100));
+                Testing.GetAverageScore(model, 5, true);
+                avgScores.Add(Testing.GetAverageScore(model, multiplier * 1000));
                 Console.WriteLine("scores:");
                 foreach (float score in avgScores)
                     Console.WriteLine(score);
             }
             TrainingData.EvaluationTrainingData.Clear();
-            TrainingData.GenerateEvaluationTrainingData(model, i < 100 ? 1000 : 2000);
-            Training.TrainEvaluationModel(model, 5,  128, true);
+            float temp = 0.5f;
+            TrainingData.GenerateEvaluationTrainingData(model, multiplier * 1000, temp);
+            Training.entropyCoeff = 0.02f;
+            Training.kldCoeff = 0.05f;
+            if (i > 300)
+                Training.entropyCoeff *= 0.1f;
+            Training.TrainEvaluationModel(model, 5,  64, false);
         }
     }
 }

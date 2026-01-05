@@ -13,7 +13,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\BalatroAI\ConsoleApp.csproj" />
     <ProjectReference Include="..\BalatroSharp\Game.csproj" />
   </ItemGroup>
 

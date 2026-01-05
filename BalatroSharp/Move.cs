@@ -1,4 +1,4 @@
-﻿namespace BalatroAI;
+﻿namespace Ramen.Game;
 
 /// <summary>
 /// A class that represents a state transition for a <see cref="gameState"/>. All state changes are handled by moves.

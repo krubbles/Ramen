@@ -1,4 +1,4 @@
-﻿namespace BalatroAI;
+﻿namespace Ramen.Game;
 
 /// <summary>
 /// Holds the state of the player's hand including remaining plays and discards.
@@ -324,6 +324,11 @@ public sealed class UseHandMove : Move
 
         gameState.Stage = StageOfGame.InRoundPlayerChoice;
     }
+
+    public override string ToString()
+    {
+        return $"{(IsDiscard ? "Discard" : "Play")} Hand: {CardParseUtils.SerializeHand(_cards)}";
+    }
 }
 
 /// <summary>
@@ -350,6 +355,11 @@ public sealed class DrawCardsMove : Move
     {
         gameState.HandState.UnDraw(_cards);
     }
+
+    public override string ToString()
+    {
+        return $"Draw Cards: {CardParseUtils.SerializeHand(_cards)}";
+    }
 }
 
 /// <summary>
@@ -372,5 +382,10 @@ public sealed class AfterHandUsedMove : Move
     {
         gameState.Stage = _stage;
         gameState.HandState.UnDraw(_cards);
+    }
+
+    public override string ToString()
+    {
+        return $"After Hand Used. Draw Cards: {CardParseUtils.SerializeHand(_cards)}";
     }
 }

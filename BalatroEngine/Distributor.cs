@@ -1,7 +1,7 @@
-﻿using System;
-using System.Runtime.CompilerServices;
-namespace BalatroAI;
+﻿namespace Ramen.AI;
 
+using System.Runtime.CompilerServices;
+using Ramen.Game;
 
 public static class MeanDistributionAnalyzer
 {

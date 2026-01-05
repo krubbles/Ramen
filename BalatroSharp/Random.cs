@@ -1,4 +1,4 @@
-﻿namespace BalatroAI;
+﻿namespace Ramen.Game;
 /// <summary>
 /// A xorshift* 64/32 psudo-random number generator.
 /// </summary>

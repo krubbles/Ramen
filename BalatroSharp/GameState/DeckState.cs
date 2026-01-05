@@ -1,4 +1,4 @@
-﻿namespace BalatroAI;
+﻿namespace Ramen.Game;
 
 public sealed class DeckState
 {

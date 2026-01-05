@@ -1,4 +1,4 @@
-﻿namespace BalatroAI;
+﻿namespace Ramen.Game;
 
 /// <summary>
 /// A type of poker hand, like high card or flush.

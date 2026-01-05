@@ -1,4 +1,4 @@
-﻿namespace BalatroAI;
+﻿namespace Ramen.Game;
 
 public sealed class GameState
 {
@@ -90,6 +90,11 @@ public sealed class GameState
         if (Stage != stage)
             throw new InvalidOperationException($"GameState is not in the expected stage. Expected: {stage}, Actual: {Stage}");
     }
+
+    public override string ToString()
+    {
+        return $"[Hand: {CardParseUtils.SerializeHand(HandState.Hand)}, RH {HandState.RemainingHands}, RD: {HandState.RemainingDiscards}]";
+    }
 }
 
 /// <summary>
@@ -115,6 +120,12 @@ public sealed class StartRoundMove : Move
         gameState.Stage = StageOfGame.BeginRound;
 
         gameState.HandState.ResetRemainingHandsAndDiscards();
+    }
+
+
+    public override string ToString()
+    {
+        return "Start Round";
     }
 }
 

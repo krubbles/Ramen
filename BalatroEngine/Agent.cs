@@ -1,4 +1,6 @@
-﻿namespace BalatroAI;
+﻿namespace Ramen.AI;
+
+using Ramen.Game;
 
 using static TorchSharp.torch;
 
@@ -35,7 +37,11 @@ public class RamenAgent
 
     public float GetCurrentReward()
     {
-        return (float)GameState.ScoringState.CurrentRoundTotalChips / 300f;
+        if (GameState.ScoringState.CurrentRoundTotalChips >= 300)
+        {
+            return 1f + GameState.HandState.RemainingHands * 0.2f;
+        }
+        return (float)GameState.ScoringState.CurrentRoundTotalChips / 3000f;
     }
 
     public (float mean, float dev) GetPredictedRewardDistribution()
@@ -109,6 +115,7 @@ public class RamenAgent
 
         Tensor rewardDist = (Model.forward(batch) / Math.Max(temp, 0.0001f)).softmax(0).squeeze_(1);
         Tensor indices = multinomial(rewardDist, sampleCount, replacement: false);
+
         long moveIndex = indices.data<long>()[0];
         if (generateSample)
         {

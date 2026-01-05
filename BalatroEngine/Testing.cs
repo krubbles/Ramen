@@ -1,6 +1,6 @@
-﻿namespace BalatroAI;
-using static TorchSharp.torch;
-using ConsoleApp;
+﻿namespace Ramen.AI;
+
+using Ramen.Game;
 
 public static class Testing
 {
@@ -37,18 +37,24 @@ public static class Testing
         return maxScore;
     }
 
-    public static float GetAverageScore(GameEvalModel model, int samples = 1000)
+    public static float GetAverageScore(GameEvalModel model, int samples = 1000, bool log = false)
     {
         float totalReward = 0;
         for (int i = 0; i < samples; ++i)
         {
             GameState gameState = new(new());
             RamenAgent agent = new(gameState, model);
-            while (agent.MakeMoveStochastic(0.00001f))
+            gameState.AdvanceToNextPlayerChoice();
+            while (gameState.ScoringState.CurrentRoundTotalChips < 300 && gameState.HandState.RemainingHands > 0)
             {
-
+                agent.MakeMoveStochastic(0.00001f);
             }
             totalReward += agent.GetCurrentReward();
+            if (log)
+            {
+                Console.WriteLine(gameState.MoveState.GameToString());
+                Console.WriteLine("Final Reward: " + agent.GetCurrentReward());
+            }
         }
         return totalReward / samples;
     }
