@@ -3,6 +3,7 @@
 using Ramen.Game;
 
 using static TorchSharp.torch;
+using static TorchSharp.torch.optim.lr_scheduler.impl.CyclicLR;
 
 public class RamenAgent
 {
@@ -86,18 +87,6 @@ public class RamenAgent
             for (int i = 0; i < 8; ++i)
                 hands[move, i] = i < hand.Length ? hand[i].ToIndex() : 0;
 
-            otherStates[move, 0] = (float)scoringState.CurrentRoundTotalChips / 300f;
-            otherStates[move, 1] = handState.RemainingHands;
-            otherStates[move, 2] = handState.RemainingHands == 4 ? 1f : 0f;
-            otherStates[move, 3] = handState.RemainingHands == 3 ? 1f : 0f;
-            otherStates[move, 4] = handState.RemainingHands == 2 ? 1f : 0f;
-            otherStates[move, 5] = handState.RemainingHands == 1 ? 1f : 0f;
-            otherStates[move, 1] = handState.RemainingDiscards;
-            otherStates[move, 7] = handState.RemainingDiscards == 4 ? 1f : 0f;
-            otherStates[move, 8] = handState.RemainingDiscards == 3 ? 1f : 0f;
-            otherStates[move, 9] = handState.RemainingDiscards == 2 ? 1f : 0f;
-            otherStates[move, 10] = handState.RemainingDiscards == 1 ? 1f : 0f;
-            otherStates[move, 11] = handState.RemainingDiscards == 0 ? 1f : 0f;
 
 
             moves[move].Revert(GameState);
@@ -134,6 +123,27 @@ public class RamenAgent
 
         return true;
     }
+
+    public void FillOtherStateData(GameState gameState, Span<float> otherStates)
+    {
+        HandState handState = GameState.HandState;
+        ScoringState scoringState = GameState.ScoringState;
+
+        int index = 0;
+        otherStates[index++] = (float)scoringState.CurrentRoundTotalChips / 300f;
+        otherStates[index++] = handState.RemainingHands;
+        otherStates[index++] = handState.RemainingHands == 4 ? 1f : 0f;
+        otherStates[index++] = handState.RemainingHands == 3 ? 1f : 0f;
+        otherStates[index++] = handState.RemainingHands == 2 ? 1f : 0f;
+        otherStates[index++] = handState.RemainingHands == 1 ? 1f : 0f;
+        otherStates[index++] = handState.RemainingDiscards;
+        otherStates[index++] = handState.RemainingDiscards == 4 ? 1f : 0f;
+        otherStates[index++] = handState.RemainingDiscards == 3 ? 1f : 0f;
+        otherStates[index++] = handState.RemainingDiscards == 2 ? 1f : 0f;
+        otherStates[index++] = handState.RemainingDiscards == 1 ? 1f : 0f;
+        otherStates[index++] = handState.RemainingDiscards == 0 ? 1f : 0f;
+    }
+
 
     public GameStateTensors TensorsCloned => Tensors.Clone().DetachFromDisposeScope();
 

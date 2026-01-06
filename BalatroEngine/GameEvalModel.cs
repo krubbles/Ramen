@@ -12,7 +12,7 @@ public class GameEvalModel : Module
     public readonly Sequential OtherStateProcessor;
     public readonly Sequential FinalNetwork;
 
-    public const int EmbeddedCardWidth = 64;
+    public const int EmbeddedCardWidth = 96;
     public const int FinalNetworkWidth = EmbeddedCardWidth * 3 + OtherStateWidth;
     public const int OtherStateWidth = 12;
 
@@ -38,7 +38,7 @@ public class GameEvalModel : Module
 
     public Tensor GetPredictedRewardDistribution(Tensor processedHand, Tensor processedDeck, Tensor processedFullHand, Tensor otherState)
     {
-        Tensor input = concat([processedHand, processedFullHand, processedDeck, otherState], dim: otherState.Dimensions - 1);
+        Tensor input = concat([processedHand, processedDeck, processedFullHand, otherState], dim: otherState.Dimensions - 1);
         Tensor output = FinalNetwork.forward(input);
         return output;
     }
@@ -74,7 +74,7 @@ class ResidualMLP : Module<Tensor, Tensor>
     {
         for (int i = 0; i < depth; ++i)
         {
-            int factor = 2;
+            int factor = 1;
             upLayers.append(Linear(size, size * factor));
             downLayers.append(Linear(size * factor, size));
             activationsA.append(GELU());

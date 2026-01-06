@@ -4,6 +4,8 @@ using System.Diagnostics;
 using static TorchSharp.torch;
 using Ramen.Game;
 using System.Security.Cryptography.X509Certificates;
+using System.Reflection;
+using System.Net.Http.Headers;
 
 public static class TrainingData
 {
@@ -232,6 +234,96 @@ public static class TrainingData
     }
 }
 
+public class TensorGroup : IDisposable
+{
+    readonly FieldInfo[] _fields;
+
+    public TensorGroup()
+    {
+        _fields = GetTensorFields(GetType());
+    }
+
+    public static T Stack<T>(IList<T> tensorGroups, bool disposeInputs, bool concat, int dim = 0) where T : TensorGroup, new()
+    {
+        FieldInfo[] fields = GetTensorFields(typeof(T));
+        Tensor[][] tensors = new Tensor[fields.Length][];
+        for (int i = 0; i < fields.Length; ++i)
+            tensors[i] = new Tensor[tensorGroups.Count];
+
+        for (int i = 0; i < tensorGroups.Count; ++i)
+        {
+            T tensorGroup = tensorGroups[i];
+            for (int j = 0; j < fields.Length; ++j)
+                tensors[j][i] = (Tensor)fields[j].GetValue(tensorGroup);
+        }
+
+        T result = new();
+        for (int i = 0; i < fields.Length; ++i)
+            fields[i].SetValue(result, concat ? cat(tensors[i], dim) : stack(tensors[i], dim));
+
+        if (disposeInputs)
+        {
+            foreach (Tensor[] tensorArray in tensors)
+                foreach (Tensor tensor in tensorArray)
+                    tensor.Dispose();
+        }
+
+        return result;
+    }
+
+    public T GetBatch<T>(int start, int end) where T : TensorGroup, new()
+    {
+        T result = new();
+        foreach (FieldInfo field in _fields)
+            field.SetValue(result, (field.GetValue(this) as Tensor)?[start..end]);
+        return result;
+    }
+
+    public T IndexSelect<T>(int dim, Tensor indices) where T : TensorGroup, new()
+    {
+        T result = new();
+        foreach (FieldInfo field in _fields)
+            field.SetValue(result, (field.GetValue(this) as Tensor)?.index_select(dim, indices));
+        return result;
+    }
+
+    public virtual void Dispose()
+    {
+        foreach (FieldInfo field in _fields)
+        {
+            Tensor toDispose = field.GetValue(this) as Tensor;
+            toDispose?.Dispose();
+        }
+        GC.SuppressFinalize(this);
+    }
+
+    static FieldInfo[] GetTensorFields(Type type)
+    {
+        if (!_tensorFieldsByType.TryGetValue(type, out FieldInfo[] tensors))
+        {
+            List<FieldInfo> tList = new(5);
+            foreach (FieldInfo field in type.GetFields())
+            {
+                if (field.FieldType == typeof(Tensor))
+                {
+                    tList.Add(field);
+                }
+            }
+            tensors = tList.ToArray();
+            _tensorFieldsByType.Add(type, tensors);
+        }
+        return tensors;
+    }
+
+    static readonly Dictionary<Type, FieldInfo[]> _tensorFieldsByType = [];
+}
+
+public class MoveTensors
+{
+    public Tensor NewOtherState;
+    public Tensor CardsInPlayedHand;
+    public Tensor CardsInRemainingHand;
+}
 
 public struct GameStateTensors : IDisposable
 {
