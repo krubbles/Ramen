@@ -23,6 +23,8 @@ public abstract class Move
 
     public void Revert(GameState gameState)
     {
+        if (this.gameState == null)
+            throw new InvalidOperationException("Cannot revert a move that hasn't been applied.");
         if (this.gameState != gameState)
             throw new InvalidOperationException("Cannot revert move on a different game state than it was applied to.");
         if (gameState.MoveState.MoveHistory[_moveStep] != this)

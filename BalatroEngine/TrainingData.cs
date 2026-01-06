@@ -3,6 +3,7 @@
 using System.Diagnostics;
 using static TorchSharp.torch;
 using Ramen.Game;
+using System.Security.Cryptography.X509Certificates;
 
 public static class TrainingData
 {
@@ -10,21 +11,30 @@ public static class TrainingData
 
     public const int PolicyOutputWidth = 9;
 
+    class SN
+    {
+        public EvaluationTrainingSample Sample;
+        public int N;
+        public Move Move;
+    }
+
     static void GenerateGRPOTrainingDataGroup(GameEvalModel model, int groupSize = 32, float temp = 1f)
     {
         FastRandom random = FastRandom.SeededByClock();
         GameData gameData = new();
         using var scope = NewDisposeScope();
-        List<EvaluationTrainingSample>[] groupGames = new List<EvaluationTrainingSample>[groupSize];
+        List<SN>[] groupGames = new List<SN>[groupSize];
         float[] groupRewards = new float[groupSize];
+        List<SN> gameSamples = new();
+        GameState gameState = new(gameData);
+        RamenAgent agent = new(gameState, model);
         using (no_grad())
         {
             for (int group = 0; group < groupSize; ++group)
             {
-                List<EvaluationTrainingSample> gameSamples = new();
+                foreach (SN sample in gameSamples)
+                    sample.N++;
                 groupGames[group] = gameSamples;
-                GameState gameState = new(gameData);
-                RamenAgent agent = new(gameState, model);
 
                 gameState.AdvanceToNextPlayerChoice();
 
@@ -33,10 +43,16 @@ public static class TrainingData
                     gameState.AdvanceToNextPlayerChoice();
                     if (!agent.MakeMoveStochastic(temp, out EvaluationTrainingSample sample, 12, true))
                         break;
-                    gameSamples.Add(sample);
+                    gameSamples.Add(new() { Sample = sample, N = 1, Move = gameState.MoveState.MoveHistory[^1] });
                 }
 
                 groupRewards[group] = agent.GetCurrentReward();
+                List<SN> newGameSamples = new(gameSamples.Count);
+                int revertIndex = random.Next(gameSamples.Count);
+                gameSamples[revertIndex].Move.Revert(gameState);
+                for (int i = 0; i < revertIndex; ++i)
+                    newGameSamples.Add(gameSamples[i]);
+                gameSamples = newGameSamples;
             }
         }
 #if true 
@@ -58,8 +74,14 @@ public static class TrainingData
         {
             float advantage = (groupRewards[group] - mean) / MathF.Max(stdDev, 1e-8f);
 
-            foreach (EvaluationTrainingSample sample in groupGames[group])
-                EvaluationTrainingData.Add(sample with { Advantage = tensor(advantage).DetachFromDisposeScope() });
+            foreach (var sample in groupGames[group])
+            {
+
+                float adjustedAdvantage = advantage / MathF.Sqrt(Math.Max(sample.N, 1));
+                if (float.IsNaN(adjustedAdvantage) || !float.IsFinite(adjustedAdvantage))
+                    adjustedAdvantage = 0;
+                EvaluationTrainingData.Add(sample.Sample with { Advantage = tensor(adjustedAdvantage).DetachFromDisposeScope() });
+            }
         }
 
 #else // Renormalizing advantage

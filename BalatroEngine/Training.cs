@@ -10,12 +10,19 @@ public static class Training
     public const float epsilon = 0.2f;
     public static float entropyCoeff = 0.01f;
     public static float kldCoeff = 0.05f;
+    public static float lr = 1e-4f;
 
     public static void TrainEvaluationModelStackless(GameEvalModel model, int epochs, int batchSize, bool validate = false)
     {
         Console.WriteLine($"Training evaluation model for {epochs} epochs, batch size {batchSize}");
 
-        var optimizer = optim.AdamW(model.parameters(), lr: TrainingConfig.LearningRate, weight_decay: 0.001f);
+        var optimizer = optim.AdamW(model.parameters(),
+            lr: lr,
+            weight_decay: 0.001f,
+            beta1: 0.9f,
+            beta2: 0.994f
+            );
+
         var lossFunc = CrossEntropyLoss();
 
         int samples = TrainingData.EvaluationTrainingData.Count;
@@ -78,7 +85,14 @@ public static class Training
 
         stacked.Shuffle();
 
-        var optimizer = optim.AdamW(model.parameters(), lr: TrainingConfig.LearningRate, weight_decay: 0.001f);
+
+        var optimizer = optim.AdamW(model.parameters(),
+            lr: lr,
+            weight_decay: 0.001f,
+            beta1: 0.9f,
+            beta2: 0.994f
+            );
+
         var lossFunc = MSELoss();
 
         int samples = TrainingData.EvaluationTrainingData.Count;
@@ -132,7 +146,7 @@ public static class Training
                 var probs = exp(logProbs);
                 var entropy = -(probs * logProbs).sum(1).mean();
 
-                var logProbsOld = log(inputs.ProbDist + 1e-9);
+                var logProbsOld = log(inputs.ProbDist.clamp_min(0f) + 1e-9);
                 var logPiOld = logProbsOld.select(1, 0);
 
                 var ratio = exp(logPiNew - logPiOld);
@@ -148,6 +162,10 @@ public static class Training
                 var kldLoss = kld * kldCoeff;
                 var loss = (kldLoss - policyReward - entropyReward).mean();
 
+                if (loss.isnan().item<bool>())
+                {
+                    loss = zeros(1);
+                }    
                 loss.backward();
                 optimizer.step();
 

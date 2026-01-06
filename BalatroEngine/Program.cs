@@ -40,7 +40,7 @@ class Program
                     Console.WriteLine(score);
             }
             TrainingData.EvaluationTrainingData.Clear();
-            TrainingData.GenerateEvaluationTrainingData(model, multiplier * 1000, 1f);
+            TrainingData.GenerateEvaluationTrainingData(model, multiplier * 2000, 1f);
             Training.entropyCoeff = 0.02f;
             Training.kldCoeff = 0.05f;
             if (i > 300)
