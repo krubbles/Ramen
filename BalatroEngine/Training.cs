@@ -80,7 +80,7 @@ public static class Training
         EvaluationTrainingSample stacked;
         lock (TrainingData.EvaluationTrainingData)
         {
-            stacked = EvaluationTrainingSample.Stack(TrainingData.EvaluationTrainingData, false, false);
+            stacked = TensorGroupExtentions.Stack(TrainingData.EvaluationTrainingData, false, false);
         }
 
         stacked.Shuffle();
@@ -110,9 +110,9 @@ public static class Training
                 for (int i = trainCount; i < samples; i += batchSize)
                 {
                     int end = Math.Min(i + batchSize, samples);
-                    EvaluationTrainingSample inputs = stacked.GetBatch(i, end);
+                    EvaluationTrainingSample inputs = stacked.GetBatch(i, end) as EvaluationTrainingSample;
 
-                   Tensor logits = model.forward(inputs.GameStateTensors).squeeze(2); 
+                    Tensor logits = model.forward(inputs.GameStateTensors).squeeze(2); 
 
                     var logQ = log(inputs.ProbDist + 1e-9);
                     var logitsAdjusted = logits - logQ;

@@ -1,11 +1,9 @@
 ﻿namespace Ramen.AI;
 
-using System.Diagnostics;
-using static TorchSharp.torch;
 using Ramen.Game;
-using System.Security.Cryptography.X509Certificates;
+using System.Diagnostics;
 using System.Reflection;
-using System.Net.Http.Headers;
+using static TorchSharp.torch;
 
 public static class TrainingData
 {
@@ -234,67 +232,132 @@ public static class TrainingData
     }
 }
 
-public class TensorGroup : IDisposable
+public interface ITensorGroup
 {
-    readonly FieldInfo[] _fields;
+}
 
-    public TensorGroup()
+public static class TensorGroupExtentions
+{
+    public static ITensorGroup Stack(IList<ITensorGroup> tensorGroups, bool disposeInputs, bool concat, int dim = 0)
     {
-        _fields = GetTensorFields(GetType());
+        ITensorGroup result = MakeNew(tensorGroups[0].GetType());
+        FieldInfo[] fields = GetTensorFields(result.GetType());
+
+        foreach (FieldInfo field in fields)
+        {
+            if (field.GetType() == typeof(Tensor))
+            {
+                Tensor[] tensors = new Tensor[tensorGroups.Count];
+                for (int i = 0; i < tensorGroups.Count; ++i)
+                    tensors[i] = field.GetValue(tensorGroups[i]) as Tensor;
+                field.SetValue(result, concat ? cat(tensors, dim) : stack(tensors, dim));
+            }
+            else if (field.GetType() == typeof(ITensorGroup))
+            {
+                ITensorGroup[] tensors = new ITensorGroup[tensorGroups.Count];
+                for (int i = 0; i < tensorGroups.Count; ++i)
+                    tensors[i] = field.GetValue(tensorGroups[i]) as ITensorGroup;
+                field.SetValue(result, Stack(tensors, disposeInputs, concat, dim));
+            }
+
+            if (disposeInputs)
+            {
+                foreach (ITensorGroup tensorGroup in tensorGroups)
+                    tensorGroup.Dispose();
+            }
+        }
+
+        return result;
     }
 
-    public static T Stack<T>(IList<T> tensorGroups, bool disposeInputs, bool concat, int dim = 0) where T : TensorGroup, new()
+    public static T Stack<T>(IList<T> tensorGroups, bool disposeInputs, bool concat, int dim = 0) where T : ITensorGroup
     {
-        FieldInfo[] fields = GetTensorFields(typeof(T));
-        Tensor[][] tensors = new Tensor[fields.Length][];
-        for (int i = 0; i < fields.Length; ++i)
-            tensors[i] = new Tensor[tensorGroups.Count];
-
+        ITensorGroup[] genericGroups = new ITensorGroup[tensorGroups.Count];
         for (int i = 0; i < tensorGroups.Count; ++i)
+            genericGroups[i] = tensorGroups[i];
+        ITensorGroup result = Stack(genericGroups, disposeInputs, concat, dim);
+        return (T)result;
+    }
+
+    public static ITensorGroup GetBatch(this ITensorGroup me, int start, int end)
+    {
+        ITensorGroup result = MakeNew(me.GetType());
+        foreach (FieldInfo field in GetTensorFields(me.GetType()))
         {
-            T tensorGroup = tensorGroups[i];
-            for (int j = 0; j < fields.Length; ++j)
-                tensors[j][i] = (Tensor)fields[j].GetValue(tensorGroup);
+            object value = field.GetValue(me);
+            if (value is Tensor tensor)
+                field.SetValue(result, tensor[start..end]);
+            else if (value is ITensorGroup group)
+                field.SetValue(result, group.GetBatch(start, end));
         }
-
-        T result = new();
-        for (int i = 0; i < fields.Length; ++i)
-            fields[i].SetValue(result, concat ? cat(tensors[i], dim) : stack(tensors[i], dim));
-
-        if (disposeInputs)
-        {
-            foreach (Tensor[] tensorArray in tensors)
-                foreach (Tensor tensor in tensorArray)
-                    tensor.Dispose();
-        }
-
         return result;
     }
 
-    public T GetBatch<T>(int start, int end) where T : TensorGroup, new()
-    {
-        T result = new();
-        foreach (FieldInfo field in _fields)
-            field.SetValue(result, (field.GetValue(this) as Tensor)?[start..end]);
-        return result;
-    }
+    public static T GetBatch<T>(this T me, int start, int end) where T : ITensorGroup => (T)GetBatch((ITensorGroup)me, start, end);
 
-    public T IndexSelect<T>(int dim, Tensor indices) where T : TensorGroup, new()
+    public static ITensorGroup IndexSelect(this ITensorGroup me, int dim, Tensor indices)
     {
-        T result = new();
-        foreach (FieldInfo field in _fields)
-            field.SetValue(result, (field.GetValue(this) as Tensor)?.index_select(dim, indices));
-        return result;
-    }
-
-    public virtual void Dispose()
-    {
-        foreach (FieldInfo field in _fields)
+        ITensorGroup result = MakeNew(me.GetType());
+        foreach (FieldInfo field in GetTensorFields(me.GetType()))
         {
-            Tensor toDispose = field.GetValue(this) as Tensor;
-            toDispose?.Dispose();
+            object value = field.GetValue(me);
+            if (value is Tensor tensor)
+                field.SetValue(result, tensor.index_select(dim, indices));
+            else if (value is ITensorGroup group)
+                field.SetValue(result, group.IndexSelect(dim, indices));
         }
-        GC.SuppressFinalize(this);
+        return result;
+    }
+
+    public static T IndexSelect<T>(this T me, int dim, Tensor indices) where T : ITensorGroup => (T)IndexSelect((ITensorGroup)me, dim, indices);
+    
+    public static ITensorGroup Clone(this ITensorGroup me)
+    {
+        ITensorGroup result = MakeNew(me.GetType());
+        foreach (FieldInfo field in GetTensorFields(me.GetType()))
+        {
+            object value = field.GetValue(me);
+            if (value is Tensor tensor)
+                field.SetValue(result, tensor.clone());
+            else if (value is ITensorGroup group)
+                field.SetValue(result, group.Clone());
+        }
+        return result;
+    }
+
+    public static T Clone<T>(this T me) where T : ITensorGroup => (T)Clone((ITensorGroup)me);
+
+    public static ITensorGroup DetachFromDisposeScope(this ITensorGroup me)
+    {
+        foreach (FieldInfo field in GetTensorFields(me.GetType()))
+        {
+            object value = field.GetValue(me);
+            if (value is Tensor tensor)
+                tensor.DetachFromDisposeScope();
+            else if (value is ITensorGroup group)
+                group.DetachFromDisposeScope();
+        }
+        return me;
+    }
+
+    public static T DetatchFromDisposeScope<T>(this T me) where T : ITensorGroup => (T)DetachFromDisposeScope((ITensorGroup)me);
+    
+    public static void Dispose(this ITensorGroup me)
+    {
+        foreach (FieldInfo field in GetTensorFields(me.GetType()))
+        {
+            object value = field.GetValue(me);
+            if (value is Tensor tensor)
+                tensor.Dispose();
+            if (value is ITensorGroup tensorGroup)
+                tensorGroup.Dispose();
+        }
+    }
+
+    static ITensorGroup MakeNew(Type type)
+    {
+        ConstructorInfo constructor = type.GetConstructor(BindingFlags.DeclaredOnly, []);
+        return (ITensorGroup)constructor.Invoke(null);
     }
 
     static FieldInfo[] GetTensorFields(Type type)
@@ -325,79 +388,13 @@ public class MoveTensors
     public Tensor CardsInRemainingHand;
 }
 
-public struct GameStateTensors : IDisposable
+public class GameStateTensors : ITensorGroup
 {
     public Tensor Hand;
     public Tensor FullHand;
     public Tensor RemainingDeck;
     public Tensor FullDeck;
     public Tensor OtherState;
-
-    public static GameStateTensors Stack(IReadOnlyList<GameStateTensors> tensors, bool disposeInputs, bool concat)
-    {
-        GameStateTensors result = new()
-        {
-            FullHand = concat ? cat(tensors.Select(t => t.FullHand).ToArray(), dim: 0) : stack(tensors.Select(t => t.FullHand).ToArray()),
-            Hand = concat ? cat(tensors.Select(t => t.Hand).ToArray(), dim: 0) : stack(tensors.Select(t => t.Hand).ToArray()),
-            // RemainingDeck = concat ? cat(tensors.Select(t => t.RemainingDeck).ToArray(), dim: 0) : stack(tensors.Select(t => t.RemainingDeck).ToArray()),
-            // FullDeck = concat ? cat(tensors.Select(t => t.FullDeck).ToArray(), dim: 0) : stack(tensors.Select(t => t.FullDeck).ToArray()),
-            OtherState = concat ? cat(tensors.Select(t => t.OtherState).ToArray(), dim: 0) : stack(tensors.Select(t => t.OtherState).ToArray()),
-            RemainingDeck = concat ? cat(tensors.Select(t => t.RemainingDeck).ToArray(), dim: 0) : stack(tensors.Select(t => t.RemainingDeck).ToArray()),
-        };
-
-        if (disposeInputs)
-        {
-            foreach (var t in tensors)
-                t.Dispose();
-        }
-
-        return result;
-    }
-
-    public GameStateTensors GetBatch(int start, int end)
-    {
-        return new GameStateTensors()
-        {
-            Hand = Hand?[start..end],
-            FullHand = FullHand?[start..end],
-            FullDeck = FullDeck?[start..end],
-            OtherState = OtherState?[start..end],
-            RemainingDeck = RemainingDeck?[start..end],
-        };
-    }
-
-    public GameStateTensors IndexSelect(Tensor indices)
-    {
-        return new GameStateTensors()
-        {
-            Hand = Hand?.index_select(0, indices),
-            FullHand = FullHand?.index_select(0, indices),
-            RemainingDeck = RemainingDeck?.index_select(0, indices),
-            FullDeck = FullDeck?.index_select(0, indices),
-            OtherState = OtherState?.index_select(0, indices),
-        };
-    }
-
-    public GameStateTensors Clone()
-    {
-        return new()
-        {
-            Hand = Hand?.clone(),
-            FullHand = FullHand?.clone(),
-            FullDeck = FullDeck?.clone(),
-            OtherState = OtherState?.clone(),
-            RemainingDeck = RemainingDeck?.clone(),
-        };
-    }
-
-    public void Dispose()
-    {
-        Hand?.Dispose();
-        FullHand?.Dispose();
-        OtherState?.Dispose();
-        FullDeck?.Dispose();
-        RemainingDeck?.Dispose();
-    }
 
     public GameStateTensors DetachFromDisposeScope()
     {
@@ -410,63 +407,9 @@ public struct GameStateTensors : IDisposable
     }
 }
 
-public struct EvaluationTrainingSample : IDisposable
+public class EvaluationTrainingSample : ITensorGroup
 {
     public GameStateTensors GameStateTensors;
     public Tensor ProbDist;
     public Tensor Advantage;
-
-    public static EvaluationTrainingSample Stack(IReadOnlyList<EvaluationTrainingSample> samples, bool disposeInputs, bool concat)
-    {
-        EvaluationTrainingSample result = new()
-        {
-            GameStateTensors = GameStateTensors.Stack(samples.Select(s => s.GameStateTensors).ToList(), disposeInputs, concat),
-            ProbDist = concat ? 
-                cat(samples.Select(s => s.ProbDist).ToArray(), dim: 0) : 
-                stack(samples.Select(s => s.ProbDist).ToArray()),
-            Advantage = concat ?
-                cat(samples.Select(s => s.Advantage).ToArray(), dim: 0) :
-                stack(samples.Select(s => s.Advantage).ToArray()),
-        };
-
-        if (disposeInputs)
-        {
-            foreach (var s in samples) 
-                s.ProbDist?.Dispose();
-        }
-
-        return result;
-    }
-
-    public EvaluationTrainingSample Shuffle()
-    {
-        long n = ProbDist.shape[0];
-        using (Tensor indices = randperm(n, device: ProbDist.device))
-        {
-            return new EvaluationTrainingSample()
-            {
-                GameStateTensors = GameStateTensors.IndexSelect(indices),
-                ProbDist = ProbDist.index_select(0, indices),
-                Advantage = Advantage.index_select(0, indices),
-            };
-        }
-    }
-
-    public EvaluationTrainingSample GetBatch(int start, int end)
-    {
-        return new()
-        {
-            GameStateTensors = GameStateTensors.GetBatch(start, end),
-            ProbDist = ProbDist[start..end],
-            Advantage = Advantage[start..end]
-        };
-    }
-
-
-    public void Dispose()
-    {
-        GameStateTensors.Dispose();
-        ProbDist?.Dispose();
-        Advantage?.Dispose();
-    }
 }
