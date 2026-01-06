@@ -83,9 +83,6 @@ public static class Training
             stacked = TensorGroupExtentions.Stack(TrainingData.EvaluationTrainingData, false, false);
         }
 
-        stacked.Shuffle();
-
-
         var optimizer = optim.AdamW(model.parameters(),
             lr: lr,
             weight_decay: 0.001f,

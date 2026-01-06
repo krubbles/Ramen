@@ -11,7 +11,7 @@ public class RamenAgent
     public readonly GameEvalModel Model;
     public readonly FastRandom Random;
 
-    GameStateTensors _tensors;
+    GameStateTensors _tensors = new();
 
     bool _handValid;
     bool _remainingDeckValid;
@@ -116,7 +116,7 @@ public class RamenAgent
             sample = new()
             {
                 ProbDist = rewardDist.index_select(0, indices).DetachFromDisposeScope(),
-                GameStateTensors = batch.IndexSelect(indices).DetachFromDisposeScope(),
+                GameStateTensors = batch.IndexSelect(0, indices).DetachFromDisposeScope(),
             };
         }
         moves[(int)moveIndex].Apply(GameState);

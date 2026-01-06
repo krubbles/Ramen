@@ -74,13 +74,14 @@ public static class TrainingData
         {
             float advantage = (groupRewards[group] - mean) / MathF.Max(stdDev, 1e-8f);
 
-            foreach (var sample in groupGames[group])
+            foreach (var node in groupGames[group])
             {
 
-                float adjustedAdvantage = advantage / MathF.Sqrt(Math.Max(sample.N, 1));
+                float adjustedAdvantage = advantage / MathF.Sqrt(Math.Max(node.N, 1));
                 if (float.IsNaN(adjustedAdvantage) || !float.IsFinite(adjustedAdvantage))
                     adjustedAdvantage = 0;
-                EvaluationTrainingData.Add(sample.Sample with { Advantage = tensor(adjustedAdvantage).DetachFromDisposeScope() });
+                node.Sample.Advantage = tensor(adjustedAdvantage).DetachFromDisposeScope();
+                EvaluationTrainingData.Add(node.Sample);
             }
         }
 
@@ -144,7 +145,7 @@ public static class TrainingData
             // If multiple samples have the same N, merge them; otherwise, keep as is
             if (samples.Count > 1)
             {
-                EvaluationTrainingData.Add(EvaluationTrainingSample.Stack(samples, true, false));
+                EvaluationTrainingData.Add(TensorGroupExtentions.Stack(samples, true, false));
             }
             else
             {
@@ -245,14 +246,15 @@ public static class TensorGroupExtentions
 
         foreach (FieldInfo field in fields)
         {
-            if (field.GetType() == typeof(Tensor))
+            if (field.FieldType == typeof(Tensor))
             {
                 Tensor[] tensors = new Tensor[tensorGroups.Count];
                 for (int i = 0; i < tensorGroups.Count; ++i)
                     tensors[i] = field.GetValue(tensorGroups[i]) as Tensor;
-                field.SetValue(result, concat ? cat(tensors, dim) : stack(tensors, dim));
+                if (tensors[0] is not null)
+                    field.SetValue(result, concat ? cat(tensors, dim) : stack(tensors, dim));
             }
-            else if (field.GetType() == typeof(ITensorGroup))
+            else if (typeof(ITensorGroup).IsAssignableFrom(field.FieldType))
             {
                 ITensorGroup[] tensors = new ITensorGroup[tensorGroups.Count];
                 for (int i = 0; i < tensorGroups.Count; ++i)
@@ -356,7 +358,7 @@ public static class TensorGroupExtentions
 
     static ITensorGroup MakeNew(Type type)
     {
-        ConstructorInfo constructor = type.GetConstructor(BindingFlags.DeclaredOnly, []);
+        ConstructorInfo constructor = type.GetConstructor(Type.EmptyTypes);
         return (ITensorGroup)constructor.Invoke(null);
     }
 
@@ -367,7 +369,7 @@ public static class TensorGroupExtentions
             List<FieldInfo> tList = new(5);
             foreach (FieldInfo field in type.GetFields())
             {
-                if (field.FieldType == typeof(Tensor))
+                if (field.FieldType == typeof(Tensor)|| (typeof(ITensorGroup)).IsAssignableFrom(field.FieldType))
                 {
                     tList.Add(field);
                 }
