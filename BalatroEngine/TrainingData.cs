@@ -5,6 +5,25 @@ using System.Diagnostics;
 using System.Reflection;
 using static TorchSharp.torch;
 
+public class TrainingDataStats
+{
+    public float TotalReward;
+    public float TotalSquaredReward;
+    public int GamesCount;
+
+    public const int MaxDepth = 10;
+    public int NodesCount = 0;
+    public int[] CountByDepth = new int[MaxDepth];
+    public float[] TotalNLProbByDepth = new float[MaxDepth];
+    public float[] TotalAttributionByDepth = new float[MaxDepth];
+
+    public float MeanReward => TotalReward / GamesCount;
+    public float RewardStdDev => (TotalSquaredReward - TotalReward  * MeanReward) / Math.Max(1, GamesCount - 1);
+
+    public float AverageNLProb(int depth) => TotalNLProbByDepth[depth] / CountByDepth[depth];
+    public float AverageAttribution(int depth) => TotalAttributionByDepth[depth] / CountByDepth[depth];
+}
+
 public static class TrainingData
 {
     public static readonly List<EvaluationTrainingSample> EvaluationTrainingData = new();
@@ -16,24 +35,24 @@ public static class TrainingData
         public EvaluationTrainingSample Sample;
         public int N;
         public Move Move;
+        public float NLProb;
     }
 
-    static void GenerateGRPOTrainingDataGroup(GameEvalModel model, int groupSize = 32, float temp = 1f)
+    static void GenerateGRPOTrainingDataGroup(GameEvalModel model, TrainingDataStats stats, int groupSize = 32, float temp = 1f)
     {
         FastRandom random = FastRandom.SeededByClock();
         GameData gameData = new();
         using var scope = NewDisposeScope();
         List<SN>[] groupGames = new List<SN>[groupSize];
         float[] groupRewards = new float[groupSize];
-        List<SN> gameSamples = new();
-        GameState gameState = new(gameData);
-        RamenAgent agent = new(gameState, model);
         using (no_grad())
         {
             for (int group = 0; group < groupSize; ++group)
             {
-                foreach (SN sample in gameSamples)
-                    sample.N++;
+                GameState gameState = new(gameData);
+                RamenAgent agent = new(gameState, model);
+                List<SN> gameSamples = new();
+
                 groupGames[group] = gameSamples;
 
                 gameState.AdvanceToNextPlayerChoice();
@@ -41,14 +60,14 @@ public static class TrainingData
                 while (gameState.HandState.RemainingHands > 0 && gameState.ScoringState.CurrentRoundTotalChips < 300)
                 {
                     gameState.AdvanceToNextPlayerChoice();
-                    if (!agent.MakeMoveStochastic(temp, out EvaluationTrainingSample sample, 12, true))
+                    if (!agent.MakeMoveStochastic(temp, out EvaluationTrainingSample sample, out float nlProb, 12, true))
                         break;
-                    gameSamples.Add(new() { Sample = sample, N = 1, Move = gameState.MoveState.MoveHistory[^1] });
+                    gameSamples.Add(new() { Sample = sample, N = 1, Move = gameState.MoveState.MoveHistory[^1], NLProb = nlProb });
                 }
 
                 groupRewards[group] = agent.GetCurrentReward();
                 List<SN> newGameSamples = new(gameSamples.Count);
-                int revertIndex = random.Next(gameSamples.Count);
+                int revertIndex = 0;// random.Next(gameSamples.Count);
                 gameSamples[revertIndex].Move.Revert(gameState);
                 for (int i = 0; i < revertIndex; ++i)
                     newGameSamples.Add(gameSamples[i]);
@@ -65,6 +84,10 @@ public static class TrainingData
             sqSum += groupRewards[group] * groupRewards[group];
         }
 
+        stats.TotalReward += sum;
+        stats.TotalSquaredReward += sqSum;
+        stats.GamesCount += groupSize;
+
         float mean = sum / groupSize;
         float ss = sqSum - sum * mean;
         float stdDev = MathF.Sqrt(ss / (groupSize - 1));
@@ -74,10 +97,22 @@ public static class TrainingData
         {
             float advantage = (groupRewards[group] - mean) / MathF.Max(stdDev, 1e-8f);
 
-            foreach (var node in groupGames[group])
+            float runningNLSum = 0;
+            List<SN> nodes = groupGames[group];
+            for (int depth = nodes.Count - 1; depth >= 0; --depth)
             {
-
-                float adjustedAdvantage = advantage / MathF.Sqrt(Math.Max(node.N, 1));
+                stats.TotalNLProbByDepth[depth] += nodes[depth].NLProb;
+                nodes[depth].NLProb = runningNLSum;
+                runningNLSum += nodes[depth].NLProb;
+            }
+            for (int depth = 0; depth < nodes.Count; ++depth)
+            {
+                SN node = nodes[depth];
+                stats.NodesCount++;
+                stats.CountByDepth[depth]++;
+                float attribution = 1f / (1 + 0.25f * nodes[depth].NLProb);
+                stats.TotalAttributionByDepth[depth] += attribution;
+                float adjustedAdvantage = advantage;
                 if (float.IsNaN(adjustedAdvantage) || !float.IsFinite(adjustedAdvantage))
                     adjustedAdvantage = 0;
                 node.Sample.Advantage = tensor(adjustedAdvantage).DetachFromDisposeScope();
@@ -129,43 +164,19 @@ public static class TrainingData
         }
     }
 
-    public static void GroupSameMoveCountSamples()
-    {
-        // Group by the N dimension (dim 0 of Target)
-        var groups = EvaluationTrainingData
-            .GroupBy(s => s.ProbDist.shape[0])
-            .ToList();
 
-        EvaluationTrainingData.Clear();
-
-        foreach (var group in groups)
-        {
-            var samples = group.ToList();
-
-            // If multiple samples have the same N, merge them; otherwise, keep as is
-            if (samples.Count > 1)
-            {
-                EvaluationTrainingData.Add(TensorGroupExtentions.Stack(samples, true, false));
-            }
-            else
-            {
-                EvaluationTrainingData.Add(samples[0]);
-            }
-        }
-    }
-
-    static void GenerateEvalTrainingDataJob(GameEvalModel model, int samples, float temp)
+    static void GenerateEvalTrainingDataJob(GameEvalModel model, TrainingDataStats stats, int samples, float temp)
     {
         while (EvaluationTrainingData.Count < samples)
         {
-            GenerateGRPOTrainingDataGroup(model, temp: temp);
+            GenerateGRPOTrainingDataGroup(model, stats, temp: temp);
         }
     }
 
-    public static void GenerateEvaluationTrainingData(GameEvalModel model, int samples, float temp)
+    public static TrainingDataStats GenerateEvaluationTrainingData(GameEvalModel model, int samples, float temp)
     {
         Stopwatch watch = Stopwatch.StartNew();
-
+        TrainingDataStats stats = new();
         if (true)
         {
 
@@ -174,7 +185,7 @@ public static class TrainingData
             {
                 tasks[i] = Task.Run(() =>
                 {
-                    GenerateEvalTrainingDataJob(model, samples, temp);
+                    GenerateEvalTrainingDataJob(model, stats, samples, temp);
                 });
             }
 
@@ -193,8 +204,9 @@ public static class TrainingData
         }
         else
         {
-            GenerateEvalTrainingDataJob(model, samples, temp);
+            GenerateEvalTrainingDataJob(model, stats, samples, temp);
         }
+        return stats;
     }
 
     public static void GenerateEvalTrainingDataOneShotBestHand(int samples)

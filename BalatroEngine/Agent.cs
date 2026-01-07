@@ -4,6 +4,7 @@ using Ramen.Game;
 
 using static TorchSharp.torch;
 using static TorchSharp.torch.optim.lr_scheduler.impl.CyclicLR;
+using System.Runtime.InteropServices;
 
 public class RamenAgent
 {
@@ -53,10 +54,11 @@ public class RamenAgent
         return (mean, dev);
     }
 
-    public bool MakeMoveStochastic(float temp) => MakeMoveStochastic(temp, out _, 1);
+    public bool MakeMoveStochastic(float temp) => MakeMoveStochastic(temp, out _, out _, 1);
 
-    public bool MakeMoveStochastic(float temp, out EvaluationTrainingSample sample, int sampleCount = 12, bool generateSample = false)
+    public bool MakeMoveStochastic(float temp, out EvaluationTrainingSample sample, out float nlProb, int sampleCount = 12, bool generateSample = false)
     {
+        nlProb = 0f;
         sample = default;
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
@@ -72,7 +74,7 @@ public class RamenAgent
         int moveCount = moves.Count;
 
         int[,] hands = new int[moveCount, 8];
-        float[,] otherStates = new float[moveCount, 12];
+        float[,] otherStates = new float[moveCount, 14];
 
         Tensor fullHand = HandTensor.clone();
 
@@ -87,7 +89,8 @@ public class RamenAgent
             for (int i = 0; i < 8; ++i)
                 hands[move, i] = i < hand.Length ? hand[i].ToIndex() : 0;
 
-
+            Span<float> otherStatesBuffer = MemoryMarshal.CreateSpan(ref otherStates[move, 0], 14);
+            FillOtherStateData(GameState, otherStatesBuffer, ((UseHandMove)moves[move]).IsDiscard);
 
             moves[move].Revert(GameState);
         }
@@ -120,28 +123,35 @@ public class RamenAgent
             };
         }
         moves[(int)moveIndex].Apply(GameState);
-
+        nlProb = -MathF.Log(Math.Max(rewardDist[(int)moveIndex].item<float>(), 1e-9f));
         return true;
     }
 
-    public void FillOtherStateData(GameState gameState, Span<float> otherStates)
+    public bool GameIsDone() => GameState.HandState.RemainingHands < 0 || GameState.ScoringState.CurrentRoundTotalChips >= 300;
+
+    public void FillOtherStateData(GameState gameState, Span<float> otherStates, bool isDiscard)
     {
         HandState handState = GameState.HandState;
         ScoringState scoringState = GameState.ScoringState;
 
         int index = 0;
+        // 0
         otherStates[index++] = (float)scoringState.CurrentRoundTotalChips / 300f;
         otherStates[index++] = handState.RemainingHands;
         otherStates[index++] = handState.RemainingHands == 4 ? 1f : 0f;
         otherStates[index++] = handState.RemainingHands == 3 ? 1f : 0f;
         otherStates[index++] = handState.RemainingHands == 2 ? 1f : 0f;
+        // 5
         otherStates[index++] = handState.RemainingHands == 1 ? 1f : 0f;
         otherStates[index++] = handState.RemainingDiscards;
         otherStates[index++] = handState.RemainingDiscards == 4 ? 1f : 0f;
         otherStates[index++] = handState.RemainingDiscards == 3 ? 1f : 0f;
         otherStates[index++] = handState.RemainingDiscards == 2 ? 1f : 0f;
+        // 10
         otherStates[index++] = handState.RemainingDiscards == 1 ? 1f : 0f;
         otherStates[index++] = handState.RemainingDiscards == 0 ? 1f : 0f;
+        otherStates[index++] = isDiscard ? 0 : 1;
+        otherStates[index++] = isDiscard ? 1 : 0;
     }
 
 
@@ -224,23 +234,9 @@ public class RamenAgent
     {
         if (_disposeTensorsOnRegen)
             _tensors.OtherState?.Dispose();
-        _tensors.OtherState = tensor(
-        [
-            (float)GameState.ScoringState.CurrentRoundTotalChips / 300f,
-            
-            GameState.HandState.RemainingHands,
-            GameState.HandState.RemainingHands == 4 ? 1f : 0f,
-            GameState.HandState.RemainingHands == 3 ? 1f : 0f,
-            GameState.HandState.RemainingHands == 2 ? 1f : 0f,
-            GameState.HandState.RemainingHands == 1 ? 1f : 0f,
-
-            GameState.HandState.RemainingDiscards,
-            GameState.HandState.RemainingDiscards == 4 ? 1f : 0f,
-            GameState.HandState.RemainingDiscards == 3 ? 1f : 0f,
-            GameState.HandState.RemainingDiscards == 2 ? 1f : 0f,
-            GameState.HandState.RemainingDiscards == 1 ? 1f : 0f,
-            GameState.HandState.RemainingDiscards == 0 ? 1f : 0f,
-        ]).unsqueeze(0).DetachFromDisposeScope();
+        float[] otherState = new float[14];
+        FillOtherStateData(GameState, otherState, false);
+        _tensors.OtherState = tensor(otherState).unsqueeze(0).DetachFromDisposeScope();
     }
 
     void RegisterCallbacks()

@@ -24,28 +24,56 @@ class Program
         }
         Console.WriteLine($"Total number of trainable evaluation parameters: {totalTrainableParams}");
 
-        Console.WriteLine("Av Score: " + Testing.GetAverageScore(model, 100));
-
         List<float> avgScores = new();
+        List<float>[] moveNLProbs = new List<float>[8];
+        List<float>[] moveAverageAttributions = new List<float>[8];
+        List<float> meanTemp1Scores = new();
+        
+        for (int i = 0; i < 8; ++i)
+        {
+            moveNLProbs[i] = new();
+            moveAverageAttributions[i] = new();
+        }
+
         for (int i = 0; i < 1000; i++)
         {
             int multiplier = 1;
 
-            if (i % 10 == 9)
-            {
-                Testing.GetAverageScore(model, 5, true);
-                avgScores.Add(Testing.GetAverageScore(model, multiplier * 1000));
-                Console.WriteLine("scores:");
-                foreach (float score in avgScores)
-                    Console.WriteLine(score);
-            }
             TrainingData.EvaluationTrainingData.Clear();
-            TrainingData.GenerateEvaluationTrainingData(model, multiplier * 2000, 1f);
-            Training.entropyCoeff = 0.02f;
-            Training.kldCoeff = 0.05f;
-            if (i > 300)
-                Training.entropyCoeff *= 0.1f;
-            Training.TrainEvaluationModel(model, 5,  64, false);
+            TrainingDataStats stats = TrainingData.GenerateEvaluationTrainingData(model, multiplier * 3000, 1f);
+            Training.TrainEvaluationModel(model, 5, 64, false);
+            meanTemp1Scores.Add(stats.MeanReward);
+
+            for (int j = 0; j < moveNLProbs.Length; ++j)
+            {
+                moveNLProbs[j].Add(stats.AverageNLProb(j));
+                moveAverageAttributions[j].Add(stats.AverageAttribution(j));
+            }
+
+            if (true)
+            {
+                Console.WriteLine("Data:");
+                System.Text.StringBuilder sb = new();
+                for (int row = 0; row < meanTemp1Scores.Count; ++row)
+                {
+                    sb.Clear();
+                    sb.Append(meanTemp1Scores[row]);
+                    sb.Append(", ");
+                    for (int col = 0; col < 7; ++col)
+                    {
+                        sb.Append(moveNLProbs[col][row].ToString());
+                        sb.Append(", ");
+                    }
+                    for (int col = 0; col < 7; ++col)
+                    {
+                        sb.Append(moveAverageAttributions[col][row].ToString());
+                        if (col != 6)
+                            sb.Append(", ");
+                    }
+                    Console.WriteLine(sb.ToString());
+                }
+            }
+
         }
     }
 }
