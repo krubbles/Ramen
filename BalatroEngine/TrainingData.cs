@@ -38,19 +38,54 @@ public static class TrainingData
         public float NLProb;
     }
 
-    static void GenerateGRPOTrainingDataGroup(GameEvalModel model, TrainingDataStats stats, int groupSize = 32, float temp = 1f)
+    static void RunGroup(GameEvalModel model, TrainingDataStats stats, int groupSize = 32)
     {
+        GameState gameState = new(new());
+        RamenAgent agent = new(gameState, model);
+        FastRandom random = FastRandom.SeededByClock();
+        List<float> nlProbs = new();
+        List<Move> moves = new();
+        while (true)
+        {
+            gameState.AdvanceToNextPlayerChoice();
+            if (agent.GameIsDone())
+                break;
+            agent.MakeMoveStochastic(1f, out _, out float nlProb, 1, false);
+            nlProbs.Add(nlProb);
+            moves.Add(gameState.MoveState.MoveHistory[^1]);
+        }
+        float totalNLProb = 0;
+        float[] cumNLProbs = new float[nlProbs.Count];
+        for (int i = 0; i < nlProbs.Count; i++)
+        {
+            totalNLProb += nlProbs[i];
+            cumNLProbs[i] = totalNLProb;
+        }
+        float rand = (random.NextPortion() * (1 - 1e-6f)) * totalNLProb;
+        for (int i = 0; i < nlProbs.Count; i++)
+        {
+            if (rand <= cumNLProbs[i])
+            {
+                moves[i].Revert(gameState);
+                GenerateGRPOTrainingDataGroup(model, gameState, stats, groupSize);
+            }    
+        }
+    }
+    static void GenerateGRPOTrainingDataGroup(GameEvalModel model, GameState gameState, TrainingDataStats stats, int groupSize = 32, float temp = 1f)
+    {
+        RamenAgent agent = new(gameState, model);
+        if (agent.GameIsDone())
+            return;
         FastRandom random = FastRandom.SeededByClock();
         GameData gameData = new();
         using var scope = NewDisposeScope();
         List<SN>[] groupGames = new List<SN>[groupSize];
         float[] groupRewards = new float[groupSize];
+        int baselineMoveCount = gameState.MoveState.MoveHistory.Count;
         using (no_grad())
         {
             for (int group = 0; group < groupSize; ++group)
             {
-                GameState gameState = new(gameData);
-                RamenAgent agent = new(gameState, model);
                 List<SN> gameSamples = new();
 
                 groupGames[group] = gameSamples;
@@ -66,12 +101,9 @@ public static class TrainingData
                 }
 
                 groupRewards[group] = agent.GetCurrentReward();
-                List<SN> newGameSamples = new(gameSamples.Count);
-                int revertIndex = 0;// random.Next(gameSamples.Count);
-                gameSamples[revertIndex].Move.Revert(gameState);
-                for (int i = 0; i < revertIndex; ++i)
-                    newGameSamples.Add(gameSamples[i]);
-                gameSamples = newGameSamples;
+
+                while (gameState.MoveState.MoveHistory.Count > baselineMoveCount)
+                    gameState.MoveState.RevertLastMove();
             }
         }
 #if true 
@@ -172,7 +204,7 @@ public static class TrainingData
     {
         while (EvaluationTrainingData.Count < samples)
         {
-            GenerateGRPOTrainingDataGroup(model, stats, temp: temp);
+            RunGroup(model, stats);
         }
     }
 
