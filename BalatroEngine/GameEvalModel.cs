@@ -6,58 +6,92 @@ using static TorchSharp.torch.nn;
 
 public class GameEvalModel : Module
 {
-    private readonly Embedding _embedCard;
+    public const int
+        RemainingDeckEmbedWidth = 128,
+        FullHandEmbedWidth = 128,
+        RemainingHandEmbedWidth = 64,
+        PlayedHandEmbedWidth = 64,
+        StateOtherStateWidth = 12,
+        MoveOtherStateWidth = 12;
 
-    public readonly Sequential HandProcessor;
-    public readonly Sequential OtherStateProcessor;
-    public readonly Sequential FinalNetwork;
+    public const int
+        StateProcessorInputWidth = RemainingDeckEmbedWidth + FullHandEmbedWidth + StateOtherStateWidth,
+        KeyGeneratorInputWidth = RemainingHandEmbedWidth + PlayedHandEmbedWidth + MoveOtherStateWidth;
+    
+    public const int QueryWidth = 128;
 
-    public const int EmbeddedCardWidth = 64;
-    public const int FinalNetworkWidth = EmbeddedCardWidth * 3 + OtherStateWidth;
-    public const int OtherStateWidth = 14;
+
+    private readonly Embedding _embedRemainingDeck = Embedding(53, RemainingDeckEmbedWidth);
+    private readonly Embedding _embedFullHand = Embedding(53, FullHandEmbedWidth);
+    private readonly Embedding _embedRemainingHand = Embedding(53, RemainingHandEmbedWidth);
+    private readonly Embedding _embedPlayedHand = Embedding(53, PlayedHandEmbedWidth);
+
+    public readonly Sequential StateProcessor;
+    public readonly Sequential QueryGenerator;
+    public readonly Sequential KeyGenerator;
+
 
     public GameEvalModel() : base(nameof(GameEvalModel))
     {
-        _embedCard = Embedding(53, EmbeddedCardWidth);
 
-        FinalNetwork = Sequential(
-            Linear(OtherStateWidth + EmbeddedCardWidth * 2, 128),
+        StateProcessor = Sequential(
+            Linear(StateProcessorInputWidth, 256),
             ReLU(),
-            Linear(128, 64),
-            ReLU(),
-            Linear(64, 1)
+            Linear(256, 256),
+            ReLU()
+        );
+
+        QueryGenerator = Sequential(
+            Linear(256, QueryWidth)
+        );
+        KeyGenerator = Sequential(
+            Linear(256, KeyGeneratorInputWidth)
         );
 
         RegisterComponents();
     }
 
-    public Tensor ProcessHand(Tensor hand)
+    public static Tensor EmbedCardSet(Embedding embedding, Tensor hand)
     {
-        Tensor embeddedHand = _embedCard.forward(hand).sum(dim: hand.Dimensions - 1);
+        Tensor embeddedHand = embedding.forward(hand).sum(dim: hand.Dimensions - 1);
         Tensor result = embeddedHand.relu_();
         return result;
     }
 
-    public Tensor GetPredictedRewardDistribution(Tensor processedHand, Tensor processedDeck, Tensor processedFullHand, Tensor otherState)
+    Tensor ProcessState(Tensor processedHand, Tensor processedDeck, Tensor otherState)
     {
         Tensor input = concat([processedHand, processedDeck, otherState], dim: otherState.Dimensions - 1);
-        Tensor output = FinalNetwork.forward(input);
+        Tensor output = StateProcessor.forward(input);
         return output;
     }
 
-    static Tensor RemapVariance(Tensor output)
+    public Tensor ProcessState(GameStateTensors gameState)
     {
-        output = (output + sqrt(output.square() + 1)).square() * 0.25f;
-        return output;
+        Tensor processedHand = EmbedCardSet(_embedFullHand, gameState.FullHand);
+        Tensor processedDeck = EmbedCardSet(_embedRemainingDeck, gameState.RemainingDeck);
+        return ProcessState(processedHand, processedDeck, gameState.OtherState);
     }
 
-    public Tensor forward(GameStateTensors gameState)
+    public Tensor GetMoveQuery(Tensor processedState)
     {
-        Tensor processedHand = ProcessHand(gameState.Hand);
-        Tensor processedFullHand = null;// ProcessHand(gameState.FullHand);
-        Tensor processedDeck = ProcessHand(gameState.RemainingDeck);
-        Tensor output = GetPredictedRewardDistribution(processedHand, processedDeck, processedFullHand, gameState.OtherState);
-        return output;
+        return QueryGenerator.forward(processedState);
+    }
+
+    public Tensor GetMoveKeys(MoveTensors moves)
+    {
+        Tensor processedRemainingHand = EmbedCardSet(_embedRemainingHand, moves.RemainingHand);
+        Tensor processedPlayedHand = EmbedCardSet(_embedPlayedHand, moves.PlayedHand);
+        Tensor input = concat([processedRemainingHand, processedPlayedHand, moves.OtherState], dim: moves.OtherState.Dimensions - 1);
+        return KeyGenerator.forward(input);
+    }
+
+    public Tensor GetMoveLogits(Tensor processedState, MoveTensors moves)
+    {
+        Tensor moveKeys = GetMoveKeys(moves);
+        Tensor moveQuery = QueryGenerator.forward(processedState);
+        Tensor expandedMoveQuery = moveQuery.expand([moveQuery.size(0), moves.OtherState.size(1), moveQuery.size(1)]);
+        Tensor logits = dot(expandedMoveQuery, moveKeys);
+        return logits;
     }
 }
 

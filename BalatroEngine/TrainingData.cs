@@ -42,6 +42,9 @@ public static class TrainingData
     {
         GameState gameState = new(new());
         RamenAgent agent = new(gameState, model);
+        GenerateGRPOTrainingDataGroup(model, gameState, stats, groupSize);
+
+#if false
         FastRandom random = FastRandom.SeededByClock();
         List<float> nlProbs = new();
         List<Move> moves = new();
@@ -50,7 +53,7 @@ public static class TrainingData
             gameState.AdvanceToNextPlayerChoice();
             if (agent.GameIsDone())
                 break;
-            agent.MakeMoveStochastic(1f, out _, out float nlProb, 1, false);
+            agent.MakeMoveStochastic(1.2f, out _, out float nlProb, 1, false);
             nlProbs.Add(nlProb);
             moves.Add(gameState.MoveState.MoveHistory[^1]);
         }
@@ -68,14 +71,14 @@ public static class TrainingData
             {
                 moves[i].Revert(gameState);
                 GenerateGRPOTrainingDataGroup(model, gameState, stats, groupSize);
+                return;
             }    
         }
+#endif
     }
-    static void GenerateGRPOTrainingDataGroup(GameEvalModel model, GameState gameState, TrainingDataStats stats, int groupSize = 32, float temp = 1f)
+    static void GenerateGRPOTrainingDataGroup(GameEvalModel model, GameState gameState, TrainingDataStats stats, int groupSize = 32)
     {
         RamenAgent agent = new(gameState, model);
-        if (agent.GameIsDone())
-            return;
         FastRandom random = FastRandom.SeededByClock();
         GameData gameData = new();
         using var scope = NewDisposeScope();
@@ -86,27 +89,29 @@ public static class TrainingData
         {
             for (int group = 0; group < groupSize; ++group)
             {
+                while (gameState.MoveState.MoveHistory.Count > 0)
+                    gameState.MoveState.RevertLastMove();
+                gameState.Random.SetState((ulong)random.Next());
+                
                 List<SN> gameSamples = new();
 
                 groupGames[group] = gameSamples;
 
                 gameState.AdvanceToNextPlayerChoice();
-
+                bool firstMove = true;
                 while (gameState.HandState.RemainingHands > 0 && gameState.ScoringState.CurrentRoundTotalChips < 300)
                 {
                     gameState.AdvanceToNextPlayerChoice();
-                    if (!agent.MakeMoveStochastic(temp, out EvaluationTrainingSample sample, out float nlProb, 12, true))
+                    if (!agent.MakeMoveStochastic(firstMove ? 1.2f : 1f, out EvaluationTrainingSample sample, out float nlProb, 12, true))
                         break;
                     gameSamples.Add(new() { Sample = sample, N = 1, Move = gameState.MoveState.MoveHistory[^1], NLProb = nlProb });
+                    firstMove = false;
                 }
 
                 groupRewards[group] = agent.GetCurrentReward();
-
-                while (gameState.MoveState.MoveHistory.Count > baselineMoveCount)
-                    gameState.MoveState.RevertLastMove();
             }
         }
-#if true 
+#if true
         float sum = 0;
         float sqSum = 0;
 
@@ -266,7 +271,7 @@ public static class TrainingData
                 {
                     EvaluationTrainingData.Add(new()
                     {
-                        GameStateTensors =  default,
+                        State =  default,
                         ProbDist = target.clone().DetachFromDisposeScope(),
                     });
                     if (EvaluationTrainingData.Count - startingSampleCount >= lastLogCount + 1000)
@@ -389,7 +394,7 @@ public static class TensorGroupExtentions
         return me;
     }
 
-    public static T DetatchFromDisposeScope<T>(this T me) where T : ITensorGroup => (T)DetachFromDisposeScope((ITensorGroup)me);
+    public static T DetachFromDisposeScope<T>(this T me) where T : ITensorGroup => (T)DetachFromDisposeScope((ITensorGroup)me);
     
     public static void Dispose(this ITensorGroup me)
     {
@@ -430,35 +435,24 @@ public static class TensorGroupExtentions
     static readonly Dictionary<Type, FieldInfo[]> _tensorFieldsByType = [];
 }
 
-public class MoveTensors
+public class MoveTensors : ITensorGroup
 {
-    public Tensor NewOtherState;
-    public Tensor CardsInPlayedHand;
-    public Tensor CardsInRemainingHand;
+    public Tensor PlayedHand;
+    public Tensor RemainingHand;
+    public Tensor OtherState;
 }
 
 public class GameStateTensors : ITensorGroup
 {
-    public Tensor Hand;
     public Tensor FullHand;
     public Tensor RemainingDeck;
-    public Tensor FullDeck;
     public Tensor OtherState;
-
-    public GameStateTensors DetachFromDisposeScope()
-    {
-        Hand?.DetachFromDisposeScope();
-        OtherState?.DetachFromDisposeScope();
-        FullDeck?.DetachFromDisposeScope();
-        RemainingDeck?.DetachFromDisposeScope();
-        FullHand?.DetachFromDisposeScope();
-        return this;
-    }
 }
 
 public class EvaluationTrainingSample : ITensorGroup
 {
-    public GameStateTensors GameStateTensors;
+    public GameStateTensors State;
+    public MoveTensors Moves;
     public Tensor ProbDist;
     public Tensor Advantage;
 }

@@ -8,8 +8,8 @@ using static TorchSharp.torch.nn;
 public static class Training
 {
     public const float epsilonLow = 0.2f, epsilonHigh = 0.2f;
-    public static float entropyCoeff = 0;
-    public static float kldCoeff = 0.005f;
+    public static float entropyCoeff = 0.0001f;
+    public static float kldCoeff = 0.001f;
     public static float lr = 2e-4f;
 
     public static void TrainEvaluationModel(GameEvalModel model, int epochs, int batchSize, bool validate = false)
@@ -49,9 +49,9 @@ public static class Training
                 for (int i = trainCount; i < samples; i += batchSize)
                 {
                     int end = Math.Min(i + batchSize, samples);
-                    EvaluationTrainingSample inputs = stacked.GetBatch(i, end) as EvaluationTrainingSample;
-
-                    Tensor logits = model.forward(inputs.GameStateTensors).squeeze(2); 
+                    EvaluationTrainingSample inputs = stacked.GetBatch(i, end);
+                    Tensor processedState = model.ProcessState(inputs.State);
+                    Tensor logits = model.GetMoveLogits(processedState, inputs.Moves).squeeze_(2);
 
                     var logQ = log(inputs.ProbDist + 1e-9);
                     var logitsAdjusted = logits - logQ;
@@ -81,7 +81,8 @@ public static class Training
                 var probDist = inputs.ProbDist / inputs.ProbDist.sum(dim: 1, true);
                 var logProbsOld = log(probDist.clamp_min(0f) + 1e-9);
 
-                Tensor logits = model.forward(inputs.GameStateTensors).squeeze(2);
+                Tensor processedState = model.ProcessState(inputs.State);
+                Tensor logits = model.GetMoveLogits(processedState, inputs.Moves).squeeze_(2);
                 var logProbs = functional.log_softmax(logits, dim: 1);
                 var logPiNew = logProbs.select(1, 0);
 

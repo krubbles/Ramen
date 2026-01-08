@@ -291,6 +291,8 @@ public sealed class UseHandMove : Move
         CardIndices = cardIndices;
     }
 
+    public ReadOnlySpan<Card> UsedCards => _cards;
+
     protected override void Apply()
     {
         gameState.AssertIsStage(StageOfGame.InRoundPlayerChoice);
