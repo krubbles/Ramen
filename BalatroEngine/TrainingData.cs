@@ -42,9 +42,6 @@ public static class TrainingData
     {
         GameState gameState = new(new());
         RamenAgent agent = new(gameState, model);
-        GenerateGRPOTrainingDataGroup(model, gameState, stats, groupSize);
-
-#if false
         FastRandom random = FastRandom.SeededByClock();
         List<float> nlProbs = new();
         List<Move> moves = new();
@@ -74,7 +71,6 @@ public static class TrainingData
                 return;
             }    
         }
-#endif
     }
     static void GenerateGRPOTrainingDataGroup(GameEvalModel model, GameState gameState, TrainingDataStats stats, int groupSize = 32)
     {
@@ -89,8 +85,6 @@ public static class TrainingData
         {
             for (int group = 0; group < groupSize; ++group)
             {
-                while (gameState.MoveState.MoveHistory.Count > 0)
-                    gameState.MoveState.RevertLastMove();
                 gameState.Random.SetState((ulong)random.Next());
                 
                 List<SN> gameSamples = new();
@@ -98,17 +92,18 @@ public static class TrainingData
                 groupGames[group] = gameSamples;
 
                 gameState.AdvanceToNextPlayerChoice();
-                bool firstMove = true;
                 while (gameState.HandState.RemainingHands > 0 && gameState.ScoringState.CurrentRoundTotalChips < 300)
                 {
                     gameState.AdvanceToNextPlayerChoice();
-                    if (!agent.MakeMoveStochastic(firstMove ? 1.2f : 1f, out EvaluationTrainingSample sample, out float nlProb, 12, true))
+                    if (!agent.MakeMoveStochastic(1, out EvaluationTrainingSample sample, out float nlProb, 12, true))
                         break;
                     gameSamples.Add(new() { Sample = sample, N = 1, Move = gameState.MoveState.MoveHistory[^1], NLProb = nlProb });
-                    firstMove = false;
                 }
 
                 groupRewards[group] = agent.GetCurrentReward();
+                while (gameState.MoveState.MoveHistory.Count > baselineMoveCount)
+                    gameState.MoveState.RevertLastMove();
+
             }
         }
 #if true
