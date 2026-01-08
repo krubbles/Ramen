@@ -9,7 +9,7 @@ public static class Training
 {
     public const float epsilonLow = 0.2f, epsilonHigh = 0.2f;
     public static float entropyCoeff = 0;
-    public static float kldCoeff = 0;
+    public static float kldCoeff = 0.005f;
     public static float lr = 2e-4f;
 
     public static void TrainEvaluationModel(GameEvalModel model, int epochs, int batchSize, bool validate = false)
@@ -78,9 +78,10 @@ public static class Training
                 int end = Math.Min(i + batchSize, samples);
                 EvaluationTrainingSample inputs = stacked.GetBatch(i, end);
 
-                var logProbsOld = log(inputs.ProbDist.clamp_min(0f) + 1e-9);
+                var probDist = inputs.ProbDist / inputs.ProbDist.sum(dim: 1, true);
+                var logProbsOld = log(probDist.clamp_min(0f) + 1e-9);
 
-                Tensor logits = model.forward(inputs.GameStateTensors).squeeze(2) - logProbsOld;
+                Tensor logits = model.forward(inputs.GameStateTensors).squeeze(2);
                 var logProbs = functional.log_softmax(logits, dim: 1);
                 var logPiNew = logProbs.select(1, 0);
 
@@ -89,18 +90,19 @@ public static class Training
 
                 var logPiOld = logProbsOld.select(1, 0);
 
-                var ratio = exp(logPiNew - logPiOld);
+                var ratio = exp(logPiNew - logPiOld) - 1;
 
-                var kld = (inputs.ProbDist * (logProbsOld - logProbs)).sum(dim: 1);
+                var kld = (probDist * (logProbsOld - logProbs)).sum(dim: 1);
 
                 var advantage = inputs.Advantage;
                 var surr1 = ratio * advantage;
-                var surr2 = clamp(ratio, 1.0f - epsilonLow, 1.0f + epsilonHigh) * advantage;
+                var surr2 = clamp(ratio, -epsilonLow, epsilonHigh) * advantage;
+                var surrMin = min(surr1, surr2);
 
-                var policyReward = min(surr1, surr2);
+                var policyReward = surrMin.mean();/// (surrMin.norm(p: 2) / surrMin.size(0)).pow(0.25f);
                 var entropyReward = entropyCoeff * entropy;
-                var kldLoss = kld * kldCoeff;
-                var loss = (kldLoss - policyReward - entropyReward).mean();
+                var kldLoss = kld.mean() * kldCoeff;
+                var loss = (kldLoss - policyReward - entropyReward);
 
                 loss.backward();
                 optimizer.step();

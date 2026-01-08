@@ -20,8 +20,8 @@ public class TrainingDataStats
     public float MeanReward => TotalReward / GamesCount;
     public float RewardStdDev => (TotalSquaredReward - TotalReward  * MeanReward) / Math.Max(1, GamesCount - 1);
 
-    public float AverageNLProb(int depth) => TotalNLProbByDepth[depth] / CountByDepth[depth];
-    public float AverageAttribution(int depth) => TotalAttributionByDepth[depth] / CountByDepth[depth];
+    public float AverageNLProb(int depth) => TotalNLProbByDepth[depth] / Math.Max(1, CountByDepth[depth]);
+    public float AverageAttribution(int depth) => TotalAttributionByDepth[depth] / Math.Max(1, CountByDepth[depth]);
 }
 
 public static class TrainingData
@@ -101,18 +101,21 @@ public static class TrainingData
             List<SN> nodes = groupGames[group];
             for (int depth = nodes.Count - 1; depth >= 0; --depth)
             {
-                stats.TotalNLProbByDepth[depth] += nodes[depth].NLProb;
+                float nlProb = nodes[depth].NLProb;
+                if (float.IsNaN(nlProb))
+                    nlProb = 0;
+                stats.TotalNLProbByDepth[depth] += nlProb;
                 nodes[depth].NLProb = runningNLSum;
-                runningNLSum += nodes[depth].NLProb;
+                runningNLSum += nlProb;
             }
             for (int depth = 0; depth < nodes.Count; ++depth)
             {
                 SN node = nodes[depth];
                 stats.NodesCount++;
                 stats.CountByDepth[depth]++;
-                float attribution = 1f / (1 + 0.25f * nodes[depth].NLProb);
+                float attribution = 1f / (1 + 0f * nodes[depth].NLProb);
                 stats.TotalAttributionByDepth[depth] += attribution;
-                float adjustedAdvantage = advantage;
+                float adjustedAdvantage = advantage * attribution;
                 if (float.IsNaN(adjustedAdvantage) || !float.IsFinite(adjustedAdvantage))
                     adjustedAdvantage = 0;
                 node.Sample.Advantage = tensor(adjustedAdvantage).DetachFromDisposeScope();

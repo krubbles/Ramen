@@ -21,11 +21,11 @@ public class GameEvalModel : Module
         _embedCard = Embedding(53, EmbeddedCardWidth);
 
         FinalNetwork = Sequential(
-            Linear(OtherStateWidth, 64),
+            Linear(OtherStateWidth + EmbeddedCardWidth * 2, 128),
             ReLU(),
-            Linear(64, 32),
+            Linear(128, 64),
             ReLU(),
-            Linear(32, 1)
+            Linear(64, 1)
         );
 
         RegisterComponents();
@@ -33,7 +33,6 @@ public class GameEvalModel : Module
 
     public Tensor ProcessHand(Tensor hand)
     {
-        return null;
         Tensor embeddedHand = _embedCard.forward(hand).sum(dim: hand.Dimensions - 1);
         Tensor result = embeddedHand.relu_();
         return result;
@@ -41,8 +40,8 @@ public class GameEvalModel : Module
 
     public Tensor GetPredictedRewardDistribution(Tensor processedHand, Tensor processedDeck, Tensor processedFullHand, Tensor otherState)
     {
-        // Tensor input = concat([processedHand, processedDeck, processedFullHand, otherState], dim: otherState.Dimensions - 1);
-        Tensor output = FinalNetwork.forward(otherState);
+        Tensor input = concat([processedHand, processedDeck, otherState], dim: otherState.Dimensions - 1);
+        Tensor output = FinalNetwork.forward(input);
         return output;
     }
 
@@ -55,7 +54,7 @@ public class GameEvalModel : Module
     public Tensor forward(GameStateTensors gameState)
     {
         Tensor processedHand = ProcessHand(gameState.Hand);
-        Tensor processedFullHand = ProcessHand(gameState.FullHand);
+        Tensor processedFullHand = null;// ProcessHand(gameState.FullHand);
         Tensor processedDeck = ProcessHand(gameState.RemainingDeck);
         Tensor output = GetPredictedRewardDistribution(processedHand, processedDeck, processedFullHand, gameState.OtherState);
         return output;
