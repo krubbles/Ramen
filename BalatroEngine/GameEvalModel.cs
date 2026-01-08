@@ -16,9 +16,8 @@ public class GameEvalModel : Module
 
     public const int
         StateProcessorInputWidth = RemainingDeckEmbedWidth + FullHandEmbedWidth + StateOtherStateWidth,
-        KeyGeneratorInputWidth = RemainingHandEmbedWidth + PlayedHandEmbedWidth + MoveOtherStateWidth;
+        MoveEvaluatorInputWidth = RemainingHandEmbedWidth + PlayedHandEmbedWidth + MoveOtherStateWidth;
     
-    public const int QueryWidth = 128;
 
 
     private readonly Embedding _embedRemainingDeck = Embedding(53, RemainingDeckEmbedWidth);
@@ -27,9 +26,8 @@ public class GameEvalModel : Module
     private readonly Embedding _embedPlayedHand = Embedding(53, PlayedHandEmbedWidth);
 
     public readonly Sequential StateProcessor;
-    public readonly Sequential QueryGenerator;
-    public readonly Sequential KeyGenerator;
-
+    public readonly Sequential MoveEvaluator;
+    public readonly Sequential MovePreProcessor;
 
     public GameEvalModel() : base(nameof(GameEvalModel))
     {
@@ -37,16 +35,20 @@ public class GameEvalModel : Module
         StateProcessor = Sequential(
             Linear(StateProcessorInputWidth, 256),
             ReLU(),
-            Linear(256, 256),
-            ReLU()
+            Linear(256, 128)
         );
 
-        QueryGenerator = Sequential(
-            Linear(256, QueryWidth)
+        MovePreProcessor = Sequential(
+            Linear(MoveEvaluatorInputWidth, 128)
         );
-        KeyGenerator = Sequential(
-            Linear(256, KeyGeneratorInputWidth)
+
+        MoveEvaluator = Sequential(
+            ReLU(),
+            Linear(128, 64),
+            ReLU(),
+            Linear(64, 1)
         );
+
 
         RegisterComponents();
     }
@@ -72,25 +74,18 @@ public class GameEvalModel : Module
         return ProcessState(processedHand, processedDeck, gameState.OtherState);
     }
 
-    public Tensor GetMoveQuery(Tensor processedState)
-    {
-        return QueryGenerator.forward(processedState);
-    }
-
-    public Tensor GetMoveKeys(MoveTensors moves)
+    public Tensor PreProcessMoves(MoveTensors moves)
     {
         Tensor processedRemainingHand = EmbedCardSet(_embedRemainingHand, moves.RemainingHand);
         Tensor processedPlayedHand = EmbedCardSet(_embedPlayedHand, moves.PlayedHand);
         Tensor input = concat([processedRemainingHand, processedPlayedHand, moves.OtherState], dim: moves.OtherState.Dimensions - 1);
-        return KeyGenerator.forward(input);
+        return MovePreProcessor.forward(input);
     }
 
     public Tensor GetMoveLogits(Tensor processedState, MoveTensors moves)
     {
-        Tensor moveKeys = GetMoveKeys(moves);
-        Tensor moveQuery = QueryGenerator.forward(processedState);
-        Tensor expandedMoveQuery = moveQuery.expand([moveQuery.size(0), moves.OtherState.size(1), moveQuery.size(1)]);
-        Tensor logits = dot(expandedMoveQuery, moveKeys);
+        Tensor preProcessedMoves = PreProcessMoves(moves);
+        Tensor logits = MoveEvaluator.forward(preProcessedMoves + processedState.unsqueeze(1).expand(preProcessedMoves.shape)).squeeze_(2);
         return logits;
     }
 }

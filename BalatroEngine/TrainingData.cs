@@ -155,7 +155,7 @@ public static class TrainingData
                 float adjustedAdvantage = advantage * attribution;
                 if (float.IsNaN(adjustedAdvantage) || !float.IsFinite(adjustedAdvantage))
                     adjustedAdvantage = 0;
-                node.Sample.Advantage = tensor(adjustedAdvantage).DetachFromDisposeScope();
+                node.Sample.Advantage = tensor(adjustedAdvantage).unsqueeze_(0).DetachFromDisposeScope();
                 EvaluationTrainingData.Add(node.Sample);
             }
         }

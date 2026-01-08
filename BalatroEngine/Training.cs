@@ -20,7 +20,7 @@ public static class Training
         EvaluationTrainingSample stacked;
         lock (TrainingData.EvaluationTrainingData)
         {
-            stacked = TensorGroupExtentions.Stack(TrainingData.EvaluationTrainingData, false, false);
+            stacked = TensorGroupExtentions.Stack(TrainingData.EvaluationTrainingData, false, true);
         }
 
         stacked = stacked.IndexSelect(0, randperm(stacked.Advantage.size(0)));
@@ -82,7 +82,7 @@ public static class Training
                 var logProbsOld = log(probDist.clamp_min(0f) + 1e-9);
 
                 Tensor processedState = model.ProcessState(inputs.State);
-                Tensor logits = model.GetMoveLogits(processedState, inputs.Moves).squeeze_(2);
+                Tensor logits = model.GetMoveLogits(processedState, inputs.Moves);
                 var logProbs = functional.log_softmax(logits, dim: 1);
                 var logPiNew = logProbs.select(1, 0);
 

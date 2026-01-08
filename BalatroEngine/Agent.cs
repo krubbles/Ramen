@@ -94,9 +94,9 @@ public class RamenAgent
 
         MoveTensors moveTensors = new()
         {
-            RemainingHand = tensor(remainingHands),
-            PlayedHand = tensor(playedHands),
-            OtherState = tensor(otherStates)
+            RemainingHand = tensor(remainingHands).unsqueeze_(0),
+            PlayedHand = tensor(playedHands).unsqueeze_(0),
+            OtherState = tensor(otherStates).unsqueeze_(0)
         };
 
         //
@@ -106,8 +106,8 @@ public class RamenAgent
         Tensor processedState = Model.ProcessState(stateTensors);
         Tensor logits = Model.GetMoveLogits(processedState, moveTensors);
 
-        Tensor rewardDist = (logits / Math.Max(temp, 0.0001f)).softmax(0).squeeze_(1);
-        Tensor indices = multinomial(rewardDist, sampleCount, replacement: false);
+        Tensor rewardDist = (logits / Math.Max(temp, 0.0001f)).softmax(1);
+        Tensor indices = multinomial(rewardDist, sampleCount, replacement: false).squeeze_(0);
 
         long moveIndex = indices.data<long>()[0];
         if (generateSample)
@@ -116,13 +116,13 @@ public class RamenAgent
             target[0, 0] = 1;
             sample = new()
             {
-                ProbDist = rewardDist.index_select(0, indices).DetachFromDisposeScope(),
-                State = stateTensors.DetachFromDisposeScope(),
-                Moves = moveTensors.IndexSelect(0, indices).DetachFromDisposeScope(),
+                ProbDist = rewardDist.index_select(1, indices).DetachFromDisposeScope(),
+                State = stateTensors.Clone().DetachFromDisposeScope(),
+                Moves = moveTensors.IndexSelect(1, indices).DetachFromDisposeScope(),
             };
         }
         moves[(int)moveIndex].Apply(GameState);
-        nlProb = -MathF.Log(Math.Max(rewardDist[(int)moveIndex].item<float>(), 1e-9f));
+        nlProb = -MathF.Log(Math.Max(rewardDist[0, (int)moveIndex].item<float>(), 1e-9f));
         return true;
     }
 
