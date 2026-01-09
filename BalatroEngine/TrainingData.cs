@@ -144,14 +144,16 @@ public static class TrainingData
                 SN node = nodes[depth];
                 stats.NodesCount++;
                 stats.CountByDepth[depth]++;
-                int tier = node.Sample.ForcastTier;
-                float advantageRemapped = RemapA(percentile, tier switch
+                int tier = (int)node.Sample.ForcastTier.item<long>();
+                float advantageRemapped = RemapA(advantage, tier switch
                 {
-                    0 => 0.5f,
-                    1 => 0.25f,
-                    2 => 0.75f,
+                    0 => 0,
+                    1 => -0.5f,
+                    2 => 0.5f,
+                    3 => -1f,
+                    4 => 1f,
                 });
-                node.Sample.Advantage = tensor(advantageRemapped).unsqueeze_(0).DetachFromDisposeScope();
+                node.Sample.Advantage = tensor(advantage).unsqueeze_(0).DetachFromDisposeScope();
                 EvaluationTrainingData.Add(node.Sample);
 
                 stats.CountByTier[tier]++;
@@ -161,9 +163,11 @@ public static class TrainingData
 
         }
 
-        float RemapA(float advantage, float percentile)
+
+        float RemapA(float a, float x)
         {
-            return advantage > percentile ? 1 / (1 - percentile) : -1 / percentile;
+            float softexp = MathF.Log(MathF.Exp(x) + 1);
+            return softexp * softexp + ((a - x) * 2 * MathF.Exp(x) * softexp) / (MathF.Exp(x) + 1);
         }
 #else // Renormalizing advantage
         Array.Sort(groupRewards, groupGames);
@@ -277,7 +281,7 @@ public static class TrainingData
                     EvaluationTrainingData.Add(new()
                     {
                         State =  default,
-                        ProbDist = target.clone().DetachFromDisposeScope(),
+                        MoveProbDist = target.clone().DetachFromDisposeScope(),
                     });
                     if (EvaluationTrainingData.Count - startingSampleCount >= lastLogCount + 1000)
                     {
@@ -460,8 +464,7 @@ public class EvaluationTrainingSample : ITensorGroup
     public GameStateTensors State;
     public MoveTensors Moves;
     public Tensor ForcastProbDist;
-    public Tensor ProbDist;
+    public Tensor MoveProbDist;
     public Tensor Advantage;
-
-    public int ForcastTier;
+    public Tensor ForcastTier;
 }

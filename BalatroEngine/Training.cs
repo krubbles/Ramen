@@ -8,8 +8,8 @@ using static TorchSharp.torch.nn;
 public static class Training
 {
     public const float epsilonLow = 0.2f, epsilonHigh = 0.2f;
-    public static float entropyCoeff = 0.0005f;
-    public static float kldCoeff = 0.01f;
+    public static float entropyCoeff = 0f;
+    public static float kldCoeff = 0f;
     public static float lr = 2e-4f;
 
     public static void TrainEvaluationModel(GameEvalModel model, int epochs, int batchSize, bool validate = false)
@@ -53,7 +53,7 @@ public static class Training
                     Tensor processedState = model.ProcessState(inputs.State);
                     Tensor logits = model.GetMoveLogits(processedState, inputs.Moves).squeeze_(2);
 
-                    var logQ = log(inputs.ProbDist + 1e-9);
+                    var logQ = log(inputs.MoveProbDist + 1e-9);
                     var logitsAdjusted = logits - logQ;
 
                     var currentBatchSize = logits.shape[0];
@@ -78,17 +78,17 @@ public static class Training
                 int end = Math.Min(i + batchSize, samples);
                 EvaluationTrainingSample inputs = stacked.GetBatch(i, end);
 
-                var probDist = inputs.ProbDist / inputs.ProbDist.sum(dim: 1, true);
+                var probDist = inputs.MoveProbDist / inputs.MoveProbDist.sum(dim: 1, true);
                 Tensor processedState = model.ProcessState(inputs.State);
                 int moveCount = (int)inputs.Moves.OtherState.size(1);
 
                 Tensor forcastLogits = model.GetForcastLogits(processedState);
-                Tensor forcastLoss = CalculatePPOLoss(forcastLogits, inputs.ForcastProbDist, inputs.Advantage);
+                Tensor forcastLoss = CalculatePPOLoss(forcastLogits, inputs.ForcastProbDist, inputs.Advantage, false, inputs.ForcastTier);
 
                 Tensor moveLogits = model.GetMoveLogits(processedState, inputs.Moves);
-                Tensor moveLoss = CalculatePPOLoss(forcastLogits, inputs.ForcastProbDist, inputs.Advantage);
+                Tensor moveLoss = CalculatePPOLoss(moveLogits, probDist, inputs.Advantage, true);
 
-                Tensor loss = forcastLoss + moveLoss;
+                Tensor loss = moveLoss + forcastLoss;
 
                 loss.backward();
                 optimizer.step();
@@ -96,32 +96,6 @@ public static class Training
                 trainLossAvg += loss.item<float>();
                 trainBatchCount++;
 
-                Tensor CalculatePPOLoss(Tensor logits, Tensor oldProbs, Tensor advantage)
-                {
-                    var logProbsOld = log(oldProbs.clamp_min(0f) + 1e-9);
-                    var logProbs = functional.log_softmax(logits, dim: 1);
-
-                    var logPiNew = logProbs.select(1, 0);
-
-                    var probs = exp(logProbs);
-                    var entropy = -(probs * logProbs).sum(1).mean();
-
-                    var logPiOld = logProbsOld.select(1, 0);
-
-                    var ratio = exp(logPiNew - logPiOld) - 1;
-
-                    var kld = (oldProbs * (logProbsOld - logProbs)).sum(dim: 1);
-
-                    var surr1 = ratio * advantage;
-                    var surr2 = clamp(ratio, -epsilonLow, epsilonHigh) * advantage;
-                    var surrMin = min(surr1, surr2);
-
-                    var policyReward = surrMin.mean();/// (surrMin.norm(p: 2) / surrMin.size(0)).pow(0.25f);
-                    var entropyReward = entropyCoeff * entropy;
-                    var kldLoss = kld.mean() * kldCoeff;
-                    var loss = (kldLoss - policyReward - entropyReward);
-                    return loss;
-                }
             }
 
             trainLossAvg /= Math.Max(1, trainBatchCount);
@@ -131,5 +105,37 @@ public static class Training
 
         stacked.Dispose();
     }
+
+    static Tensor CalculatePPOLoss(Tensor logits, Tensor oldProbs, Tensor advantage, bool useIndex0, Tensor moveIndex = null)
+    {
+        var logProbsOld = log(oldProbs.clamp_min(0f) + 1e-9);
+        var logProbs = functional.log_softmax(logits, dim: 1);
+
+        var logPiNew = useIndex0 ?
+            logProbs.select(1, 0) :
+            logProbs.gather(1, moveIndex);
+
+        var probs = exp(logProbs);
+        var entropy = -(probs * logProbs).sum(1).mean();
+
+        var logPiOld = useIndex0 ?
+            logProbsOld.select(1, 0) :
+            logProbsOld.gather(1, moveIndex);
+
+        var ratio = exp(logPiNew - logPiOld) - 1;
+
+        var kld = (oldProbs * (logProbsOld - logProbs)).sum(dim: 1);
+
+        var surr1 = ratio * advantage;
+        var surr2 = clamp(ratio, -epsilonLow, epsilonHigh) * advantage;
+        var surrMin = min(surr1, surr2);
+
+        var policyReward = surrMin.mean();/// (surrMin.norm(p: 2) / surrMin.size(0)).pow(0.25f);
+        var entropyReward = entropyCoeff * entropy;
+        var kldLoss = kld.mean() * kldCoeff;
+        var loss = (kldLoss - policyReward - entropyReward);
+        return loss;
+    }
+
 }
 

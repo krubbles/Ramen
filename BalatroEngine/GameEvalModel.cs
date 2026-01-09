@@ -14,7 +14,7 @@ public class GameEvalModel : Module
         StateOtherStateWidth = 13,
         MoveOtherStateWidth = 13,
         TierEmbedWidth = 8,
-        Tiers = 3;
+        Tiers = 1;
 
     public const int
         StateProcessorInputWidth = RemainingDeckEmbedWidth + FullHandEmbedWidth + StateOtherStateWidth,
@@ -37,7 +37,9 @@ public class GameEvalModel : Module
 
         StateProcessor = Sequential(
             Linear(StateProcessorInputWidth, 256),
-            new ResidualMLP(256, 1),
+            ReLU(),
+            Linear(256, 256),
+            ReLU(),
             Linear(256, 128)
         );
 
@@ -53,7 +55,8 @@ public class GameEvalModel : Module
         );
 
         ForcastPolicy = Sequential(
-            new ResidualMLP(128, 1),
+            Linear(128, 128),
+            ReLU(),
             Linear(128, Tiers)
         );
 

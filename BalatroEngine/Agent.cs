@@ -3,7 +3,6 @@
 using Ramen.Game;
 
 using static TorchSharp.torch;
-using static TorchSharp.torch.optim.lr_scheduler.impl.CyclicLR;
 using System.Runtime.InteropServices;
 
 public class RamenAgent
@@ -74,12 +73,7 @@ public class RamenAgent
         Tensor processedState = Model.ProcessState(stateTensors);
         Tensor forcastProbs = Model.GetForcastLogits(processedState).softmax(1);
         Tensor tier = multinomial(forcastProbs, 1);
-        if (tier.item<long>() != 0)
-        {
-            float toSwap = forcastProbs[0, 0].item<float>();
-            forcastProbs[0..1, 0..1] = forcastProbs[0, tier];
-            forcastProbs[0, tier] = toSwap;
-        }
+
         HandState handState = GameState.HandState;
         ScoringState scoringState = GameState.ScoringState;
         int hash = GameState.GetHashCode();
@@ -116,9 +110,7 @@ public class RamenAgent
 
         Tensor rewardDist = (logits / Math.Max(temp, 0.0001f)).softmax(1);
         Tensor indices = multinomial(rewardDist, sampleCount, replacement: false).squeeze_(0);
-        Tensor moveindices = indices.div(GameEvalModel.Tiers, RoundingMode.floor);
-        Tensor tierIndices = indices - moveindices * GameEvalModel.Tiers;
-        long moveIndex = moveindices.data<long>()[0];
+        long moveIndex = indices.data<long>()[0];
 
         if (generateSample)
         {
@@ -127,10 +119,10 @@ public class RamenAgent
             sample = new()
             {
                 ForcastProbDist = forcastProbs.DetachFromDisposeScope(),
-                ProbDist = rewardDist.index_select(1, indices).DetachFromDisposeScope(),
+                MoveProbDist = rewardDist.index_select(1, indices).DetachFromDisposeScope(),
                 State = stateTensors.Clone().DetachFromDisposeScope(),
-                Moves = moveTensors.IndexSelect(1, moveindices).DetachFromDisposeScope(),
-                ForcastTier = (int)tier.item<long>()
+                Moves = moveTensors.IndexSelect(1, indices).DetachFromDisposeScope(),
+                ForcastTier = tier.DetachFromDisposeScope()
             };
         }
         moves[(int)moveIndex].Apply(GameState);
