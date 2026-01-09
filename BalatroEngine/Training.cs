@@ -8,8 +8,8 @@ using static TorchSharp.torch.nn;
 public static class Training
 {
     public const float epsilonLow = 0.2f, epsilonHigh = 0.2f;
-    public static float entropyCoeff = 0f;
-    public static float kldCoeff = 0f;
+    public static float entropyCoeff = 0.01f;
+    public static float kldCoeff = 0.01f;
     public static float lr = 2e-4f;
 
     public static void TrainEvaluationModel(GameEvalModel model, int epochs, int batchSize, bool validate = false)
@@ -83,10 +83,10 @@ public static class Training
                 int moveCount = (int)inputs.Moves.OtherState.size(1);
 
                 Tensor forcastLogits = model.GetForcastLogits(processedState);
-                Tensor forcastLoss = CalculatePPOLoss(forcastLogits, inputs.ForcastProbDist, inputs.Advantage, false, inputs.ForcastTier);
+                Tensor forcastLoss = CalculatePPOLoss(forcastLogits, inputs.ForcastProbDist, inputs.Advantage, 0.001f, false, inputs.ForcastTier);
 
                 Tensor moveLogits = model.GetMoveLogits(processedState, inputs.Moves);
-                Tensor moveLoss = CalculatePPOLoss(moveLogits, probDist, inputs.Advantage, true);
+                Tensor moveLoss = CalculatePPOLoss(moveLogits, probDist, inputs.Advantage, entropyCoeff, true);
 
                 Tensor loss = moveLoss + forcastLoss;
 
@@ -106,7 +106,7 @@ public static class Training
         stacked.Dispose();
     }
 
-    static Tensor CalculatePPOLoss(Tensor logits, Tensor oldProbs, Tensor advantage, bool useIndex0, Tensor moveIndex = null)
+    static Tensor CalculatePPOLoss(Tensor logits, Tensor oldProbs, Tensor advantage, float ec, bool useIndex0, Tensor moveIndex = null)
     {
         var logProbsOld = log(oldProbs.clamp_min(0f) + 1e-9);
         var logProbs = functional.log_softmax(logits, dim: 1);
@@ -131,7 +131,7 @@ public static class Training
         var surrMin = min(surr1, surr2);
 
         var policyReward = surrMin.mean();/// (surrMin.norm(p: 2) / surrMin.size(0)).pow(0.25f);
-        var entropyReward = entropyCoeff * entropy;
+        var entropyReward = ec * entropy;
         var kldLoss = kld.mean() * kldCoeff;
         var loss = (kldLoss - policyReward - entropyReward);
         return loss;

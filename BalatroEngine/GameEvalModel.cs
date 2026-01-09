@@ -14,7 +14,7 @@ public class GameEvalModel : Module
         StateOtherStateWidth = 13,
         MoveOtherStateWidth = 13,
         TierEmbedWidth = 8,
-        Tiers = 1;
+        Tiers = 5;
 
     public const int
         StateProcessorInputWidth = RemainingDeckEmbedWidth + FullHandEmbedWidth + StateOtherStateWidth,
@@ -36,11 +36,9 @@ public class GameEvalModel : Module
     {
 
         StateProcessor = Sequential(
-            Linear(StateProcessorInputWidth, 256),
-            ReLU(),
-            Linear(256, 256),
-            ReLU(),
-            Linear(256, 128)
+            Linear(StateProcessorInputWidth, 512),
+            new ResidualMLP(512, 3),
+            Linear(512, 128)
         );
 
         UseHandMovePreProcessor = Sequential(

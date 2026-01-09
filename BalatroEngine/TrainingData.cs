@@ -147,10 +147,10 @@ public static class TrainingData
                 int tier = (int)node.Sample.ForcastTier.item<long>();
                 float advantageRemapped = RemapA(advantage, tier switch
                 {
-                    0 => 0,
+                    0 => -1,
                     1 => -0.5f,
-                    2 => 0.5f,
-                    3 => -1f,
+                    2 => 0f,
+                    3 => 0.5f,
                     4 => 1f,
                 });
                 node.Sample.Advantage = tensor(advantage).unsqueeze_(0).DetachFromDisposeScope();
@@ -166,8 +166,7 @@ public static class TrainingData
 
         float RemapA(float a, float x)
         {
-            float softexp = MathF.Log(MathF.Exp(x) + 1);
-            return softexp * softexp + ((a - x) * 2 * MathF.Exp(x) * softexp) / (MathF.Exp(x) + 1);
+            return a * MathF.Exp(x) - (x - 1) * MathF.Exp(x) - 1;
         }
 #else // Renormalizing advantage
         Array.Sort(groupRewards, groupGames);
