@@ -101,7 +101,6 @@ public class RamenAgent
             RemainingHand = tensor(remainingHands).unsqueeze_(0),
             PlayedHand = tensor(playedHands).unsqueeze_(0),
             OtherState = tensor(otherStates).unsqueeze_(0),
-            Tier = tier.view(1, 1).expand([1, moves.Count])
         };
 
         //

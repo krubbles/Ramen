@@ -26,6 +26,7 @@ class Program
 
         List<float> avgScores = new();
         List<TrainingDataStats> stats = new();
+        float entropy = 0.05f;
 
         for (int i = 0; i < 1000; i++)
         {
@@ -34,8 +35,8 @@ class Program
             TrainingData.EvaluationTrainingData.Clear();
             TrainingDataStats stat = TrainingData.GenerateEvaluationTrainingData(model, multiplier * 3000, 1f);
             stats.Add(stat);
-            Training.TrainEvaluationModel(model, 5, 128, false);
-
+            Training.TrainEvaluationModel(model, 5, 128, entropy, false);
+            entropy *= MathF.Pow(0.5f, 1 / 100);
             avgScores.Add(Testing.GetAverageScore(model, 150));
 
             if (true)

@@ -448,7 +448,6 @@ public class MoveTensors : ITensorGroup
     public Tensor PlayedHand;
     public Tensor RemainingHand;
     public Tensor OtherState;
-    public Tensor Tier;
 }
 
 public class GameStateTensors : ITensorGroup

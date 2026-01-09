@@ -8,11 +8,10 @@ using static TorchSharp.torch.nn;
 public static class Training
 {
     public const float epsilonLow = 0.2f, epsilonHigh = 0.2f;
-    public static float entropyCoeff = 0.01f;
     public static float kldCoeff = 0.01f;
     public static float lr = 2e-4f;
 
-    public static void TrainEvaluationModel(GameEvalModel model, int epochs, int batchSize, bool validate = false)
+    public static void TrainEvaluationModel(GameEvalModel model, int epochs, int batchSize, float entropyCoeff, bool validate = false)
     {
 
         Console.WriteLine($"Training evaluation model for {epochs} epochs, batch size {batchSize}");

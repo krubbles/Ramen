@@ -13,15 +13,13 @@ public class GameEvalModel : Module
         PlayedHandEmbedWidth = 64,
         StateOtherStateWidth = 13,
         MoveOtherStateWidth = 13,
-        TierEmbedWidth = 8,
         Tiers = 5;
 
     public const int
         StateProcessorInputWidth = RemainingDeckEmbedWidth + FullHandEmbedWidth + StateOtherStateWidth,
-        MoveEvaluatorInputWidth = RemainingHandEmbedWidth + PlayedHandEmbedWidth + MoveOtherStateWidth + TierEmbedWidth;
+        MoveEvaluatorInputWidth = RemainingHandEmbedWidth + PlayedHandEmbedWidth + MoveOtherStateWidth;
 
 
-    private readonly Embedding _embedTier = Embedding(Tiers, TierEmbedWidth);
     private readonly Embedding _embedRemainingDeck = Embedding(53, RemainingDeckEmbedWidth);
     private readonly Embedding _embedFullHand = Embedding(53, FullHandEmbedWidth);
     private readonly Embedding _embedRemainingHand = Embedding(53, RemainingHandEmbedWidth);
@@ -36,9 +34,9 @@ public class GameEvalModel : Module
     {
 
         StateProcessor = Sequential(
-            Linear(StateProcessorInputWidth, 512),
-            new ResidualMLP(512, 3),
-            Linear(512, 128)
+            Linear(StateProcessorInputWidth, 256),
+            new ResidualMLP(256, 2),
+            Linear(256, 128)
         );
 
         UseHandMovePreProcessor = Sequential(
@@ -46,10 +44,9 @@ public class GameEvalModel : Module
         );
 
         UseHandPolicy = Sequential(
+            new ResidualMLP(128, 1),
             ReLU(),
-            Linear(128, 64),
-            ReLU(),
-            Linear(64, 1)
+            Linear(128, 1)
         );
 
         ForcastPolicy = Sequential(
@@ -84,10 +81,9 @@ public class GameEvalModel : Module
 
     public Tensor PreProcessMoves(MoveTensors moves)
     {
-        Tensor tierEmbedded = _embedTier.forward(moves.Tier);
         Tensor processedRemainingHand = EmbedCardSet(_embedRemainingHand, moves.RemainingHand);
         Tensor processedPlayedHand = EmbedCardSet(_embedPlayedHand, moves.PlayedHand);
-        Tensor input = concat([processedRemainingHand, processedPlayedHand, moves.OtherState, tierEmbedded], dim: moves.OtherState.Dimensions - 1);
+        Tensor input = concat([processedRemainingHand, processedPlayedHand, moves.OtherState], dim: moves.OtherState.Dimensions - 1);
         return UseHandMovePreProcessor.forward(input);
     }
 
