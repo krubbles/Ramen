@@ -8,8 +8,8 @@ using static TorchSharp.torch.nn;
 public static class Training
 {
     public const float epsilonLow = 0.2f, epsilonHigh = 0.2f;
-    public static float entropyCoeff = 0.0001f;
-    public static float kldCoeff = 0.001f;
+    public static float entropyCoeff = 0.0005f;
+    public static float kldCoeff = 0.01f;
     public static float lr = 2e-4f;
 
     public static void TrainEvaluationModel(GameEvalModel model, int epochs, int batchSize, bool validate = false)
@@ -82,8 +82,10 @@ public static class Training
                 var logProbsOld = log(probDist.clamp_min(0f) + 1e-9);
 
                 Tensor processedState = model.ProcessState(inputs.State);
+                int moveCount = (int)inputs.Moves.OtherState.size(1);
                 Tensor logits = model.GetMoveLogits(processedState, inputs.Moves);
                 var logProbs = functional.log_softmax(logits, dim: 1);
+
                 var logPiNew = logProbs.select(1, 0);
 
                 var probs = exp(logProbs);

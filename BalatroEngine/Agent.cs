@@ -108,8 +108,10 @@ public class RamenAgent
 
         Tensor rewardDist = (logits / Math.Max(temp, 0.0001f)).softmax(1);
         Tensor indices = multinomial(rewardDist, sampleCount, replacement: false).squeeze_(0);
+        Tensor moveindices = indices.div(GameEvalModel.Tiers, RoundingMode.floor);
+        Tensor tierIndices = indices - moveindices * GameEvalModel.Tiers;
+        long moveIndex = moveindices.data<long>()[0];
 
-        long moveIndex = indices.data<long>()[0];
         if (generateSample)
         {
             Tensor target = zeros(sampleCount, 1);
@@ -118,7 +120,9 @@ public class RamenAgent
             {
                 ProbDist = rewardDist.index_select(1, indices).DetachFromDisposeScope(),
                 State = stateTensors.Clone().DetachFromDisposeScope(),
-                Moves = moveTensors.IndexSelect(1, indices).DetachFromDisposeScope(),
+                Moves = moveTensors.IndexSelect(1, moveindices).DetachFromDisposeScope(),
+                TierIndices = tierIndices.DetachFromDisposeScope(),
+                Advantage = tensor((int)moveIndex % GameEvalModel.Tiers).DetachFromDisposeScope()
             };
         }
         moves[(int)moveIndex].Apply(GameState);
@@ -128,7 +132,7 @@ public class RamenAgent
 
     public bool GameIsDone() => GameState.HandState.RemainingHands <= 0 || GameState.ScoringState.CurrentRoundTotalChips >= 300;
 
-    public void FillMoveOtherStateData(GameState gameState, Span<float> otherStates, bool isDiscard)
+    public void FillMoveOtherStateData(GameState gameState, Span<float> otherStates, bool isDiscard, float threshold = 0f)
     {
         HandState handState = GameState.HandState;
         ScoringState scoringState = GameState.ScoringState;
@@ -150,6 +154,7 @@ public class RamenAgent
 
         otherStates[index++] = isDiscard ? 0 : 1;
         otherStates[index++] = isDiscard ? 1 : 0;
+        otherStates[index++] = threshold;
     }
 
 

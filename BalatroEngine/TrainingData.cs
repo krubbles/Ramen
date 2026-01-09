@@ -1,8 +1,10 @@
 ﻿namespace Ramen.AI;
 
 using Ramen.Game;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Reflection;
+using System.Runtime.Intrinsics.Arm;
 using static TorchSharp.torch;
 
 public class TrainingDataStats
@@ -13,6 +15,7 @@ public class TrainingDataStats
 
     public const int MaxDepth = 10;
     public int NodesCount = 0;
+    public int[] CountByTier = new int[GameEvalModel.Tiers];
     public int[] CountByDepth = new int[MaxDepth];
     public float[] TotalNLProbByDepth = new float[MaxDepth];
     public float[] TotalAttributionByDepth = new float[MaxDepth];
@@ -43,6 +46,11 @@ public static class TrainingData
         GameState gameState = new(new());
         RamenAgent agent = new(gameState, model);
         FastRandom random = FastRandom.SeededByClock();
+        if (true)
+        {
+            GenerateGRPOTrainingDataGroup(model, gameState, stats, groupSize);
+            return;
+        }
         List<float> nlProbs = new();
         List<Move> moves = new();
         while (true)
@@ -127,34 +135,36 @@ public static class TrainingData
         Array.Sort(groupRewards, groupGames);
         for (int group = 0; group < groupSize; ++group)
         {
+            float percentile = (group + 0.5f) / groupSize;
             float advantage = (groupRewards[group] - mean) / MathF.Max(stdDev, 1e-8f);
 
-            float runningNLSum = 0;
             List<SN> nodes = groupGames[group];
-            for (int depth = nodes.Count - 1; depth >= 0; --depth)
-            {
-                float nlProb = nodes[depth].NLProb;
-                if (float.IsNaN(nlProb))
-                    nlProb = 0;
-                stats.TotalNLProbByDepth[depth] += nlProb;
-                nodes[depth].NLProb = runningNLSum;
-                runningNLSum += nlProb;
-            }
             for (int depth = 0; depth < nodes.Count; ++depth)
             {
                 SN node = nodes[depth];
                 stats.NodesCount++;
                 stats.CountByDepth[depth]++;
-                float attribution = 1f / (1 + 0f * nodes[depth].NLProb);
-                stats.TotalAttributionByDepth[depth] += attribution;
-                float adjustedAdvantage = advantage * attribution;
-                if (float.IsNaN(adjustedAdvantage) || !float.IsFinite(adjustedAdvantage))
-                    adjustedAdvantage = 0;
-                node.Sample.Advantage = tensor(adjustedAdvantage).unsqueeze_(0).DetachFromDisposeScope();
+                int tier = node.Sample.Advantage.item<int>();
+                float advantageRemapped = RemapA(percentile, tier switch
+                {
+                    0 => 0.5f,
+                    1 => 0.2f,
+                    2 => 0.8f,
+                });
+                node.Sample.Advantage = tensor(advantageRemapped).unsqueeze_(0).DetachFromDisposeScope();
                 EvaluationTrainingData.Add(node.Sample);
+
+                stats.CountByTier[tier]++;
+                stats.TotalNLProbByDepth[depth] += node.NLProb;
+                stats.CountByDepth[depth] += 1;
             }
+
         }
 
+        float RemapA(float advantage, float percentile)
+        {
+            return advantage > percentile ? 1 / (1 - percentile) : -1 / percentile;
+        }
 #else // Renormalizing advantage
         Array.Sort(groupRewards, groupGames);
         for (int group = 0; group < groupSize; ++group)
@@ -449,5 +459,6 @@ public class EvaluationTrainingSample : ITensorGroup
     public GameStateTensors State;
     public MoveTensors Moves;
     public Tensor ProbDist;
+    public Tensor TierIndices;
     public Tensor Advantage;
 }
