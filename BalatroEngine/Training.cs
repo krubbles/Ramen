@@ -79,45 +79,52 @@ public static class Training
                 EvaluationTrainingSample inputs = stacked.GetBatch(i, end);
 
                 var probDist = inputs.ProbDist / inputs.ProbDist.sum(dim: 1, true);
-                var logProbsOld = log(probDist.clamp_min(0f) + 1e-9);
-
                 Tensor processedState = model.ProcessState(inputs.State);
                 int moveCount = (int)inputs.Moves.OtherState.size(1);
-                Tensor logits = model.GetMoveLogits(processedState, inputs.Moves);
-                var logProbs = functional.log_softmax(logits, dim: 1);
 
-                var logPiNew = logProbs.select(1, 0);
+                Tensor forcastLogits = model.GetForcastLogits(processedState);
+                Tensor forcastLoss = CalculatePPOLoss(forcastLogits, inputs.ForcastProbDist, inputs.Advantage);
 
-                var probs = exp(logProbs);
-                var entropy = -(probs * logProbs).sum(1).mean();
+                Tensor moveLogits = model.GetMoveLogits(processedState, inputs.Moves);
+                Tensor moveLoss = CalculatePPOLoss(forcastLogits, inputs.ForcastProbDist, inputs.Advantage);
 
-                var logPiOld = logProbsOld.select(1, 0);
-
-                var ratio = exp(logPiNew - logPiOld) - 1;
-
-                var kld = (probDist * (logProbsOld - logProbs)).sum(dim: 1);
-
-                var advantage = inputs.Advantage;
-                var surr1 = ratio * advantage;
-                var surr2 = clamp(ratio, -epsilonLow, epsilonHigh) * advantage;
-                var surrMin = min(surr1, surr2);
-
-                var policyReward = surrMin.mean();/// (surrMin.norm(p: 2) / surrMin.size(0)).pow(0.25f);
-                var entropyReward = entropyCoeff * entropy;
-                var kldLoss = kld.mean() * kldCoeff;
-                var loss = (kldLoss - policyReward - entropyReward);
+                Tensor loss = forcastLoss + moveLoss;
 
                 loss.backward();
                 optimizer.step();
 
                 trainLossAvg += loss.item<float>();
                 trainBatchCount++;
+
+                Tensor CalculatePPOLoss(Tensor logits, Tensor oldProbs, Tensor advantage)
+                {
+                    var logProbsOld = log(oldProbs.clamp_min(0f) + 1e-9);
+                    var logProbs = functional.log_softmax(logits, dim: 1);
+
+                    var logPiNew = logProbs.select(1, 0);
+
+                    var probs = exp(logProbs);
+                    var entropy = -(probs * logProbs).sum(1).mean();
+
+                    var logPiOld = logProbsOld.select(1, 0);
+
+                    var ratio = exp(logPiNew - logPiOld) - 1;
+
+                    var kld = (oldProbs * (logProbsOld - logProbs)).sum(dim: 1);
+
+                    var surr1 = ratio * advantage;
+                    var surr2 = clamp(ratio, -epsilonLow, epsilonHigh) * advantage;
+                    var surrMin = min(surr1, surr2);
+
+                    var policyReward = surrMin.mean();/// (surrMin.norm(p: 2) / surrMin.size(0)).pow(0.25f);
+                    var entropyReward = entropyCoeff * entropy;
+                    var kldLoss = kld.mean() * kldCoeff;
+                    var loss = (kldLoss - policyReward - entropyReward);
+                    return loss;
+                }
             }
 
-
             trainLossAvg /= Math.Max(1, trainBatchCount);
-
-
 
             Console.WriteLine($"Eval Epoch {epoch} | Train Loss = {trainLossAvg} | Val Loss = {valLossAvg}");
         }

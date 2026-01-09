@@ -69,7 +69,17 @@ public class RamenAgent
         int[,] playedHands = new int[moveCount, 5];
         int[,] remainingHands = new int[moveCount, 8];
         float[,] otherStates = new float[moveCount, GameEvalModel.MoveOtherStateWidth];
-
+        
+        GameStateTensors stateTensors = Tensors;
+        Tensor processedState = Model.ProcessState(stateTensors);
+        Tensor forcastProbs = Model.GetForcastLogits(processedState).softmax(1);
+        Tensor tier = multinomial(forcastProbs, 1);
+        if (tier.item<long>() != 0)
+        {
+            float toSwap = forcastProbs[0, 0].item<float>();
+            forcastProbs[0..1, 0..1] = forcastProbs[0, tier];
+            forcastProbs[0, tier] = toSwap;
+        }
         HandState handState = GameState.HandState;
         ScoringState scoringState = GameState.ScoringState;
         int hash = GameState.GetHashCode();
@@ -96,14 +106,12 @@ public class RamenAgent
         {
             RemainingHand = tensor(remainingHands).unsqueeze_(0),
             PlayedHand = tensor(playedHands).unsqueeze_(0),
-            OtherState = tensor(otherStates).unsqueeze_(0)
+            OtherState = tensor(otherStates).unsqueeze_(0),
+            Tier = tier.view(1, 1).expand([1, moves.Count])
         };
 
         //
 
-        GameStateTensors stateTensors = Tensors;
-
-        Tensor processedState = Model.ProcessState(stateTensors);
         Tensor logits = Model.GetMoveLogits(processedState, moveTensors);
 
         Tensor rewardDist = (logits / Math.Max(temp, 0.0001f)).softmax(1);
@@ -118,11 +126,11 @@ public class RamenAgent
             target[0, 0] = 1;
             sample = new()
             {
+                ForcastProbDist = forcastProbs.DetachFromDisposeScope(),
                 ProbDist = rewardDist.index_select(1, indices).DetachFromDisposeScope(),
                 State = stateTensors.Clone().DetachFromDisposeScope(),
                 Moves = moveTensors.IndexSelect(1, moveindices).DetachFromDisposeScope(),
-                TierIndices = tierIndices.DetachFromDisposeScope(),
-                Advantage = tensor((int)moveIndex % GameEvalModel.Tiers).DetachFromDisposeScope()
+                ForcastTier = (int)tier.item<long>()
             };
         }
         moves[(int)moveIndex].Apply(GameState);

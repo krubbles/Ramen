@@ -13,14 +13,15 @@ public class GameEvalModel : Module
         PlayedHandEmbedWidth = 64,
         StateOtherStateWidth = 13,
         MoveOtherStateWidth = 13,
-        Tiers = 5;
+        TierEmbedWidth = 8,
+        Tiers = 3;
 
     public const int
         StateProcessorInputWidth = RemainingDeckEmbedWidth + FullHandEmbedWidth + StateOtherStateWidth,
-        MoveEvaluatorInputWidth = RemainingHandEmbedWidth + PlayedHandEmbedWidth + MoveOtherStateWidth;
+        MoveEvaluatorInputWidth = RemainingHandEmbedWidth + PlayedHandEmbedWidth + MoveOtherStateWidth + TierEmbedWidth;
 
 
-
+    private readonly Embedding _embedTier = Embedding(Tiers, TierEmbedWidth);
     private readonly Embedding _embedRemainingDeck = Embedding(53, RemainingDeckEmbedWidth);
     private readonly Embedding _embedFullHand = Embedding(53, FullHandEmbedWidth);
     private readonly Embedding _embedRemainingHand = Embedding(53, RemainingHandEmbedWidth);
@@ -47,13 +48,15 @@ public class GameEvalModel : Module
         UseHandPolicy = Sequential(
             ReLU(),
             Linear(128, 64),
-            ReLU()
+            ReLU(),
+            Linear(64, 1)
         );
 
         ForcastPolicy = Sequential(
             new ResidualMLP(128, 1),
             Linear(128, Tiers)
         );
+
         RegisterComponents();
     }
 
@@ -80,9 +83,10 @@ public class GameEvalModel : Module
 
     public Tensor PreProcessMoves(MoveTensors moves)
     {
+        Tensor tierEmbedded = _embedTier.forward(moves.Tier);
         Tensor processedRemainingHand = EmbedCardSet(_embedRemainingHand, moves.RemainingHand);
         Tensor processedPlayedHand = EmbedCardSet(_embedPlayedHand, moves.PlayedHand);
-        Tensor input = concat([processedRemainingHand, processedPlayedHand, moves.OtherState], dim: moves.OtherState.Dimensions - 1);
+        Tensor input = concat([processedRemainingHand, processedPlayedHand, moves.OtherState, tierEmbedded], dim: moves.OtherState.Dimensions - 1);
         return UseHandMovePreProcessor.forward(input);
     }
 

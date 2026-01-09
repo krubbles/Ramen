@@ -144,12 +144,12 @@ public static class TrainingData
                 SN node = nodes[depth];
                 stats.NodesCount++;
                 stats.CountByDepth[depth]++;
-                int tier = node.Sample.Advantage.item<int>();
+                int tier = node.Sample.ForcastTier;
                 float advantageRemapped = RemapA(percentile, tier switch
                 {
                     0 => 0.5f,
-                    1 => 0.2f,
-                    2 => 0.8f,
+                    1 => 0.25f,
+                    2 => 0.75f,
                 });
                 node.Sample.Advantage = tensor(advantageRemapped).unsqueeze_(0).DetachFromDisposeScope();
                 EvaluationTrainingData.Add(node.Sample);
@@ -445,6 +445,7 @@ public class MoveTensors : ITensorGroup
     public Tensor PlayedHand;
     public Tensor RemainingHand;
     public Tensor OtherState;
+    public Tensor Tier;
 }
 
 public class GameStateTensors : ITensorGroup
@@ -458,7 +459,9 @@ public class EvaluationTrainingSample : ITensorGroup
 {
     public GameStateTensors State;
     public MoveTensors Moves;
+    public Tensor ForcastProbDist;
     public Tensor ProbDist;
-    public Tensor TierIndices;
     public Tensor Advantage;
+
+    public int ForcastTier;
 }
