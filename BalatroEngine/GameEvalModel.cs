@@ -13,17 +13,23 @@ public class GameEvalModel : Module
         PlayedHandEmbedWidth = 64,
         StateOtherStateWidth = 13,
         MoveOtherStateWidth = 13,
-        Tiers = 5;
+        Tiers = 1;
 
     public const int
         StateProcessorInputWidth = RemainingDeckEmbedWidth + FullHandEmbedWidth + StateOtherStateWidth,
         MoveEvaluatorInputWidth = RemainingHandEmbedWidth + PlayedHandEmbedWidth + MoveOtherStateWidth;
 
+    public const int StateWidth = 256;
+    public const int MoveWidth = 256;
 
     private readonly Embedding _embedRemainingDeck = Embedding(53, RemainingDeckEmbedWidth);
     private readonly Embedding _embedFullHand = Embedding(53, FullHandEmbedWidth);
-    private readonly Embedding _embedRemainingHand = Embedding(53, RemainingHandEmbedWidth);
-    private readonly Embedding _embedPlayedHand = Embedding(53, PlayedHandEmbedWidth);
+    private readonly Embedding _embedRemainingHand = Embedding(53, MoveWidth);
+    private readonly Embedding _embedPlayedHand = Embedding(53, MoveWidth);
+    private readonly Embedding _embedHandsAndDiscardsMove = Embedding(25, MoveWidth);
+    private readonly Embedding _embedHandsAndDiscardsState = Embedding(25, MoveWidth);
+    private readonly Linear _scoreUpscaleState = Linear(1, MoveWidth);
+    private readonly Linear _scoreUpscaleMove = Linear(1, MoveWidth);
 
     public readonly Sequential StateProcessor;
     public readonly Sequential ForcastPolicy;
@@ -34,9 +40,7 @@ public class GameEvalModel : Module
     {
 
         StateProcessor = Sequential(
-            Linear(StateProcessorInputWidth, 256),
-            new ResidualMLP(256, 2),
-            Linear(256, 128)
+            new ResidualMLP(StateWidth, 2)
         );
 
         UseHandMovePreProcessor = Sequential(
@@ -44,9 +48,9 @@ public class GameEvalModel : Module
         );
 
         UseHandPolicy = Sequential(
-            new ResidualMLP(128, 1),
+            new ResidualMLP(MoveWidth, 2),
             ReLU(),
-            Linear(128, 1)
+            Linear(MoveWidth, 1, false)
         );
 
         ForcastPolicy = Sequential(
@@ -61,37 +65,45 @@ public class GameEvalModel : Module
     public static Tensor EmbedCardSet(Embedding embedding, Tensor hand)
     {
         Tensor embeddedHand = embedding.forward(hand).sum(dim: hand.Dimensions - 1);
-        Tensor result = embeddedHand.relu_();
-        return result;
+        return embeddedHand;
     }
 
-    Tensor ProcessState(Tensor processedHand, Tensor processedDeck, Tensor otherState)
+    public Tensor ProcessState(Tensor embeddedState)
     {
-        Tensor input = concat([processedHand, processedDeck, otherState], dim: otherState.Dimensions - 1);
-        Tensor output = StateProcessor.forward(input);
-        return output;
+        return StateProcessor.forward(embeddedState);
     }
 
     public Tensor ProcessState(GameStateTensors gameState)
     {
-        Tensor processedHand = EmbedCardSet(_embedFullHand, gameState.FullHand);
-        Tensor processedDeck = EmbedCardSet(_embedRemainingDeck, gameState.RemainingDeck);
-        return ProcessState(processedHand, processedDeck, gameState.OtherState);
+        return ProcessState(EmbedState(gameState));
     }
 
-    public Tensor PreProcessMoves(MoveTensors moves)
+    public Tensor EmbedState(GameStateTensors gameState)
     {
-        Tensor processedRemainingHand = EmbedCardSet(_embedRemainingHand, moves.RemainingHand);
-        Tensor processedPlayedHand = EmbedCardSet(_embedPlayedHand, moves.PlayedHand);
-        Tensor input = concat([processedRemainingHand, processedPlayedHand, moves.OtherState], dim: moves.OtherState.Dimensions - 1);
-        return UseHandMovePreProcessor.forward(input);
+        Tensor hand = EmbedCardSet(_embedFullHand, gameState.FullHand);
+        Tensor deck = EmbedCardSet(_embedRemainingDeck, gameState.RemainingDeck);
+        Tensor score = _scoreUpscaleState.forward(gameState.Score);
+        Tensor handsAndDiscards = _embedHandsAndDiscardsState.forward(gameState.HandsAndDiscards);
+        return hand + deck + score + handsAndDiscards;
     }
 
-    public Tensor GetMoveLogits(Tensor processedState, MoveTensors moves)
+    public Tensor EmbedMove(MoveTensors move)
     {
-        Tensor preProcessedMoves = PreProcessMoves(moves);
-        Tensor logits = UseHandPolicy.forward(preProcessedMoves + processedState.unsqueeze(1).expand(preProcessedMoves.shape));
-        return logits.view(logits.size(0), -1);
+        Tensor remainingHand = EmbedCardSet(_embedRemainingHand, move.RemainingHand);
+        Tensor playedHand = EmbedCardSet(_embedPlayedHand, move.PlayedHand);
+        Tensor score = _scoreUpscaleMove.forward(move.Score);
+        Tensor handsAndDiscards = _embedHandsAndDiscardsMove.forward(move.HandsAndDiscards);
+        return remainingHand + playedHand + score + handsAndDiscards;
+    }
+
+    public Tensor ProcessMove(Tensor embeddedMove, Tensor processedState)
+    {
+        return UseHandPolicy.forward(embeddedMove + processedState);
+    }
+
+    public Tensor ProcessMove(MoveTensors move, Tensor processedState)
+    {
+        return UseHandPolicy.forward(EmbedMove(move) + processedState);
     }
 
     public Tensor GetForcastLogits(Tensor processedState)
@@ -115,9 +127,9 @@ class ResidualMLP : Module<Tensor, Tensor>
     {
         for (int i = 0; i < depth; ++i)
         {
-            int factor = 1;
-            upLayers.append(Linear(size, size * factor));
-            downLayers.append(Linear(size * factor, size));
+            int factor = 2;
+            upLayers.append(Linear(size, size / factor));
+            downLayers.append(Linear(size / factor, size));
             activationsA.append(GELU());
             activationsB.append(GELU());
             norms.append(LayerNorm(size));

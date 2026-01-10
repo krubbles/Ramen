@@ -2,11 +2,22 @@
 
 using System;
 using static TorchSharp.torch;
-
+using Ramen.Game;
 class Program
 {
     static void Main()
     {
+        for (int i = 0; i < 0; ++i)
+        {
+            GameData gd = new();
+            gd.Hands = 2;
+            gd.Discards = 0;
+            GameState gs = new(gd);
+            (Move bestMove, float bestProb) = Testing.GetBestDiscard(gs, 300);
+            Console.WriteLine(gs.ToString());
+            Console.WriteLine(bestMove.ToString());
+            Console.WriteLine(bestProb.ToString());
+        }
         Console.WriteLine($"Num threads: {get_num_threads()}");
         //set_num_threads(1);
         //set_num_interop_threads(1);
@@ -26,18 +37,18 @@ class Program
 
         List<float> avgScores = new();
         List<TrainingDataStats> stats = new();
-        float entropy = 0.05f;
+        float entropy = 0f;
 
         for (int i = 0; i < 1000; i++)
         {
             int multiplier = 1;
 
             TrainingData.EvaluationTrainingData.Clear();
-            TrainingDataStats stat = TrainingData.GenerateEvaluationTrainingData(model, multiplier * 3000, 1f);
+            TrainingDataStats stat = TrainingData.GenerateEvaluationTrainingData(model, multiplier * 10000, 1f);
             stats.Add(stat);
             Training.TrainEvaluationModel(model, 5, 128, entropy, false);
-            entropy *= MathF.Pow(0.5f, 1 / 100);
-            avgScores.Add(Testing.GetAverageScore(model, 150));
+            entropy *= MathF.Pow(0.5f, 1f / 10);
+            avgScores.Add(Testing.GetAverageScore(model, 500));
 
             if (true)
             {
@@ -58,7 +69,7 @@ class Program
                     {
                         sb.Append(s.AverageNLProb(0).ToString("F3"));
                         sb.Append(", ");
-                        sb.Append(s.AverageNLProb(4).ToString("F3"));
+                        sb.Append(s.AverageNLProb(1).ToString("F3"));
                         foreach (int count in s.CountByTier)
                         {
                             sb.Append(", ");
@@ -71,7 +82,21 @@ class Program
                     Console.WriteLine(sb.ToString());
                 }
             }
-
+            if (true)
+            {
+                Console.WriteLine();
+                GameData gd = new();
+                gd.Hands = 2;
+                gd.Discards = 0;
+                GameState gs = new(gd);
+                gs.AdvanceToNextPlayerChoice();
+                Console.WriteLine(gs);
+                (Move bestMove, float bestProb) = Testing.GetBestDiscard(gs, 300);
+                RamenAgent agent = new(gs, model);
+                agent.MakeMoveStochastic(0.001f);
+                Console.WriteLine("Agent Move:" + gs.MoveState.MoveHistory[^1]);
+                Console.WriteLine();
+            }
         }
     }
 }

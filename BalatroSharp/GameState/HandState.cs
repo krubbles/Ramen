@@ -91,6 +91,8 @@ public class HandState
     {
         GameState = gameState;
         _gameData = gameState.GameData;
+        HandsPerRound = _gameData.Hands;
+        DiscardsPerRound = _gameData.Discards;
     }
 
     public override int GetHashCode()

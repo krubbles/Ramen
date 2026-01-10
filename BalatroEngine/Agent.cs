@@ -32,16 +32,17 @@ public class RamenAgent
     {
         FullHand = HandTensor,
         RemainingDeck = RemainingDeckTensor,
-        OtherState = OtherStateTensor,
+        HandsAndDiscards = HandsAndDiscardsTensor,
+        Score = ScoreTensor,
     };
 
     public float GetCurrentReward()
     {
         if (GameState.ScoringState.CurrentRoundTotalChips >= 300)
         {
-            return 1f + GameState.HandState.RemainingHands * 0.2f;
+            return 1f + GameState.HandState.RemainingHands * 0.01f;
         }
-        return (float)GameState.ScoringState.CurrentRoundTotalChips / 3000f;
+        return (float)GameState.ScoringState.CurrentRoundTotalChips / 10000f;
     }
 
     public bool MakeMoveStochastic(float temp) => MakeMoveStochastic(temp, out _, out _, 1);
@@ -67,13 +68,17 @@ public class RamenAgent
 
         int[,] playedHands = new int[moveCount, 5];
         int[,] remainingHands = new int[moveCount, 8];
-        float[,] otherStates = new float[moveCount, GameEvalModel.MoveOtherStateWidth];
+        int[] handsAndDiscards = new int[moveCount];
+        float[] scores = new float[moveCount];
         
         GameStateTensors stateTensors = Tensors;
-        Tensor processedState = Model.ProcessState(stateTensors);
-        Tensor forcastProbs = Model.GetForcastLogits(processedState).softmax(1);
-        Tensor tier = multinomial(forcastProbs, 1);
-
+        Tensor processedState = Model.EmbedState(stateTensors);
+        Tensor forcastProbs = null, tier = null;
+        if (GameEvalModel.Tiers > 1)
+        {
+            forcastProbs = Model.GetForcastLogits(processedState).softmax(1);
+            tier = multinomial(forcastProbs, 1);
+        }
         HandState handState = GameState.HandState;
         ScoringState scoringState = GameState.ScoringState;
         int hash = GameState.GetHashCode();
@@ -88,8 +93,8 @@ public class RamenAgent
             for (int i = 0; i < 8; ++i)
                 remainingHands[move, i] = i < hand.Length ? hand[i].ToIndex() : 0;
 
-            Span<float> otherStatesBuffer = MemoryMarshal.CreateSpan(ref otherStates[move, 0], GameEvalModel.MoveOtherStateWidth);
-            FillMoveOtherStateData(GameState, otherStatesBuffer, ((UseHandMove)moves[move]).IsDiscard);
+            handsAndDiscards[move] = GameState.HandState.RemainingHands * 5 + GameState.HandState.RemainingDiscards;
+            scores[move] = (float)GameState.ScoringState.CurrentRoundTotalChips / 300f;
 
             moves[move].Revert(GameState);
         }
@@ -100,12 +105,13 @@ public class RamenAgent
         {
             RemainingHand = tensor(remainingHands).unsqueeze_(0),
             PlayedHand = tensor(playedHands).unsqueeze_(0),
-            OtherState = tensor(otherStates).unsqueeze_(0),
+            HandsAndDiscards = tensor(handsAndDiscards).unsqueeze_(0),
+            Score = tensor(scores).unsqueeze_(0),
         };
 
         //
 
-        Tensor logits = Model.GetMoveLogits(processedState, moveTensors);
+        Tensor logits = Model.ProcessMove(moveTensors, processedState);
 
         Tensor rewardDist = (logits / Math.Max(temp, 0.0001f)).softmax(1);
         Tensor indices = multinomial(rewardDist, sampleCount, replacement: false).squeeze_(0);
@@ -117,11 +123,11 @@ public class RamenAgent
             target[0, 0] = 1;
             sample = new()
             {
-                ForcastProbDist = forcastProbs.DetachFromDisposeScope(),
+                ForcastProbDist = forcastProbs?.DetachFromDisposeScope(),
                 MoveProbDist = rewardDist.index_select(1, indices).DetachFromDisposeScope(),
                 State = stateTensors.Clone().DetachFromDisposeScope(),
                 Moves = moveTensors.IndexSelect(1, indices).DetachFromDisposeScope(),
-                ForcastTier = tier.DetachFromDisposeScope()
+                ForcastTier = tier?.DetachFromDisposeScope()
             };
         }
         moves[(int)moveIndex].Apply(GameState);
@@ -185,16 +191,29 @@ public class RamenAgent
         }
     }
 
-    public Tensor OtherStateTensor
+    public Tensor HandsAndDiscardsTensor
     {
         get
         {
-            if (!_otherStateValid || _tensors.OtherState.IsInvalid)
+            if (!_otherStateValid || _tensors.HandsAndDiscards.IsInvalid)
             {
                 _otherStateValid = true;
-                EmbedOtherState();
+                EmbedHandsAndDiscards();
             }
-            return _tensors.OtherState;
+            return _tensors.HandsAndDiscards;
+        }
+    }
+
+    public Tensor ScoreTensor
+    {
+        get
+        {
+            if (!_otherStateValid || _tensors.HandsAndDiscards.IsInvalid)
+            {
+                _otherStateValid = true;
+                EmbedScore();
+            }
+            return _tensors.HandsAndDiscards;
         }
     }
 
@@ -212,13 +231,20 @@ public class RamenAgent
         _tensors.RemainingDeck = TensorizeCardSet(GameState.DeckState.RemainingDeck, 52).unsqueeze(0).DetachFromDisposeScope();
     }
 
-    void EmbedOtherState()
+    void EmbedHandsAndDiscards()
     {
         if (_disposeTensorsOnRegen)
-            _tensors.OtherState?.Dispose();
-        float[] otherState = new float[GameEvalModel.StateOtherStateWidth];
-        FillMoveOtherStateData(GameState, otherState, false);
-        _tensors.OtherState = tensor(otherState).unsqueeze(0).DetachFromDisposeScope();
+            _tensors.HandsAndDiscards?.Dispose();
+        int handsAndDiscards = GameState.HandState.RemainingHands * 5 + GameState.HandState.RemainingDiscards;
+        _tensors.HandsAndDiscards = tensor(handsAndDiscards).unsqueeze(0).DetachFromDisposeScope();
+    }
+
+    void EmbedScore()
+    {
+        if (_disposeTensorsOnRegen)
+            _tensors.Score?.Dispose();
+        float score = (float)GameState.ScoringState.CurrentRoundTotalChips;
+        _tensors.HandsAndDiscards = tensor(score).unsqueeze(0).DetachFromDisposeScope();
     }
 
     void RegisterCallbacks()

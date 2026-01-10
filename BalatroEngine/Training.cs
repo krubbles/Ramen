@@ -9,7 +9,7 @@ public static class Training
 {
     public const float epsilonLow = 0.2f, epsilonHigh = 0.2f;
     public static float kldCoeff = 0.01f;
-    public static float lr = 2e-4f;
+    public static float lr = 5e-5f;
 
     public static void TrainEvaluationModel(GameEvalModel model, int epochs, int batchSize, float entropyCoeff, bool validate = false)
     {
@@ -26,9 +26,9 @@ public static class Training
 
         var optimizer = optim.AdamW(model.parameters(),
             lr: lr,
-            weight_decay: 0.001f,
+            weight_decay: 0.00001f,
             beta1: 0.9f,
-            beta2: 0.994f
+            beta2: 0.998f
             );
 
         var lossFunc = MSELoss();
@@ -49,7 +49,7 @@ public static class Training
                 {
                     int end = Math.Min(i + batchSize, samples);
                     EvaluationTrainingSample inputs = stacked.GetBatch(i, end);
-                    Tensor processedState = model.ProcessState(inputs.State);
+                    Tensor processedState = model.EmbedState(inputs.State);
                     Tensor logits = model.GetMoveLogits(processedState, inputs.Moves).squeeze_(2);
 
                     var logQ = log(inputs.MoveProbDist + 1e-9);
@@ -78,16 +78,22 @@ public static class Training
                 EvaluationTrainingSample inputs = stacked.GetBatch(i, end);
 
                 var probDist = inputs.MoveProbDist / inputs.MoveProbDist.sum(dim: 1, true);
-                Tensor processedState = model.ProcessState(inputs.State);
-                int moveCount = (int)inputs.Moves.OtherState.size(1);
+                Tensor processedState = model.EmbedState(inputs.State);
+                int moveCount = (int)inputs.Moves.HandsAndDiscards.size(1);
 
-                Tensor forcastLogits = model.GetForcastLogits(processedState);
-                Tensor forcastLoss = CalculatePPOLoss(forcastLogits, inputs.ForcastProbDist, inputs.Advantage, 0.001f, false, inputs.ForcastTier);
+
 
                 Tensor moveLogits = model.GetMoveLogits(processedState, inputs.Moves);
                 Tensor moveLoss = CalculatePPOLoss(moveLogits, probDist, inputs.Advantage, entropyCoeff, true);
 
-                Tensor loss = moveLoss + forcastLoss;
+                Tensor loss = moveLoss;
+                
+                if (GameEvalModel.Tiers > 1)
+                {
+                    Tensor forcastLogits = model.GetForcastLogits(processedState);
+                    Tensor forcastLoss = CalculatePPOLoss(forcastLogits, inputs.ForcastProbDist, inputs.Advantage, 0.001f, false, inputs.ForcastTier);
+                    loss += forcastLoss;
+                }
 
                 loss.backward();
                 optimizer.step();

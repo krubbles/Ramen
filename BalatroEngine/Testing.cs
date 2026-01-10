@@ -37,6 +37,42 @@ public static class Testing
         return maxScore;
     }
 
+    public static float GetOnshotThresholdProb(GameState gameState, int threshold, int samples)
+    {
+        FastRandom random = FastRandom.SeededByClock();
+        float amount = 0;
+        int step = gameState.MoveState.MoveStep;
+        for (int i = 0; i < samples; ++i)
+        {
+            gameState.Random.SetState((ulong)random.Next());
+            gameState.AdvanceToNextPlayerChoice();
+            if (GetMaxOneShotScore(gameState) >= threshold)
+                amount++;
+            gameState.MoveState.RevertToStep(step);
+        }
+        return amount / samples;
+    }
+
+    public static (Move move, float prob) GetBestDiscard(GameState gameState, int threshold)
+    {
+        gameState.AdvanceToNextPlayerChoice();
+        Move[] moves = gameState.GetMoveOptions().ToArray();
+        float[] probs = new float[moves.Length];
+        for (int i = 0; i < moves.Length; ++i)
+        {
+            Move move = moves[i];
+            move.Apply(gameState);
+            probs[i] = GetOnshotThresholdProb(gameState, threshold - (int)gameState.ScoringState.CurrentRoundTotalChips, 700);
+            move.Revert(gameState);
+        }
+        Array.Sort(probs, moves);
+        for (int i = probs.Length - 1; i > probs.Length - 20; --i)
+        {
+            Console.WriteLine($"{probs[i]}: {moves[i]}");
+        }
+        return (moves[0], probs[0]);
+    }
+
     public static float GetAverageScore(GameEvalModel model, int samples = 1000, bool log = false)
     {
         float totalReward = 0;
