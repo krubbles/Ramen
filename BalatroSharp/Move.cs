@@ -8,7 +8,7 @@ public abstract class Move
     // State set during move application and used to properly revert moves
     protected GameState gameState;
     ulong _rngState;
-    int _moveStep;
+    int _moveStep = -1;
 
     public void Apply(GameState gameState)
     {
@@ -37,6 +37,7 @@ public abstract class Move
         this.gameState.Random.SetState(_rngState);
 
         this.gameState = null;
+        this._moveStep = -1;
         _rngState = default;
         gameState.MoveState.MoveHistory.RemoveAt(gameState.MoveState.MoveHistory.Count - 1);
 
@@ -66,6 +67,8 @@ public abstract class Move
         Move move = moveSerializer.Deserialize(serializer);
         move._moveStep = serializer.Stream.ReadStruct<int>();
         move._rngState = serializer.Stream.ReadStruct<ulong>();
+        if (move._moveStep >= 0) // move has been applied
+            move.gameState = serializer.GameState;
         return move;
     }
 
