@@ -102,6 +102,9 @@ public sealed class GameState
 /// </summary>
 public sealed class StartRoundMove : Move
 {
+
+    public override MoveType GetMoveType() => MoveType.StartRound;
+
     protected override void Apply()
     {
         if (gameState.Stage != StageOfGame.BeginRound)
@@ -126,6 +129,21 @@ public sealed class StartRoundMove : Move
     public override string ToString()
     {
         return "Start Round";
+    }
+
+    public class Serializer : IMoveSerializer
+    {
+        public MoveType MoveType => MoveType.StartRound;
+
+        public void Serialize(GameStateSerializer serializer, Move move, bool isApplied)
+        {
+
+        }
+
+        public Move Deserialize(GameStateSerializer serializer, bool isApplied)
+        {
+            return new StartRoundMove();
+        }
     }
 }
 
