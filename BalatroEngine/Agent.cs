@@ -72,7 +72,7 @@ public class RamenAgent
 
     public bool MakeMoveStochastic(float temp) => MakeMoveStochastic(temp, out _, out _, 1);
 
-    public bool MakeMoveStochastic(float temp, out EvaluationTrainingSample sample, out float nlProb, int sampleCount = 12, bool generateSample = false)
+    public bool MakeMoveStochastic(float temp, out EvaluationTrainingSample sample, out float nlProb, int sampleCount = 20, bool generateSample = false)
     {
         nlProb = 0f;
         sample = default;

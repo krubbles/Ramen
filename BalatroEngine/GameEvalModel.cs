@@ -20,9 +20,8 @@ public class GameEvalModel : Module
         StateProcessorInputWidth = RemainingDeckEmbedWidth + FullHandEmbedWidth + StateOtherStateWidth,
         MoveEvaluatorInputWidth = RemainingHandEmbedWidth + PlayedHandEmbedWidth + MoveOtherStateWidth;
 
-    public const int StateWidth = 256;
-    public const int MoveWidth = 128;
-
+    public const int StateWidth = 64;
+    public const int MoveWidth = 192;
     private readonly Embedding _embedRemainingDeck = Embedding(53, MoveWidth);
     private readonly Embedding _embedFullHand = Embedding(53, StateWidth);
     private readonly Embedding _embedRemainingHand = Embedding(53, MoveWidth);
@@ -50,9 +49,10 @@ public class GameEvalModel : Module
         );
 
         UseHandPolicy = Sequential(
-            new ResidualMLP(MoveWidth, 2),
+            new Residual(new SwiGLUFeedForward(MoveWidth, 128)),
+            new Residual(new SwiGLUFeedForward(MoveWidth, 128)),
             ReLU(),
-            Linear(MoveWidth, 1, false)
+            Linear(MoveWidth, 1)
         );
 
         ForcastPolicy = Sequential(
@@ -100,7 +100,7 @@ public class GameEvalModel : Module
 
     public Tensor ProcessMove(Tensor embeddedMove, Tensor processedState)
     {
-        return UseHandPolicy.forward(embeddedMove + processedState);
+        return UseHandPolicy.forward(embeddedMove);
     }
 
     public Tensor ProcessMove(MoveTensors move, Tensor processedState)
@@ -156,13 +156,30 @@ class ResidualMLP : Module<Tensor, Tensor>
     }
 }
 
+public class Residual : Module<Tensor, Tensor>
+{
+    public Module<Tensor, Tensor> F;
+
+    public Residual(Module<Tensor, Tensor> f) : base(nameof(Residual))
+    {
+        F = f;
+
+        RegisterComponents();
+    }
+
+    public override Tensor forward(Tensor input)
+    {
+        return input + F.forward(input);
+    }
+}
+
 public class SwiGLUFeedForward : Module<Tensor, Tensor>
 {
     private readonly Linear w1; // Gate projection
     private readonly Linear w2; // Up projection
     private readonly Linear w3; // Down projection (optional, usually follows SwiGLU)
 
-    public SwiGLUFeedForward(string name, long inputDim, long hiddenDim) : base(name)
+    public SwiGLUFeedForward(long inputDim, long hiddenDim) : base(nameof(SwiGLUFeedForward))
     {
         // w1 and w2 are the two projections for the GLU
         w1 = Linear(inputDim, hiddenDim, hasBias: false);

@@ -7,7 +7,7 @@ using static TorchSharp.torch.nn;
 
 public static class Training
 {
-    public const float epsilonLow = 0.25f, epsilonHigh = 0.25f;
+    public const float epsilonLow = 0.2f, epsilonHigh = 0.2f;
     public static float kldCoeff = 0.03f;
     public static float lr = 0.000001f;
 
@@ -26,7 +26,7 @@ public static class Training
 
         var optimizer = optim.AdamW(model.parameters(),
             lr: lr,
-            weight_decay: 0.00001f,
+            weight_decay: 0.01f,
             beta1: 0.9f,
             beta2: 0.998f
             );
@@ -69,7 +69,7 @@ public static class Training
             float trainLossAvg = 0f;
             int trainBatchCount = 0;
 
-
+            float kldTotal = 0;
             for (int i = 0; i < trainCount; i += batchSize)
             {
                 optimizer.zero_grad();
@@ -84,14 +84,14 @@ public static class Training
 
 
                 Tensor moveLogits = model.ProcessMove(inputs.Moves, processedState);
-                Tensor moveLoss = CalculatePPOLoss(moveLogits, probDist, inputs.Advantage, entropyCoeff, true);
+                Tensor moveLoss = CalculatePPOLoss(moveLogits, probDist, inputs.Advantage, entropyCoeff, true, ref kldTotal);
 
                 Tensor loss = moveLoss;
                 
                 if (GameEvalModel.Tiers > 1)
                 {
                     Tensor forcastLogits = model.GetForcastLogits(processedState);
-                    Tensor forcastLoss = CalculatePPOLoss(forcastLogits, inputs.ForcastProbDist, inputs.Advantage, 0.001f, false, inputs.ForcastTier);
+                    Tensor forcastLoss = CalculatePPOLoss(forcastLogits, inputs.ForcastProbDist, inputs.Advantage, 0.001f, false, ref kldTotal, inputs.ForcastTier);
                     loss += forcastLoss;
                 }
 
@@ -105,13 +105,13 @@ public static class Training
 
             trainLossAvg /= Math.Max(1, trainBatchCount);
 
-            Console.WriteLine($"Eval Epoch {epoch} | Train Loss = {trainLossAvg} | Val Loss = {valLossAvg}");
+            Console.WriteLine($"Eval Epoch {epoch} | Train Loss = {trainLossAvg} | KLD = {kldTotal / Math.Max(1, trainBatchCount)}");
         }
 
         stacked.Dispose();
     }
 
-    static Tensor CalculatePPOLoss(Tensor logits, Tensor oldProbs, Tensor advantage, float ec, bool useIndex0, Tensor moveIndex = null)
+    static Tensor CalculatePPOLoss(Tensor logits, Tensor oldProbs, Tensor advantage, float ec, bool useIndex0, ref float kldAccumulate, Tensor moveIndex = null)
     {
         var logProbsOld = log(oldProbs.clamp_min(0f) + 1e-9);
         var logProbs = functional.log_softmax(logits, dim: 1);
@@ -129,7 +129,8 @@ public static class Training
 
         var ratio = exp(logPiNew - logPiOld) - 1;
 
-        var kld = (oldProbs * (logProbsOld - logProbs)).sum(dim: 1);
+        var kld = (oldProbs * (logProbsOld - logProbs)).sum(dim: 1).mean();
+        kldAccumulate += kld.item<float>();
 
         var surr1 = ratio * advantage;
         var surr2 = clamp(ratio, -epsilonLow, epsilonHigh) * advantage;
@@ -137,7 +138,7 @@ public static class Training
 
         var policyReward = surrMin.mean();/// (surrMin.norm(p: 2) / surrMin.size(0)).pow(0.25f);
         var entropyReward = ec * entropy;
-        var kldLoss = kld.mean() * kldCoeff;
+        var kldLoss = kld * kldCoeff;
         var loss = (kldLoss - policyReward - entropyReward);
         return loss;
     }

@@ -80,7 +80,8 @@ public static class TrainingData
             }    
         }
     }
-    static void GenerateGRPOTrainingDataGroup(GameEvalModel model, GameState gameState, TrainingDataStats stats, int groupSize = 8)
+
+    static void GenerateGRPOTrainingDataGroup(GameEvalModel model, GameState gameState, TrainingDataStats stats, int groupSize = 128)
     {
         RamenAgent agent = new(gameState, model);
         FastRandom random = FastRandom.SeededByClock();
@@ -93,7 +94,7 @@ public static class TrainingData
         {
             for (int group = 0; group < groupSize; ++group)
             {
-                // gameState.Random.SetState((ulong)random.Next());
+                gameState.Random.SetState((ulong)random.Next());
                 
                 List<SN> gameSamples = new();
 

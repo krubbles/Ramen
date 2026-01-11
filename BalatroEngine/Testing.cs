@@ -83,7 +83,10 @@ public static class Testing
             gameState.AdvanceToNextPlayerChoice();
             while (gameState.ScoringState.CurrentRoundTotalChips < 300 && gameState.HandState.RemainingHands > 0)
             {
-                agent.MakeMoveStochastic(0.00001f);
+                if (gameState.HandState.RemainingDiscards == 0 && gameState.HandState.RemainingHands == 1)
+                    agent.MakeHighestScoringMove();
+                else
+                    agent.MakeMoveStochastic(0.00001f);
             }
             totalReward += agent.GetCurrentReward();
             if (log)
