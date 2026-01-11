@@ -1,4 +1,6 @@
-﻿namespace Ramen.Game;
+﻿using System.Numerics;
+
+namespace Ramen.Game;
 
 /// <summary>
 /// Holds the state of the player's hand including remaining plays and discards.
@@ -413,6 +415,8 @@ public sealed class AfterHandUsedMove : Move
     Card[] _cards;
     StageOfGame _stage;
 
+    public override MoveType GetMoveType() => MoveType.AfterHandUse;
+
     protected override void Apply()
     {
         _stage = gameState.Stage;
@@ -430,5 +434,31 @@ public sealed class AfterHandUsedMove : Move
     public override string ToString()
     {
         return $"After Hand Used. Draw Cards: {CardParseUtils.SerializeHand(_cards)}";
+    }
+
+    internal class Serializer : IMoveSerializer
+    {
+        public MoveType MoveType => MoveType.AfterHandUse;
+
+        public void Serialize(GameStateSerializer serializer, Move move, bool isApplied)
+        {
+            AfterHandUsedMove afterHandUseMove = (AfterHandUsedMove)move;
+            if (isApplied)
+            {
+                serializer.Stream.WriteArray<Card>(afterHandUseMove._cards);
+                serializer.Stream.WriteStruct<StageOfGame>(afterHandUseMove._stage);
+            }
+        }
+
+        public Move Deserialize(GameStateSerializer serializer, bool isApplied)
+        {
+            AfterHandUsedMove afterHandUseMove = new();
+            if (isApplied)
+            {
+                afterHandUseMove._cards = serializer.Stream.ReadArray<Card>();
+                afterHandUseMove._stage = serializer.Stream.ReadStruct<StageOfGame>();
+            }
+            return afterHandUseMove;
+        }
     }
 }

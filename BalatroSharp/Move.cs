@@ -91,7 +91,7 @@ public enum MoveType
 {
     None,
     UseHand,
-    Redraw,
+    AfterHandUse,
 }
 
 public interface IMoveSerializer
