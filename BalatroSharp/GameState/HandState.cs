@@ -293,6 +293,8 @@ public sealed class UseHandMove : Move
         CardIndices = cardIndices;
     }
 
+    public override MoveType GetMoveType() => MoveType.UseHand;
+
     public ReadOnlySpan<Card> UsedCards => _cards;
 
     protected override void Apply()
@@ -333,8 +335,44 @@ public sealed class UseHandMove : Move
     {
         return $"{(IsDiscard ? "Discard" : "Play")} Hand: {CardParseUtils.SerializeHand(_cards)}";
     }
+
+    internal sealed class Serializer : IMoveSerializer
+    {
+        public MoveType MoveType => MoveType.UseHand;
+
+        public void Serialize(GameStateSerializer gsSerializer, Move move, bool isApplied)
+        {
+            UseHandMove useHandMove = (UseHandMove)move;
+
+            gsSerializer.Stream.WriteStruct<bool>(useHandMove.IsDiscard);
+            gsSerializer.Stream.WriteArray<int>(useHandMove.CardIndices);
+
+            if (isApplied)
+            {
+                gsSerializer.Stream.WriteArray<Card>(useHandMove._cards);
+                gsSerializer.Stream.WriteStruct<double>(useHandMove._roundTotalChipsBeforePlay);
+            }
+        }
+
+        public Move Deserialize(GameStateSerializer gsSerializer, bool isApplied)
+        {
+            bool isDiscard = gsSerializer.Stream.ReadStruct<bool>();
+            int[] cardIndices = gsSerializer.Stream.ReadArray<int>();
+
+            UseHandMove move = new(isDiscard, cardIndices);
+
+            if (isApplied)
+            {
+                move._cards = gsSerializer.Stream.ReadArray<Card>();
+                move._roundTotalChipsBeforePlay = gsSerializer.Stream.ReadStruct<double>();
+            }
+
+            return move;
+        }
+    }
 }
 
+#if false // not currently in use
 /// <summary>
 /// Move for drawing a fixed quantity of cards.
 /// </summary>
@@ -365,6 +403,7 @@ public sealed class DrawCardsMove : Move
         return $"Draw Cards: {CardParseUtils.SerializeHand(_cards)}";
     }
 }
+#endif
 
 /// <summary>
 /// Move for all automatic state changes that happen after a hand is played/discarded. (Mostly redrawing to hand size)
