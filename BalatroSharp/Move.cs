@@ -43,25 +43,49 @@ public abstract class Move
         gameState.MoveState.RunActivatedCallbacks();
     }
 
-    public void Serialize(BinaryWriter writer, GameState gameState)
-    {
-        Serialize(writer);
-        writer.Write(_moveStep);
-        writer.Write(_rngState);
-    }
-
-    public void Deserialize(BinaryReader reader, GameState gameState)
-    {
-        Deserialize(reader);
-        _moveStep = reader.ReadInt32();
-        _rngState = reader.ReadUInt64();
-    }
-
     protected abstract void Apply();
 
     protected abstract void Revert();
 
-    protected abstract void Serialize(BinaryWriter writer);
+    public abstract MoveType GetMoveType();
 
-    protected abstract void Deserialize(BinaryReader reader);
+    internal static void Serialize(GameStateSerializer gsSerializer, Move move)
+    {
+        MoveType moveType = move.GetMoveType();
+        IMoveSerializer moveSerializer = MoveSerializers[moveType];
+        gsSerializer.Stream.WriteStruct<MoveType>(moveType);
+        moveSerializer.Serialize(gsSerializer, move);
+        gsSerializer.Stream.WriteStruct<int>(move._moveStep);
+        gsSerializer.Stream.WriteStruct<ulong>(move._rngState);
+    }
+
+    internal static Move Deserialize(GameStateSerializer serializer)
+    {
+        MoveType moveType = serializer.Stream.ReadStruct<MoveType>();
+        IMoveSerializer moveSerializer = MoveSerializers[moveType];
+        Move move = moveSerializer.Deserialize(serializer);
+        move._moveStep = serializer.Stream.ReadStruct<int>();
+        move._rngState = serializer.Stream.ReadStruct<ulong>();
+        return move;
+    }
+
+    public static readonly Dictionary<MoveType, IMoveSerializer> MoveSerializers = new()
+    {
+    };
+}
+
+public enum MoveType
+{
+    None,
+    UseHand,
+    Redraw,
+}
+
+public interface IMoveSerializer
+{
+    public MoveType MoveType { get; }
+
+    public void Serialize(GameStateSerializer gsSerializer, Move move);
+
+    public Move Deserialize(GameStateSerializer gsSerializer);
 }
