@@ -18,9 +18,9 @@ public class GameStateSerializer
 
 public static class StreamExtentions
 {
-    public static unsafe void WriteStartTag(this Stream writer, string text) => writer.WriteStruct(text.GetHashCode());
+    public static void WriteStartTag(this Stream writer, string text) => writer.WriteStruct(text.GetHashCode());
 
-    public static unsafe void WriteEndTag(this Stream writer, string text) => writer.WriteStruct(0x12345678 + text.GetHashCode());
+    public static void WriteEndTag(this Stream writer, string text) => writer.WriteStruct(0x12345678 + text.GetHashCode());
 
     public static unsafe void WriteStruct<T>(this Stream writer, T value) where T : unmanaged
     {
@@ -35,6 +35,12 @@ public static class StreamExtentions
             ReadOnlySpan<byte> bytes = new(valuesPtr, sizeof(T) * values.Length);
             writer.Write(bytes);
         }
+    }
+
+    public static void WriteArray<T>(this Stream writer, T[] values) where T : unmanaged
+    {
+        writer.WriteStruct<int>(values.Length);
+        writer.WriteSpan<T>(values);
     }
 
     public static void ReadStartTag(this Stream reader, string text)
@@ -66,5 +72,13 @@ public static class StreamExtentions
             Span<byte> bytes = new(valuesPtr, sizeof(T) * values.Length);
             reader.ReadExactly(bytes);
         }
+    }
+
+    public static T[] ReadArray<T>(this Stream writer) where T : unmanaged
+    {
+        int length = writer.ReadStruct<int>();
+        T[] data = new T[length];
+        writer.ReadSpan<T>(data);
+        return data;
     }
 }
