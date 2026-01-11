@@ -42,13 +42,12 @@ class Program
         for (int i = 0; i < 1000; i++)
         {
             int multiplier = 1;
-
             TrainingData.EvaluationTrainingData.Clear();
-            TrainingDataStats stat = TrainingData.GenerateEvaluationTrainingData(model, multiplier * 10000, 1f);
+            TrainingDataStats stat = TrainingData.GenerateEvaluationTrainingData(model, multiplier * 1000, 1f);
             stats.Add(stat);
             Training.TrainEvaluationModel(model, 5, 128, entropy, false);
             entropy *= MathF.Pow(0.5f, 1f / 10);
-            avgScores.Add(Testing.GetAverageScore(model, 500));
+            avgScores.Add(Testing.GetAverageScore(model, 500 * multiplier));
 
             if (true)
             {
@@ -82,7 +81,7 @@ class Program
                     Console.WriteLine(sb.ToString());
                 }
             }
-            if (true)
+            if (i % 5 == 0)
             {
                 Console.WriteLine();
                 GameData gd = new();

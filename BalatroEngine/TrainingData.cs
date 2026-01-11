@@ -80,7 +80,7 @@ public static class TrainingData
             }    
         }
     }
-    static void GenerateGRPOTrainingDataGroup(GameEvalModel model, GameState gameState, TrainingDataStats stats, int groupSize = 32)
+    static void GenerateGRPOTrainingDataGroup(GameEvalModel model, GameState gameState, TrainingDataStats stats, int groupSize = 8)
     {
         RamenAgent agent = new(gameState, model);
         FastRandom random = FastRandom.SeededByClock();
@@ -93,21 +93,25 @@ public static class TrainingData
         {
             for (int group = 0; group < groupSize; ++group)
             {
-                gameState.Random.SetState((ulong)random.Next());
+                // gameState.Random.SetState((ulong)random.Next());
                 
                 List<SN> gameSamples = new();
 
                 groupGames[group] = gameSamples;
 
                 gameState.AdvanceToNextPlayerChoice();
-                while (gameState.HandState.RemainingHands > 0 && gameState.ScoringState.CurrentRoundTotalChips < 300)
+                while (gameState.HandState.RemainingHands > 1 && gameState.ScoringState.CurrentRoundTotalChips < 300)
                 {
                     gameState.AdvanceToNextPlayerChoice();
                     if (!agent.MakeMoveStochastic(1, out EvaluationTrainingSample sample, out float nlProb, 12, true))
                         break;
                     gameSamples.Add(new() { Sample = sample, N = 1, Move = gameState.MoveState.MoveHistory[^1], NLProb = nlProb });
                 }
-
+                if (gameState.ScoringState.CurrentRoundTotalChips < 300)
+                {
+                    gameState.AdvanceToNextPlayerChoice();
+                    agent.MakeHighestScoringMove();
+                }
                 groupRewards[group] = agent.GetCurrentReward();
                 while (gameState.MoveState.MoveHistory.Count > baselineMoveCount)
                     gameState.MoveState.RevertLastMove();

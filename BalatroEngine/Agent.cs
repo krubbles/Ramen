@@ -3,7 +3,6 @@
 using Ramen.Game;
 
 using static TorchSharp.torch;
-using System.Runtime.InteropServices;
 
 public class RamenAgent
 {
@@ -45,6 +44,32 @@ public class RamenAgent
         return (float)GameState.ScoringState.CurrentRoundTotalChips / 10000f;
     }
 
+    public bool MakeHighestScoringMove()
+    {
+        List<Move> moves = GameState.GetMoveOptions();
+        if (moves.Count == 0)
+            return false;
+        if (moves.Count == 1)
+        {
+            moves[0].Apply(GameState);
+            return true;
+        }
+        double bestScore = double.MinValue;
+        Move bestMove = null;
+        foreach (Move move in moves)
+        {
+            move.Apply(GameState);
+            if (GameState.ScoringState.CurrentRoundTotalChips > bestScore)
+            {
+                bestScore = GameState.ScoringState.CurrentRoundTotalChips;
+                bestMove = move;
+            }
+            move.Revert(GameState);
+        }
+        bestMove.Apply(GameState);
+        return true;
+    }
+
     public bool MakeMoveStochastic(float temp) => MakeMoveStochastic(temp, out _, out _, 1);
 
     public bool MakeMoveStochastic(float temp, out EvaluationTrainingSample sample, out float nlProb, int sampleCount = 12, bool generateSample = false)
@@ -72,7 +97,7 @@ public class RamenAgent
         float[] scores = new float[moveCount];
         
         GameStateTensors stateTensors = Tensors;
-        Tensor processedState = Model.EmbedState(stateTensors);
+        Tensor processedState = Model.ProcessState(stateTensors);
         Tensor forcastProbs = null, tier = null;
         if (GameEvalModel.Tiers > 1)
         {
@@ -105,8 +130,8 @@ public class RamenAgent
         {
             RemainingHand = tensor(remainingHands).unsqueeze_(0),
             PlayedHand = tensor(playedHands).unsqueeze_(0),
-            HandsAndDiscards = tensor(handsAndDiscards).unsqueeze_(0),
-            Score = tensor(scores).unsqueeze_(0),
+            HandsAndDiscards = tensor(handsAndDiscards).view([1, -1]),
+            Score = tensor(scores).view([1, -1])
         };
 
         //
@@ -114,7 +139,7 @@ public class RamenAgent
         Tensor logits = Model.ProcessMove(moveTensors, processedState);
 
         Tensor rewardDist = (logits / Math.Max(temp, 0.0001f)).softmax(1);
-        Tensor indices = multinomial(rewardDist, sampleCount, replacement: false).squeeze_(0);
+        Tensor indices = multinomial(rewardDist.view([-1]), sampleCount, replacement: false);
         long moveIndex = indices.data<long>()[0];
 
         if (generateSample)
@@ -208,12 +233,12 @@ public class RamenAgent
     {
         get
         {
-            if (!_otherStateValid || _tensors.HandsAndDiscards.IsInvalid)
+            if (!_otherStateValid || (_tensors.Score?.IsInvalid ?? true))
             {
                 _otherStateValid = true;
                 EmbedScore();
             }
-            return _tensors.HandsAndDiscards;
+            return _tensors.Score;
         }
     }
 
@@ -244,7 +269,7 @@ public class RamenAgent
         if (_disposeTensorsOnRegen)
             _tensors.Score?.Dispose();
         float score = (float)GameState.ScoringState.CurrentRoundTotalChips;
-        _tensors.HandsAndDiscards = tensor(score).unsqueeze(0).DetachFromDisposeScope();
+        _tensors.Score = tensor(score).view([1, 1]).DetachFromDisposeScope();
     }
 
     void RegisterCallbacks()

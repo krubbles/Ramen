@@ -1,5 +1,6 @@
 namespace Ramen.AI;
 
+using System.Linq;
 using TorchSharp.Modules;
 using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
@@ -20,16 +21,16 @@ public class GameEvalModel : Module
         MoveEvaluatorInputWidth = RemainingHandEmbedWidth + PlayedHandEmbedWidth + MoveOtherStateWidth;
 
     public const int StateWidth = 256;
-    public const int MoveWidth = 256;
+    public const int MoveWidth = 128;
 
-    private readonly Embedding _embedRemainingDeck = Embedding(53, RemainingDeckEmbedWidth);
-    private readonly Embedding _embedFullHand = Embedding(53, FullHandEmbedWidth);
+    private readonly Embedding _embedRemainingDeck = Embedding(53, MoveWidth);
+    private readonly Embedding _embedFullHand = Embedding(53, StateWidth);
     private readonly Embedding _embedRemainingHand = Embedding(53, MoveWidth);
     private readonly Embedding _embedPlayedHand = Embedding(53, MoveWidth);
     private readonly Embedding _embedHandsAndDiscardsMove = Embedding(25, MoveWidth);
-    private readonly Embedding _embedHandsAndDiscardsState = Embedding(25, MoveWidth);
-    private readonly Linear _scoreUpscaleState = Linear(1, MoveWidth);
-    private readonly Linear _scoreUpscaleMove = Linear(1, MoveWidth);
+    private readonly Embedding _embedHandsAndDiscardsState = Embedding(25, StateWidth);
+    private readonly Linear _scoreUpscaleState = Linear(1, StateWidth, false);
+    private readonly Linear _scoreUpscaleMove = Linear(1, MoveWidth, false);
 
     public readonly Sequential StateProcessor;
     public readonly Sequential ForcastPolicy;
@@ -40,7 +41,8 @@ public class GameEvalModel : Module
     {
 
         StateProcessor = Sequential(
-            new ResidualMLP(StateWidth, 2)
+            new ResidualMLP(StateWidth, 3),
+            Linear(StateWidth, MoveWidth)
         );
 
         UseHandMovePreProcessor = Sequential(
@@ -64,7 +66,7 @@ public class GameEvalModel : Module
 
     public static Tensor EmbedCardSet(Embedding embedding, Tensor hand)
     {
-        Tensor embeddedHand = embedding.forward(hand).sum(dim: hand.Dimensions - 1);
+        Tensor embeddedHand = embedding.forward(hand).sum(dim: hand.Dimensions - 1) / hand.size((int)hand.Dimensions - 1);
         return embeddedHand;
     }
 
@@ -78,22 +80,22 @@ public class GameEvalModel : Module
         return ProcessState(EmbedState(gameState));
     }
 
-    public Tensor EmbedState(GameStateTensors gameState)
+    Tensor EmbedState(GameStateTensors gameState)
     {
         Tensor hand = EmbedCardSet(_embedFullHand, gameState.FullHand);
         Tensor deck = EmbedCardSet(_embedRemainingDeck, gameState.RemainingDeck);
         Tensor score = _scoreUpscaleState.forward(gameState.Score);
         Tensor handsAndDiscards = _embedHandsAndDiscardsState.forward(gameState.HandsAndDiscards);
-        return hand + deck + score + handsAndDiscards;
+        return score + hand + handsAndDiscards;
     }
 
-    public Tensor EmbedMove(MoveTensors move)
+    Tensor EmbedMove(MoveTensors move)
     {
         Tensor remainingHand = EmbedCardSet(_embedRemainingHand, move.RemainingHand);
         Tensor playedHand = EmbedCardSet(_embedPlayedHand, move.PlayedHand);
-        Tensor score = _scoreUpscaleMove.forward(move.Score);
+        Tensor score = _scoreUpscaleMove.forward(move.Score.unsqueeze(2));
         Tensor handsAndDiscards = _embedHandsAndDiscardsMove.forward(move.HandsAndDiscards);
-        return remainingHand + playedHand + score + handsAndDiscards;
+        return score + remainingHand;
     }
 
     public Tensor ProcessMove(Tensor embeddedMove, Tensor processedState)
@@ -103,7 +105,8 @@ public class GameEvalModel : Module
 
     public Tensor ProcessMove(MoveTensors move, Tensor processedState)
     {
-        return UseHandPolicy.forward(EmbedMove(move) + processedState);
+        Tensor embeddedMove = EmbedMove(move);
+        return UseHandPolicy.forward(embeddedMove + processedState.unsqueeze(1).expand(embeddedMove.shape));
     }
 
     public Tensor GetForcastLogits(Tensor processedState)
@@ -120,18 +123,18 @@ class ResidualMLP : Module<Tensor, Tensor>
 
     private ModuleList<LayerNorm> norms = new();
 
-    private ModuleList<GELU> activationsA = new();
-    private ModuleList<GELU> activationsB = new();
+    private ModuleList<ReLU> activationsA = new();
+    private ModuleList<ReLU> activationsB = new();
 
     public ResidualMLP(int size, int depth) : base("ResidualMLP")
     {
         for (int i = 0; i < depth; ++i)
         {
-            int factor = 2;
-            upLayers.append(Linear(size, size / factor));
-            downLayers.append(Linear(size / factor, size));
-            activationsA.append(GELU());
-            activationsB.append(GELU());
+            int factor = 1;
+            upLayers.append(Linear(size, size * factor));
+            downLayers.append(Linear(size * factor, size));
+            activationsA.append(ReLU());
+            activationsB.append(ReLU());
             norms.append(LayerNorm(size));
         }
 

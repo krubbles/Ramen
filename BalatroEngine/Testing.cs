@@ -62,7 +62,7 @@ public static class Testing
         {
             Move move = moves[i];
             move.Apply(gameState);
-            probs[i] = GetOnshotThresholdProb(gameState, threshold - (int)gameState.ScoringState.CurrentRoundTotalChips, 700);
+            probs[i] = GetOnshotThresholdProb(gameState, threshold - (int)gameState.ScoringState.CurrentRoundTotalChips, 500);
             move.Revert(gameState);
         }
         Array.Sort(probs, moves);

@@ -7,9 +7,9 @@ using static TorchSharp.torch.nn;
 
 public static class Training
 {
-    public const float epsilonLow = 0.2f, epsilonHigh = 0.2f;
-    public static float kldCoeff = 0.01f;
-    public static float lr = 5e-5f;
+    public const float epsilonLow = 0.25f, epsilonHigh = 0.25f;
+    public static float kldCoeff = 0.03f;
+    public static float lr = 0.000001f;
 
     public static void TrainEvaluationModel(GameEvalModel model, int epochs, int batchSize, float entropyCoeff, bool validate = false)
     {
@@ -49,8 +49,8 @@ public static class Training
                 {
                     int end = Math.Min(i + batchSize, samples);
                     EvaluationTrainingSample inputs = stacked.GetBatch(i, end);
-                    Tensor processedState = model.EmbedState(inputs.State);
-                    Tensor logits = model.GetMoveLogits(processedState, inputs.Moves).squeeze_(2);
+                    Tensor processedState = model.ProcessState(inputs.State);
+                    Tensor logits = model.ProcessMove(inputs.Moves, processedState).squeeze_(2);
 
                     var logQ = log(inputs.MoveProbDist + 1e-9);
                     var logitsAdjusted = logits - logQ;
@@ -78,12 +78,12 @@ public static class Training
                 EvaluationTrainingSample inputs = stacked.GetBatch(i, end);
 
                 var probDist = inputs.MoveProbDist / inputs.MoveProbDist.sum(dim: 1, true);
-                Tensor processedState = model.EmbedState(inputs.State);
+                Tensor processedState = model.ProcessState(inputs.State);
                 int moveCount = (int)inputs.Moves.HandsAndDiscards.size(1);
 
 
 
-                Tensor moveLogits = model.GetMoveLogits(processedState, inputs.Moves);
+                Tensor moveLogits = model.ProcessMove(inputs.Moves, processedState);
                 Tensor moveLoss = CalculatePPOLoss(moveLogits, probDist, inputs.Advantage, entropyCoeff, true);
 
                 Tensor loss = moveLoss;
