@@ -43,7 +43,25 @@ public abstract class Move
         gameState.MoveState.RunActivatedCallbacks();
     }
 
+    public void Serialize(BinaryWriter writer, GameState gameState)
+    {
+        Serialize(writer);
+        writer.Write(_moveStep);
+        writer.Write(_rngState);
+    }
+
+    public void Deserialize(BinaryReader reader, GameState gameState)
+    {
+        Deserialize(reader);
+        _moveStep = reader.ReadInt32();
+        _rngState = reader.ReadUInt64();
+    }
+
     protected abstract void Apply();
 
     protected abstract void Revert();
+
+    protected abstract void Serialize(BinaryWriter writer);
+
+    protected abstract void Deserialize(BinaryReader reader);
 }
