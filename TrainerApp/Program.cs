@@ -4,9 +4,11 @@ using Ramen.ConsoleApp;
 
 GameEvalModel model = new GameEvalModel();
 
-CancellationTokenSource trainCancel = new();
-Task trainer = null;
-TrainingParams trainingParams = new();
+CancellationTokenSource cancel = new();
+cancel.TryReset();
+Queue<Task> work = new();
+TrainingParams trainingParams = new(5);
+
 
 while (true)
 {
@@ -19,11 +21,17 @@ while (true)
             case "train":
                 Train(context);
                 break;
-            case "settp":
-                SetTP(context);
+            case "set":
+                Set(context);
                 break;
             case "cancel":
-                CancelTraining(context);
+                Cancel();
+                break;
+            case "play":
+                Play(context);
+                break;
+            case "test":
+                Test(context);
                 break;
         }
     }
@@ -33,14 +41,46 @@ while (true)
     }
 }
 
-void Train(ConsoleCommandContext context)
+void Test(ConsoleCommandContext context)
 {
-    int epochs = context.GetIntArg(0, "epochs");
-    trainingParams.epochs = epochs;
-    trainer = Task.Run(() => Training.TrainEvaluationModel(model, trainingParams, trainCancel.Token));
+
 }
 
-void SetTP(ConsoleCommandContext context)
+void EnqueueWork(Action action)
+{
+    Task task = new(action);
+    work.Enqueue(task);
+    if (work.Count == 1)
+        task.Start();
+    task.ContinueWith((task) =>
+    {
+        work.Dequeue();
+        if (work.Count > 0)
+            work.Peek().Start();
+    });
+}
+
+void Play(ConsoleCommandContext context)
+{
+    int samples = context.GetIntArg(0, "samples");
+    EnqueueWork(() => TrainingData.GenerateEvaluationTrainingData(model, samples, 1f));
+}
+
+void Train(ConsoleCommandContext context)
+{
+    if (TrainingData.EvaluationTrainingData.Count == 0)
+    {
+        Console.WriteLine("Cannot train, no evaluation training data");
+        return;
+    }
+
+    int epochs = context.GetIntArg(0, "epochs");
+    trainingParams.epochs = epochs;
+    EnqueueWork(() => Training.TrainEvaluationModel(model, trainingParams, cancel.Token));
+        
+}
+
+void Set(ConsoleCommandContext context)
 {
     string trainingParam = context.GetTextArg(0, "param name");
     switch (trainingParam)
@@ -63,8 +103,10 @@ void SetTP(ConsoleCommandContext context)
     }
 }
 
-void CancelTraining(ConsoleCommandContext context)
+void Cancel()
 {
-    trainCancel.Cancel();
-    trainer?.Wait();
+    cancel.Cancel();
+    if (work.TryPeek(out var task))
+        task.Wait();
+    cancel.TryReset();
 }
