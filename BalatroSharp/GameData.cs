@@ -77,4 +77,6 @@ public sealed class GameData
         (int planetChips, int planetMult) = PlanetScores[(int)handType];
         return (chips + planetChips * (level - 1), mult + planetMult * (level - 1));
     }
+
+    public static readonly GameData Default = new();
 }
