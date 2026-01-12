@@ -43,7 +43,12 @@ while (true)
 
 void Test(ConsoleCommandContext context)
 {
-
+    int samples = context.GetIntArg(0, "samples");
+    EnqueueWork(() =>
+    {
+        float score = Testing.GetAverageScore(model, samples);
+        Console.WriteLine("Average Score: " + score);
+    });
 }
 
 void EnqueueWork(Action action)
@@ -108,5 +113,5 @@ void Cancel()
     cancel.Cancel();
     if (work.TryPeek(out var task))
         task.Wait();
-    cancel.TryReset();
+    cancel = new();
 }
