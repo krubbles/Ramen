@@ -1,4 +1,4 @@
-﻿using Ramen.AI;
+using Ramen.AI;
 using Ramen.Game;
 using Ramen.ConsoleApp;
 
@@ -30,8 +30,11 @@ while (true)
             case "play":
                 Play(context);
                 break;
-            case "test":
+case "test":
                 Test(context);
+                break;
+            case "generate":
+                GenerateGames(context);
                 break;
         }
     }
@@ -106,6 +109,37 @@ void Set(ConsoleCommandContext context)
             Console.WriteLine($"Unrecognized training param '{trainingParam}'. Valid params are kld, ent, lr, and bs.");
             break;
     }
+}
+
+void GenerateGames(ConsoleCommandContext context)
+{
+    string dbName = context.GetTextArg(0, "database name");
+    int numGames = context.GetIntArg(1, "number of games");
+    
+    EnqueueWork(() =>
+    {
+        GameDatabase database = new(dbName);
+        
+        Console.WriteLine($"Generating {numGames} games in database '{dbName}'...");
+        
+        for (int i = 0; i < numGames; i++)
+        {
+            GameState gameState = new(GameData.Default);
+            RamenAgent agent = new(gameState, model);
+            
+            while (gameState.Stage != StageOfGame.None)
+            {
+                if (!agent.MakeMoveStochastic(1.0f))
+                    break;
+            }
+            database.AddGame(gameState);
+            
+            if ((i + 1) % 10 == 0)
+                Console.WriteLine($"Generated {i + 1}/{numGames} games");
+        }
+        
+        Console.WriteLine($"Successfully generated {numGames} games in database '{dbName}'");
+    });
 }
 
 void Cancel()
