@@ -1,4 +1,4 @@
-﻿using System.IO.Compression;
+using System.IO.Compression;
 
 namespace Ramen.Game;
 
@@ -48,6 +48,7 @@ public sealed class GameState
             DeckState.GetHashCode();
     }
 
+    [Obsolete("Use rollback via MoveState.RevertToStep() instead")]
     public void CloneFrom(GameState other)
     {
         DeckState.CloneFrom(other.DeckState);
@@ -55,6 +56,15 @@ public sealed class GameState
         HandState.CloneFrom(other.HandState);
         MoveState.CloneFrom(other.MoveState);
     }
+
+    public void Reseed()
+    {
+        ulong newState = FastRandom.SeededByClock().GetState();
+        ReseedMove reseed = new(newState);
+        reseed.Apply(this);
+    }
+
+    public bool GameIsDone => HandState.RemainingHands == 0 || ScoringState.CurrentRoundTotalChips >= 300;
 
     public List<Move> GetMoveOptions()
     {
