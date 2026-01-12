@@ -1,6 +1,7 @@
 using Ramen.AI;
 using Ramen.Game;
 using Ramen.ConsoleApp;
+using System.Linq;
 
 GameEvalModel model = new GameEvalModel();
 
@@ -30,7 +31,7 @@ while (true)
             case "play":
                 Play(context);
                 break;
-case "test":
+            case "test":
                 Test(context);
                 break;
             case "generate":
@@ -115,6 +116,9 @@ void GenerateGames(ConsoleCommandContext context)
 {
     string dbName = context.GetTextArg(0, "database name");
     int numGames = context.GetIntArg(1, "number of games");
+    int numMovesToConsider = context.GetIntArg(2, "moves to consider");
+    int numContinuations = context.GetIntArg(3, "continuations per move");
+    bool log = context.GetBoolArg(4, "log");
     
     EnqueueWork(() =>
     {
@@ -126,15 +130,75 @@ void GenerateGames(ConsoleCommandContext context)
         {
             GameState gameState = new(GameData.Default);
             RamenAgent agent = new(gameState, model);
+            gameState.AdvanceToNextPlayerChoice();
+
+            List<int> playerChoiceMoveSteps = new();
             
-            while (gameState.Stage != StageOfGame.None)
+            while (!agent.GameIsDone())
             {
-                if (!agent.MakeMoveStochastic(1.0f))
-                    break;
+                playerChoiceMoveSteps.Add(gameState.MoveState.MoveStep);
+                gameState.AdvanceToNextPlayerChoice();
+                agent.MakeMove(1.0f);
             }
+            
+            int rollbackIndex = agent.Random.Next(playerChoiceMoveSteps.Count);
+            int rollbackStep = playerChoiceMoveSteps[rollbackIndex];
+            gameState.MoveState.RevertToStep(rollbackStep);
+            
+            var candidateMoves = agent.SampleMoves(1.0f, numMovesToConsider);
+            
+            float bestAvgReward = float.MinValue;
+            Move bestMove = null;
+            List<(Move move, float avgReward)> moveEvalutions = new();
+            
+            foreach (var (candidateMove, _) in candidateMoves)
+            {
+                float totalReward = 0f;
+                
+                candidateMove.Apply(gameState);
+                int afterCandidateStep = gameState.MoveState.MoveStep;
+                
+                for (int c = 0; c < numContinuations; c++)
+                {
+                    gameState.Reseed();
+                    
+                    while (!agent.GameIsDone())
+                    {
+                        gameState.AdvanceToNextPlayerChoice();
+                        agent.MakeMove(1.0f);
+                    }
+                    
+                    totalReward += agent.GetCurrentReward();
+                    
+                    gameState.MoveState.RevertToStep(afterCandidateStep);
+                }
+                
+                float avgReward = totalReward / numContinuations;
+                moveEvalutions.Add((candidateMove, avgReward));
+                
+                if (avgReward > bestAvgReward)
+                {
+                    bestAvgReward = avgReward;
+                    bestMove = candidateMove;
+                }
+
+                gameState.MoveState.RevertToStep(rollbackStep);
+            }
+
+            if (log)
+            {
+                Console.WriteLine($"GameState: {gameState}");
+                var sortedMoves = moveEvalutions.OrderByDescending(x => x.avgReward).ToList();
+                foreach (var (move, avgReward) in sortedMoves)
+                {
+                    Console.WriteLine($"Move: {move} - Avg Reward: {avgReward:F4}");
+                }
+            }
+            
+            bestMove.Apply(gameState);
             database.AddGame(gameState);
             
-            if ((i + 1) % 10 == 0)
+            if ((i + 1) % 50 == 0)
                 Console.WriteLine($"Generated {i + 1}/{numGames} games");
         }
         

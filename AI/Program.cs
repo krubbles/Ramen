@@ -91,7 +91,7 @@ class Program
                 Console.WriteLine(gs);
                 (Move bestMove, float bestProb) = Testing.GetBestDiscard(gs, 300);
                 RamenAgent agent = new(gs, model);
-                agent.MakeMoveStochastic(0.001f);
+                agent.MakeMove(0.001f);
                 Console.WriteLine("Agent Move:" + gs.MoveState.MoveHistory[^1]);
                 Console.WriteLine();
             }
