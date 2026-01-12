@@ -89,8 +89,10 @@ public sealed class MoveState
         serializer.Stream.WriteEndTag("MS");
     }
 
-    internal void Deserialize(GameStateSerializer serializer)
+    internal void Deserialize(GameStateSerializer serializer, int versionNumber)
     {
+        if (versionNumber != 1)
+            throw new NotSupportedException($"GameState serialization version number {versionNumber} not supported.");
         serializer.Stream.ReadStartTag("MS");
         MoveHistory.Clear();
         int moveCount = serializer.Stream.ReadStruct<int>();

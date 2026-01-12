@@ -90,9 +90,13 @@ public sealed class GameState
 
     public void Serialize(Stream stream)
     {
+        int versionNumber = 1;
         BufferedStream bufferedStream = new(stream);
         GameStateSerializer serializer = new(this, bufferedStream);
+        serializer.Stream.WriteStartTag("GS");
+        serializer.Stream.WriteStruct<int>(versionNumber);
         MoveState.Serialize(serializer);
+        serializer.Stream.WriteEndTag("GS");
         bufferedStream.Flush();
     }
 
@@ -100,7 +104,10 @@ public sealed class GameState
     {
         BufferedStream bufferedStream = new(stream);
         GameStateSerializer serializer = new(this, bufferedStream);
-        MoveState.Deserialize(serializer);
+        serializer.Stream.ReadStartTag("GS");
+        int versionNumber = serializer.Stream.ReadStruct<int>();
+        MoveState.Deserialize(serializer, versionNumber);
+        serializer.Stream.ReadEndTag("GS");
         bufferedStream.Flush();
     }
 
