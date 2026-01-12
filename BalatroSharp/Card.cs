@@ -2,26 +2,34 @@
 
 using System.Text;
 
-public enum Suit : byte
-{
-    None,
-    Diamond,
-    Club,
-    Heart,
-    Spade,
-    All,
-}
-
 public readonly struct Card : IEquatable<Card>, IComparable<Card>
 {
-    public readonly int Rank;
+    public readonly byte Rank;
     public readonly Suit Suit;
+    public readonly Enhancement Enhancement;
+    readonly byte _compressedSealEdition;
 
-    public Card(int rank, Suit suit) 
+    public Card(byte rank, Suit suit,  Enhancement enhancement, Edition edition, Seal seal)
+    {
+        Rank = rank;
+        Suit = suit;
+        Enhancement = enhancement;
+        _compressedSealEdition = (byte)((int)edition + ((int)seal << 4));
+    }
+
+    public Card(int rank, Suit suit, Enhancement enhancement, Edition edition, Seal seal) : this((byte)rank, suit, enhancement, edition, seal) { }
+
+    public Card(byte rank, Suit suit) 
     {
         Rank = rank;
         Suit = suit;
     }
+
+    public Card(int rank, Suit suit) : this((byte)rank, suit) { }
+
+
+    public readonly Edition Edition => (Edition)(_compressedSealEdition & 15);
+    public readonly Seal Seal => (Seal)(_compressedSealEdition >> 4);
 
     public readonly bool IsNull => Rank == 0;
 
@@ -95,6 +103,45 @@ public readonly struct Card : IEquatable<Card>, IComparable<Card>
     }
 
     public int ToIndex() => Rank == 0 ? 0 : Rank - 1 + ((int)Suit - 1) * 13;
+}
+
+public enum Suit : byte
+{
+    None,
+    Diamond,
+    Club,
+    Heart,
+    Spade,
+    All,
+}
+
+public enum Enhancement : byte
+{
+    None,
+    Bonus,
+    Mult,
+    Lucky,
+    Gold,
+    Steel,
+    Glass,
+    Stone
+}
+
+public enum Edition : byte
+{
+    None,
+    Foil,
+    Holographic,
+    Polychrome
+}
+
+public enum Seal : byte
+{
+    None,
+    Red,
+    Blue,
+    Purple,
+    Gold
 }
 
 /// <summary>

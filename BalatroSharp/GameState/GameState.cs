@@ -214,7 +214,7 @@ public sealed class ReseedMove : Move
 }
 
 
-public enum StageOfGame
+public enum StageOfGame : byte
 {
     None,
     EnterStore,

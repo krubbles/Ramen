@@ -1,4 +1,5 @@
-﻿using System.Numerics;
+﻿using System.Linq.Expressions;
+using System.Numerics;
 
 namespace Ramen.Game;
 
@@ -178,7 +179,7 @@ public class HandState
             RemoveCardFromHand(cards[i]);
     }
 
-    internal double PlayHand(ReadOnlySpan<int> cardIndices)
+    internal double PlayHand(ReadOnlySpan<byte> cardIndices)
     {
         if (RemainingHands < 1)
             throw new Exception("Cannot play hand, out of hands.");
@@ -212,7 +213,7 @@ public class HandState
         return score;
     }
 
-    internal void DiscardHand(ReadOnlySpan<int> cardIndices)
+    internal void DiscardHand(ReadOnlySpan<byte> cardIndices)
     {
         if (RemainingDiscards < 1)
             throw new Exception("Cannot discard, out of discards");
@@ -249,12 +250,12 @@ public class HandState
         if (RemainingDiscards == 0 && RemainingHands == 0)
             return;
 
-        Span<int> indices = stackalloc int[5];
+        Span<byte> indices = stackalloc byte[5];
         for (int playMask = 1; playMask < (1 << HandCardCount); ++playMask)
         {
             int handSize = 0;
             bool skip = false;
-            for (int i = 0; i < 8; ++i)
+            for (byte i = 0; i < 8; ++i)
             {
                 if (((playMask >> i) & 1) != 0)
                 {
@@ -268,7 +269,7 @@ public class HandState
             }
             if (skip)
                 continue;
-            int[] indicesArray = indices[0..handSize].ToArray();
+            byte[] indicesArray = indices[0..handSize].ToArray();
             if (RemainingHands > 0)
                 moves.Add(new UseHandMove(false, indicesArray));
             if (RemainingDiscards > 0)
@@ -284,12 +285,20 @@ public class HandState
 public sealed class UseHandMove : Move
 {
     public readonly bool IsDiscard;
-    public readonly int[] CardIndices;
+    public readonly byte[] CardIndices;
 
     Card[] _cards;
     double _roundTotalChipsBeforePlay;
 
-    public UseHandMove(bool isDiscard, params int[] cardIndices)
+    public UseHandMove(bool isDiscard, params ReadOnlySpan<int> cardIndices)
+    {
+        IsDiscard = isDiscard;
+        CardIndices = new byte[cardIndices.Length];
+        for (int i = 0; i < cardIndices.Length; ++i)
+            CardIndices[i] = (byte)cardIndices[i];
+    }
+
+    public UseHandMove(bool isDiscard, params byte[] cardIndices)
     {
         IsDiscard = isDiscard;
         CardIndices = cardIndices;
@@ -347,13 +356,13 @@ public sealed class UseHandMove : Move
             UseHandMove useHandMove = (UseHandMove)move;
 
             gsSerializer.Stream.WriteStruct<bool>(useHandMove.IsDiscard);
-            gsSerializer.Stream.WriteArray<int>(useHandMove.CardIndices);
+            gsSerializer.Stream.WriteArrayByteSize<byte>(useHandMove.CardIndices);
         }
 
         public Move Deserialize(GameStateSerializer gsSerializer)
         {
             bool isDiscard = gsSerializer.Stream.ReadStruct<bool>();
-            int[] cardIndices = gsSerializer.Stream.ReadArray<int>();
+            byte[] cardIndices = gsSerializer.Stream.ReadArrayByteSize<byte>();
 
             UseHandMove move = new(isDiscard, cardIndices);
             return move;

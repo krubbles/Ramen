@@ -43,6 +43,15 @@ public static class StreamExtentions
         writer.WriteSpan<T>(values);
     }
 
+    public static void WriteArrayByteSize<T>(this Stream writer, T[] values) where T : unmanaged
+    {
+        if (values.Length > 255)
+            throw new ArgumentOutOfRangeException($"Cannot byte size serialize an array with length > 255. Length = {values.Length}");
+        writer.WriteStruct<byte>((byte)values.Length);
+        writer.WriteSpan<T>(values);
+    }
+
+
     public static void ReadStartTag(this Stream reader, string text)
     {
         int tag = reader.ReadStruct<int>();
@@ -77,6 +86,14 @@ public static class StreamExtentions
     public static T[] ReadArray<T>(this Stream writer) where T : unmanaged
     {
         int length = writer.ReadStruct<int>();
+        T[] data = new T[length];
+        writer.ReadSpan<T>(data);
+        return data;
+    }
+
+    public static T[] ReadArrayByteSize<T>(this Stream writer) where T : unmanaged
+    {
+        byte length = writer.ReadStruct<byte>();
         T[] data = new T[length];
         writer.ReadSpan<T>(data);
         return data;

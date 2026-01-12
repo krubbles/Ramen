@@ -80,7 +80,7 @@ public abstract class Move
     };
 }
 
-public enum MoveType
+public enum MoveType : byte
 {
     None,
     UseHand,
