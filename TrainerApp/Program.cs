@@ -5,21 +5,31 @@ using Ramen.ConsoleApp;
 GameEvalModel model = new GameEvalModel();
 
 CancellationTokenSource trainCancel = new();
-Task trainer;
+Task trainer = null;
 TrainingParams trainingParams = new();
 
 while (true)
 {
-    string command = Console.ReadLine();
-    ConsoleCommandContext context = new(command);
-    switch (context.Name.ToLower())
+    try
     {
-        case "train":
-            Train(context);
-            break;
-        case "settp":
-            SetTP(context);
-            break;
+        string command = Console.ReadLine();
+        ConsoleCommandContext context = new(command);
+        switch (context.Name.ToLower())
+        {
+            case "train":
+                Train(context);
+                break;
+            case "settp":
+                SetTP(context);
+                break;
+            case "cancel":
+                CancelTraining(context);
+                break;
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine(ex.ToString()); 
     }
 }
 
@@ -51,4 +61,10 @@ void SetTP(ConsoleCommandContext context)
             Console.WriteLine($"Unrecognized training param '{trainingParam}'. Valid params are kld, ent, lr, and bs.");
             break;
     }
+}
+
+void CancelTraining(ConsoleCommandContext context)
+{
+    trainCancel.Cancel();
+    trainer?.Wait();
 }
