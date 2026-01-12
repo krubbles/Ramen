@@ -1,4 +1,4 @@
-﻿namespace Ramen.ConsoleApp;
+namespace Ramen.ConsoleApp;
 
 using System;
 using System.Collections.Generic;
@@ -9,6 +9,7 @@ using System.Xml.Linq;
 public class ConsoleCommandContext
 {
     readonly string[] _words;
+    readonly Dictionary<string, string> _optionalArgs;
 
     public ConsoleCommandContext(string command)
     {
@@ -45,7 +46,22 @@ public class ConsoleCommandContext
         }
         if (sb.Length > 0)
             words.Add(sb.ToString());
-        _words = words.ToArray();
+
+        _optionalArgs = new();
+        List<string> positionalArgs = new();
+        foreach (string word in words)
+        {
+            int eqIndex = word.IndexOf('=');
+            if (eqIndex > 0)
+            {
+                string name = word[..eqIndex];
+                string value = word[(eqIndex + 1)..];
+                _optionalArgs[name.ToLower()] = value;
+            }
+            else
+                positionalArgs.Add(word);
+        }
+        _words = positionalArgs.ToArray();
     }
 
     public string Name => _words.Length > 0 ? _words[0].ToLower() : "";
@@ -113,6 +129,123 @@ public class ConsoleCommandContext
         return ThrowBadArgument<T>(name, index);
     }
 
+    public bool TryGetIntArg(string name, out int value)
+    {
+        if (_optionalArgs.TryGetValue(name.ToLower(), out string? strValue))
+        {
+            if (int.TryParse(strValue, out value))
+                return true;
+            throw new BadCommandArgumentException(name, typeof(int), -1);
+        }
+        value = 0;
+        return false;
+    }
+
+    public bool TryGetFloatArg(string name, out float value)
+    {
+        if (_optionalArgs.TryGetValue(name.ToLower(), out string? strValue))
+        {
+            if (float.TryParse(strValue, out value))
+                return true;
+            throw new BadCommandArgumentException(name, typeof(float), -1);
+        }
+        value = 0;
+        return false;
+    }
+
+    public bool TryGetBoolArg(string name, out bool value)
+    {
+        if (_optionalArgs.TryGetValue(name.ToLower(), out string? strValue))
+        {
+            if (bool.TryParse(strValue, out value))
+                return true;
+            throw new BadCommandArgumentException(name, typeof(bool), -1);
+        }
+        value = false;
+        return false;
+    }
+
+    public bool TryGetTextArg(string name, out string value)
+    {
+        if (_optionalArgs.TryGetValue(name.ToLower(), out string? strValue))
+        {
+            if (strValue.Length >= 2 && strValue[0] == '"' && strValue[^1] == '"')
+                value = strValue[1..^1];
+            else
+                value = strValue;
+            return true;
+        }
+        value = "";
+        return false;
+    }
+
+    public bool TryGetEnumArg<T>(string name, out T value) where T : struct
+    {
+        if (_optionalArgs.TryGetValue(name.ToLower(), out string? strValue))
+        {
+            if (Enum.TryParse<T>(strValue, true, out value))
+                return true;
+            throw new BadCommandArgumentException(name, typeof(T), -1);
+        }
+        value = default!;
+        return false;
+    }
+
+    public int GetIntArg(string name, int defaultValue)
+    {
+        if (_optionalArgs.TryGetValue(name.ToLower(), out string? strValue))
+        {
+            if (int.TryParse(strValue, out int value))
+                return value;
+            throw new BadCommandArgumentException(name, typeof(int), -1);
+        }
+        return defaultValue;
+    }
+
+    public float GetFloatArg(string name, float defaultValue)
+    {
+        if (_optionalArgs.TryGetValue(name.ToLower(), out string? strValue))
+        {
+            if (float.TryParse(strValue, out float value))
+                return value;
+            throw new BadCommandArgumentException(name, typeof(float), -1);
+        }
+        return defaultValue;
+    }
+
+    public bool GetBoolArg(string name, bool defaultValue)
+    {
+        if (_optionalArgs.TryGetValue(name.ToLower(), out string? strValue))
+        {
+            if (bool.TryParse(strValue, out bool value))
+                return value;
+            throw new BadCommandArgumentException(name, typeof(bool), -1);
+        }
+        return defaultValue;
+    }
+
+    public string GetTextArg(string name, string defaultValue)
+    {
+        if (_optionalArgs.TryGetValue(name.ToLower(), out string? strValue))
+        {
+            if (strValue.Length >= 2 && strValue[0] == '"' && strValue[^1] == '"')
+                return strValue[1..^1];
+            return strValue;
+        }
+        return defaultValue;
+    }
+
+    public T GetEnumArg<T>(string name, T defaultValue) where T : struct
+    {
+        if (_optionalArgs.TryGetValue(name.ToLower(), out string? strValue))
+        {
+            if (Enum.TryParse<T>(strValue, true, out T value))
+                return value;
+            throw new BadCommandArgumentException(name, typeof(T), -1);
+        }
+        return defaultValue;
+    }
+
     class BadCommandArgumentException : Exception
     {
         public readonly string Name;
@@ -128,7 +261,8 @@ public class ConsoleCommandContext
 
         public override string ToString()
         {
-            return $"expected {Type.Name} argument '{Name}' at index {Index}";
+            string location = Index >= 0 ? $" at index {Index}" : " (optional argument)";
+            return $"expected {Type.Name} argument '{Name}'{location}";
         }
     }
 }
