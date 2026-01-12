@@ -1,4 +1,6 @@
-﻿namespace Ramen.Game;
+﻿using System.IO.Compression;
+
+namespace Ramen.Game;
 
 public sealed class GameState
 {
@@ -91,24 +93,29 @@ public sealed class GameState
     public void Serialize(Stream stream)
     {
         int versionNumber = 1;
-        GameStateSerializer serializer = new(this, stream);
+
+        BufferedStream buffered = new(stream);
+        GameStateSerializer serializer = new(this, buffered);
+
         serializer.Stream.WriteStartTag("GS");
         serializer.Stream.WriteStruct<int>(versionNumber);
         MoveState.Serialize(serializer);
         serializer.Stream.WriteStruct<int>(GetHashCode());
         serializer.Stream.WriteEndTag("GS");
-        stream.Flush();
+        serializer.Stream.Flush();
     }
 
     public void Deserialize(Stream stream)
     {
-        GameStateSerializer serializer = new(this, stream);
+        BufferedStream buffered = new(stream);
+        GameStateSerializer serializer = new(this, buffered);
+
         serializer.Stream.ReadStartTag("GS");
         int versionNumber = serializer.Stream.ReadStruct<int>();
         MoveState.Deserialize(serializer, versionNumber);
         int hash = serializer.Stream.ReadStruct<int>();
         serializer.Stream.ReadEndTag("GS");
-        stream.Flush();
+        serializer.Stream.Flush();
 #if DEBUG
         if (hash != GetHashCode())
             throw new Exception("Deserialization hash mismatch.");
