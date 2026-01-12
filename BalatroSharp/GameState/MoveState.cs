@@ -97,7 +97,7 @@ public sealed class MoveState
         for (int i = 0; i < moveCount; ++i)
         {
             Move move = Move.Deserialize(serializer);
-            MoveHistory.Add(move);
+            move.Apply(GameState);
         }
         serializer.Stream.ReadEndTag("MS");
     }

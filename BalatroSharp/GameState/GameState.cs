@@ -88,6 +88,22 @@ public sealed class GameState
         ScoringState.ResetCurrentRoundTotalChips();
     }
 
+    public void Serialize(Stream stream)
+    {
+        BufferedStream bufferedStream = new(stream);
+        GameStateSerializer serializer = new(this, bufferedStream);
+        MoveState.Serialize(serializer);
+        bufferedStream.Flush();
+    }
+
+    public void Deserialize(Stream stream)
+    {
+        BufferedStream bufferedStream = new(stream);
+        GameStateSerializer serializer = new(this, bufferedStream);
+        MoveState.Deserialize(serializer);
+        bufferedStream.Flush();
+    }
+
     public override string ToString()
     {
         return $"[Hand: {CardParseUtils.SerializeHand(HandState.Hand)}, RH {HandState.RemainingHands}, RD: {HandState.RemainingDiscards}]";
