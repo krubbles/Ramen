@@ -1,4 +1,4 @@
-﻿namespace Ramen.AI;
+namespace Ramen.AI;
 
 using Ramen.Game;
 
@@ -70,9 +70,9 @@ public class RamenAgent
         return true;
     }
 
-    public bool MakeMoveStochastic(float temp) => MakeMoveStochastic(temp, out _, out _, 1);
+    public bool MakeMove(float temp) => MakeMove(temp, out _, out _, 1);
 
-    public bool MakeMoveStochastic(float temp, out EvaluationTrainingSample sample, out float nlProb, int sampleCount = 20, bool generateSample = false)
+    public bool MakeMove(float temp, out EvaluationTrainingSample sample, out float nlProb, int sampleCount = 20, bool generateSample = false)
     {
         nlProb = 0f;
         sample = default;
@@ -161,6 +161,79 @@ public class RamenAgent
     }
 
     public bool GameIsDone() => GameState.HandState.RemainingHands <= 0 || GameState.ScoringState.CurrentRoundTotalChips >= 300;
+
+    public List<(Move move, float probability)> SampleMoves(float temp, int maxUniqueMoves)
+    {
+        using var scope = NewDisposeScope();
+        using var noGrad = no_grad();
+        List<Move> allMoves = GameState.GetMoveOptions();
+        if (allMoves.Count == 0)
+            return new List<(Move, float)>();
+        if (allMoves.Count == 1)
+            return new List<(Move, float)> { (allMoves[0], 1f) };
+
+        int moveCount = allMoves.Count;
+
+        int[,] playedHands = new int[moveCount, 5];
+        int[,] remainingHands = new int[moveCount, 8];
+        int[] handsAndDiscards = new int[moveCount];
+        float[] scores = new float[moveCount];
+
+        GameStateTensors stateTensors = Tensors;
+        Tensor processedState = Model.ProcessState(stateTensors);
+        Tensor forcastProbs = null, tier = null;
+        if (GameEvalModel.Tiers > 1)
+        {
+            forcastProbs = Model.GetForcastLogits(processedState).softmax(1);
+            tier = multinomial(forcastProbs, 1);
+        }
+        HandState handState = GameState.HandState;
+        ScoringState scoringState = GameState.ScoringState;
+        int hash = GameState.GetHashCode();
+        for (int move = 0; move < moveCount; ++move)
+        {
+            allMoves[move].Apply(GameState);
+
+            UseHandMove useHandMove = (UseHandMove)allMoves[move];
+            for (int i = 0; i < 5; ++i)
+                playedHands[move, i] = i < useHandMove.UsedCards.Length ? useHandMove.UsedCards[i].ToIndex() : 0;
+            Span<Card> hand = handState.Hand;
+            for (int i = 0; i < 8; ++i)
+                remainingHands[move, i] = i < hand.Length ? hand[i].ToIndex() : 0;
+
+            handsAndDiscards[move] = GameState.HandState.RemainingHands * 5 + GameState.HandState.RemainingDiscards;
+            scores[move] = (float)GameState.ScoringState.CurrentRoundTotalChips / 300f;
+
+            allMoves[move].Revert(GameState);
+        }
+        if (GameState.GetHashCode() != hash)
+            throw new Exception("eee err");
+
+        MoveTensors moveTensors = new()
+        {
+            RemainingHand = tensor(remainingHands).unsqueeze_(0),
+            PlayedHand = tensor(playedHands).unsqueeze_(0),
+            HandsAndDiscards = tensor(handsAndDiscards).view([1, -1]),
+            Score = tensor(scores).view([1, -1])
+        };
+
+        Tensor logits = Model.ProcessMove(moveTensors, processedState);
+
+        Tensor rewardDist = (logits / Math.Max(temp, 0.0001f)).softmax(1);
+
+        int samplesToGet = Math.Min(maxUniqueMoves, allMoves.Count);
+        Tensor indices = multinomial(rewardDist.view([-1]), samplesToGet, replacement: false);
+
+        List<(Move move, float probability)> selected = new();
+        long[] sampledIndices = indices.data<long>().ToArray();
+        for (int i = 0; i < samplesToGet; i++)
+        {
+            int idx = (int)sampledIndices[i];
+            selected.Add((allMoves[idx], rewardDist[0, idx].item<float>()));
+        }
+
+        return selected;
+    }
 
     public void FillMoveOtherStateData(GameState gameState, Span<float> otherStates, bool isDiscard, float threshold = 0f)
     {
