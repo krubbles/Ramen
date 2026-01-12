@@ -114,19 +114,19 @@ void Set(ConsoleCommandContext context)
 
 void GenerateGames(ConsoleCommandContext context)
 {
-    string dbName = context.GetTextArg(0, "database name");
-    int numGames = context.GetIntArg(1, "number of games");
-    int numMovesToConsider = context.GetIntArg(2, "moves to consider");
-    int numContinuations = context.GetIntArg(3, "continuations per move");
-    bool log = context.GetBoolArg(4, "log");
+    string dbName = context.GetTextArg(0, "db");
+    int games = context.GetIntArg(1, "games");
+    int branches = context.GetIntArg(2, "branches");
+    int samples = context.GetIntArg(3, "samples");
+    bool log = context.GetBoolArg("log", false);
     
     EnqueueWork(() =>
     {
         GameDatabase database = new(dbName);
         
-        Console.WriteLine($"Generating {numGames} games in database '{dbName}'...");
+        Console.WriteLine($"Generating {games} games in database '{dbName}'...");
         
-        for (int i = 0; i < numGames; i++)
+        for (int i = 0; i < games; i++)
         {
             GameState gameState = new(GameData.Default);
             RamenAgent agent = new(gameState, model);
@@ -136,8 +136,8 @@ void GenerateGames(ConsoleCommandContext context)
             
             while (!agent.GameIsDone())
             {
-                playerChoiceMoveSteps.Add(gameState.MoveState.MoveStep);
                 gameState.AdvanceToNextPlayerChoice();
+                playerChoiceMoveSteps.Add(gameState.MoveState.MoveStep);
                 agent.MakeMove(1.0f);
             }
             
@@ -145,7 +145,7 @@ void GenerateGames(ConsoleCommandContext context)
             int rollbackStep = playerChoiceMoveSteps[rollbackIndex];
             gameState.MoveState.RevertToStep(rollbackStep);
             
-            var candidateMoves = agent.SampleMoves(1.0f, numMovesToConsider);
+            var candidateMoves = agent.SampleMoves(1.0f, branches);
             
             float bestAvgReward = float.MinValue;
             Move bestMove = null;
@@ -158,7 +158,7 @@ void GenerateGames(ConsoleCommandContext context)
                 candidateMove.Apply(gameState);
                 int afterCandidateStep = gameState.MoveState.MoveStep;
                 
-                for (int c = 0; c < numContinuations; c++)
+                for (int c = 0; c < samples; c++)
                 {
                     gameState.Reseed();
                     
@@ -173,7 +173,7 @@ void GenerateGames(ConsoleCommandContext context)
                     gameState.MoveState.RevertToStep(afterCandidateStep);
                 }
                 
-                float avgReward = totalReward / numContinuations;
+                float avgReward = totalReward / samples;
                 moveEvalutions.Add((candidateMove, avgReward));
                 
                 if (avgReward > bestAvgReward)
@@ -199,10 +199,10 @@ void GenerateGames(ConsoleCommandContext context)
             database.AddGame(gameState);
             
             if ((i + 1) % 50 == 0)
-                Console.WriteLine($"Generated {i + 1}/{numGames} games");
+                Console.WriteLine($"Generated {i + 1}/{games} games");
         }
         
-        Console.WriteLine($"Successfully generated {numGames} games in database '{dbName}'");
+        Console.WriteLine($"Successfully generated {games} games in database '{dbName}'");
     });
 }
 
