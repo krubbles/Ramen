@@ -12,10 +12,8 @@ public sealed class MoveState
 
     public readonly List<Move> MoveHistory = new();
     
-    readonly List<Move> _moveBuffer = new();
-
     // List of callbacks triggered by the currently applied move. Move runs them after application/reversion.
-    // This makes sure that each callback is only called once per move.
+    // This makes sure that each callback is only called once per move. Not persistent state.
     readonly HashSet<Action> _activatedCallbacks = new();
 
     public MoveState(GameState gameState)
@@ -78,5 +76,29 @@ public sealed class MoveState
             sb.AppendLine(move.ToString());
         }
         return sb.ToString();
+    }
+
+    internal void Serialize(GameStateSerializer serializer)
+    {
+        serializer.Stream.WriteStartTag("MS");
+        serializer.Stream.WriteStruct<int>(MoveHistory.Count);
+        foreach (Move move in MoveHistory)
+        {
+            Move.Serialize(serializer, move);   
+        }
+        serializer.Stream.WriteEndTag("MS");
+    }
+
+    internal void Deserialize(GameStateSerializer serializer)
+    {
+        serializer.Stream.ReadStartTag("MS");
+        MoveHistory.Clear();
+        int moveCount = serializer.Stream.ReadStruct<int>();
+        for (int i = 0; i < moveCount; ++i)
+        {
+            Move move = Move.Deserialize(serializer);
+            MoveHistory.Add(move);
+        }
+        serializer.Stream.ReadEndTag("MS");
     }
 }
