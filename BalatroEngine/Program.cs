@@ -45,7 +45,6 @@ class Program
             TrainingData.EvaluationTrainingData.Clear();
             TrainingDataStats stat = TrainingData.GenerateEvaluationTrainingData(model, 5000, 1f);
             stats.Add(stat);
-            Training.TrainEvaluationModel(model, 5, 128, entropy, false);
             entropy *= MathF.Pow(0.5f, 1f / 10);
             avgScores.Add(Testing.GetAverageScore(model, 1000 * multiplier));
 
