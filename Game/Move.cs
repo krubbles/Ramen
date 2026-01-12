@@ -12,6 +12,9 @@ public abstract class Move
 
     public void Apply(GameState gameState)
     {
+        if (_moveStep != -1)
+            throw new InvalidOperationException("Trying to apply move that has already been applied.");
+
         this.gameState = gameState;
         _rngState = gameState.Random.GetState();
         _moveStep = gameState.MoveState.MoveHistory.Count;

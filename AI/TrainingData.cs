@@ -58,7 +58,7 @@ public static class TrainingData
             gameState.AdvanceToNextPlayerChoice();
             if (agent.GameIsDone())
                 break;
-            agent.MakeMoveStochastic(1.2f, out _, out float nlProb, 1, false);
+            agent.MakeMove(1.2f, out _, out float nlProb, 1, false);
             nlProbs.Add(nlProb);
             moves.Add(gameState.MoveState.MoveHistory[^1]);
         }
@@ -104,7 +104,7 @@ public static class TrainingData
                 while (gameState.HandState.RemainingHands > 1 && gameState.ScoringState.CurrentRoundTotalChips < 300)
                 {
                     gameState.AdvanceToNextPlayerChoice();
-                    if (!agent.MakeMoveStochastic(1, out EvaluationTrainingSample sample, out float nlProb, 12, true))
+                    if (!agent.MakeMove(1, out EvaluationTrainingSample sample, out float nlProb, 12, true))
                         break;
                     gameSamples.Add(new() { Sample = sample, N = 1, Move = gameState.MoveState.MoveHistory[^1], NLProb = nlProb });
                 }

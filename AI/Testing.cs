@@ -86,7 +86,7 @@ public static class Testing
                 if (gameState.HandState.RemainingDiscards == 0 && gameState.HandState.RemainingHands == 1)
                     agent.MakeHighestScoringMove();
                 else
-                    agent.MakeMoveStochastic(0.00001f);
+                    agent.MakeMove(0.00001f);
             }
             totalReward += agent.GetCurrentReward();
             if (log)
