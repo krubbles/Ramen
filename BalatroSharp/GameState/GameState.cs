@@ -91,24 +91,28 @@ public sealed class GameState
     public void Serialize(Stream stream)
     {
         int versionNumber = 1;
-        BufferedStream bufferedStream = new(stream);
-        GameStateSerializer serializer = new(this, bufferedStream);
+        GameStateSerializer serializer = new(this, stream);
         serializer.Stream.WriteStartTag("GS");
         serializer.Stream.WriteStruct<int>(versionNumber);
         MoveState.Serialize(serializer);
+        serializer.Stream.WriteStruct<int>(GetHashCode());
         serializer.Stream.WriteEndTag("GS");
-        bufferedStream.Flush();
+        stream.Flush();
     }
 
     public void Deserialize(Stream stream)
     {
-        BufferedStream bufferedStream = new(stream);
-        GameStateSerializer serializer = new(this, bufferedStream);
+        GameStateSerializer serializer = new(this, stream);
         serializer.Stream.ReadStartTag("GS");
         int versionNumber = serializer.Stream.ReadStruct<int>();
         MoveState.Deserialize(serializer, versionNumber);
+        int hash = serializer.Stream.ReadStruct<int>();
         serializer.Stream.ReadEndTag("GS");
-        bufferedStream.Flush();
+        stream.Flush();
+#if DEBUG
+        if (hash != GetHashCode())
+            throw new Exception("Deserialization hash mismatch.");
+#endif
     }
 
     public override string ToString()
