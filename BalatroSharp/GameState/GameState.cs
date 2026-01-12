@@ -135,12 +135,12 @@ public sealed class StartRoundMove : Move
     {
         public MoveType MoveType => MoveType.StartRound;
 
-        public void Serialize(GameStateSerializer serializer, Move move, bool isApplied)
+        public void Serialize(GameStateSerializer serializer, Move move)
         {
 
         }
 
-        public Move Deserialize(GameStateSerializer serializer, bool isApplied)
+        public Move Deserialize(GameStateSerializer serializer)
         {
             return new StartRoundMove();
         }

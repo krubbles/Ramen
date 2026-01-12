@@ -58,27 +58,16 @@ public abstract class Move
         IMoveSerializer moveSerializer = MoveSerializers[moveType];
 
         gsSerializer.Stream.WriteStruct<MoveType>(moveType);
-        gsSerializer.Stream.WriteStruct<int>(move._moveStep);
-        gsSerializer.Stream.WriteStruct<ulong>(move._rngState);
-
-        moveSerializer.Serialize(gsSerializer, move, move.IsApplied);
+        moveSerializer.Serialize(gsSerializer, move);
     }
 
     internal static Move Deserialize(GameStateSerializer serializer)
     {
         MoveType moveType = serializer.Stream.ReadStruct<MoveType>();
-        int moveStep = serializer.Stream.ReadStruct<int>();
-        ulong rngState = serializer.Stream.ReadStruct<ulong>();
 
-        bool isApplied = moveStep >= 0;
         IMoveSerializer moveSerializer = MoveSerializers[moveType];
 
-        Move move = moveSerializer.Deserialize(serializer, isApplied);
-
-        move._moveStep = moveStep;
-        move._rngState = rngState;
-        if (isApplied)
-            move.gameState = serializer.GameState;
+        Move move = moveSerializer.Deserialize(serializer);
         return move;
     }
 
@@ -99,7 +88,7 @@ public interface IMoveSerializer
 {
     public MoveType MoveType { get; }
 
-    public void Serialize(GameStateSerializer gsSerializer, Move move, bool isApplied);
+    public void Serialize(GameStateSerializer gsSerializer, Move move);
 
-    public Move Deserialize(GameStateSerializer gsSerializer, bool isApplied);
+    public Move Deserialize(GameStateSerializer gsSerializer);
 }

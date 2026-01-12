@@ -342,33 +342,20 @@ public sealed class UseHandMove : Move
     {
         public MoveType MoveType => MoveType.UseHand;
 
-        public void Serialize(GameStateSerializer gsSerializer, Move move, bool isApplied)
+        public void Serialize(GameStateSerializer gsSerializer, Move move)
         {
             UseHandMove useHandMove = (UseHandMove)move;
 
             gsSerializer.Stream.WriteStruct<bool>(useHandMove.IsDiscard);
             gsSerializer.Stream.WriteArray<int>(useHandMove.CardIndices);
-
-            if (isApplied)
-            {
-                gsSerializer.Stream.WriteArray<Card>(useHandMove._cards);
-                gsSerializer.Stream.WriteStruct<double>(useHandMove._roundTotalChipsBeforePlay);
-            }
         }
 
-        public Move Deserialize(GameStateSerializer gsSerializer, bool isApplied)
+        public Move Deserialize(GameStateSerializer gsSerializer)
         {
             bool isDiscard = gsSerializer.Stream.ReadStruct<bool>();
             int[] cardIndices = gsSerializer.Stream.ReadArray<int>();
 
             UseHandMove move = new(isDiscard, cardIndices);
-
-            if (isApplied)
-            {
-                move._cards = gsSerializer.Stream.ReadArray<Card>();
-                move._roundTotalChipsBeforePlay = gsSerializer.Stream.ReadStruct<double>();
-            }
-
             return move;
         }
     }
@@ -440,24 +427,14 @@ public sealed class AfterHandUsedMove : Move
     {
         public MoveType MoveType => MoveType.AfterHandUse;
 
-        public void Serialize(GameStateSerializer serializer, Move move, bool isApplied)
+        public void Serialize(GameStateSerializer serializer, Move move)
         {
             AfterHandUsedMove afterHandUseMove = (AfterHandUsedMove)move;
-            if (isApplied)
-            {
-                serializer.Stream.WriteArray<Card>(afterHandUseMove._cards);
-                serializer.Stream.WriteStruct<StageOfGame>(afterHandUseMove._stage);
-            }
         }
 
-        public Move Deserialize(GameStateSerializer serializer, bool isApplied)
+        public Move Deserialize(GameStateSerializer serializer)
         {
             AfterHandUsedMove afterHandUseMove = new();
-            if (isApplied)
-            {
-                afterHandUseMove._cards = serializer.Stream.ReadArray<Card>();
-                afterHandUseMove._stage = serializer.Stream.ReadStruct<StageOfGame>();
-            }
             return afterHandUseMove;
         }
     }
