@@ -81,7 +81,8 @@ public enum MoveType
     None,
     UseHand,
     AfterHandUse,
-    StartRound
+    StartRound,
+    Reseed,
 }
 
 public interface IMoveSerializer

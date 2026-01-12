@@ -110,4 +110,13 @@ public class FastRandom
     }
 
     public static FastRandom SeededByClock() => new((ulong)DateTime.Now.Ticks);
+
+    public static ulong SeedToState(ulong seed)
+    {
+        ulong state = seed + 0x9E3779B97f4A7C15;
+        state = (state ^ (state >> 30)) * 0xBF58476D1CE4E5B9;
+        state = (state ^ (state >> 27)) * 0x94D049BB133111EB;
+        state ^= state >> 31;
+        return state;
+    }
 }

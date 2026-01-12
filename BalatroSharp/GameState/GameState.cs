@@ -12,7 +12,6 @@ public sealed class GameState
     public readonly MoveState MoveState;
 
     public readonly FastRandom Random;
-
     public StageOfGame Stage { get; internal set; }
 
     readonly List<Move> _currentLegalMovesBuffer = new();
@@ -20,7 +19,7 @@ public sealed class GameState
     public GameState(GameData gameData)
     {
         GameData = gameData;
-        Random = new(GameData.RandomizeSeed ? FastRandom.SeededByClock().Next() : GameData.Seed);
+        Random = new(0);
 
         ScoringState = new(this);
         DeckState = new(this);
@@ -28,6 +27,10 @@ public sealed class GameState
         JokerState = new(this);
         PatternMatchingState = new(this);
         MoveState = new(this);
+
+        int seed = gameData.RandomizeSeed ? FastRandom.SeededByClock().Next() : gameData.Seed;
+        ReseedMove seeder = new(FastRandom.SeedToState((ulong)seed));
+        seeder.Apply(this);
 
         GameData.InitStartingDeck(this);
 
@@ -85,15 +88,15 @@ public sealed class GameState
         ScoringState.ResetCurrentRoundTotalChips();
     }
 
+    public override string ToString()
+    {
+        return $"[Hand: {CardParseUtils.SerializeHand(HandState.Hand)}, RH {HandState.RemainingHands}, RD: {HandState.RemainingDiscards}]";
+    }
+
     internal void AssertIsStage(StageOfGame stage)
     {
         if (Stage != stage)
             throw new InvalidOperationException($"GameState is not in the expected stage. Expected: {stage}, Actual: {Stage}");
-    }
-
-    public override string ToString()
-    {
-        return $"[Hand: {CardParseUtils.SerializeHand(HandState.Hand)}, RH {HandState.RemainingHands}, RD: {HandState.RemainingDiscards}]";
     }
 }
 
@@ -143,6 +146,46 @@ public sealed class StartRoundMove : Move
         public Move Deserialize(GameStateSerializer serializer)
         {
             return new StartRoundMove();
+        }
+    }
+}
+
+public sealed class ReseedMove : Move
+{
+    public readonly ulong NewRandomState;
+
+    public ReseedMove(ulong newRandomState)
+    {
+        NewRandomState = newRandomState;
+    }
+
+    public override MoveType GetMoveType() => MoveType.Reseed;
+
+    protected override void Apply()
+    {
+        gameState.Random.SetState(NewRandomState);
+    }
+
+    protected override void Revert()
+    {
+        // Move baseclass already handles reverting the RNG state.
+    }
+
+    internal class Serializer : IMoveSerializer
+    {
+        public MoveType MoveType => MoveType.Reseed;
+
+        public void Serialize(GameStateSerializer serializer, Move move)
+        {
+            ReseedMove reseedMove = (ReseedMove)move;
+            serializer.Stream.WriteStruct<ulong>(reseedMove.NewRandomState);
+        }
+
+        public Move Deserialize(GameStateSerializer serializer)
+        {
+            ulong newRandomState = serializer.Stream.ReadStruct<ulong>();
+            ReseedMove move = new(newRandomState);
+            return move;
         }
     }
 }
