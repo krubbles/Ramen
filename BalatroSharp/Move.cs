@@ -73,6 +73,10 @@ public abstract class Move
 
     public static readonly Dictionary<MoveType, IMoveSerializer> MoveSerializers = new()
     {
+        { MoveType.UseHand, new UseHandMove.Serializer() },
+        { MoveType.AfterHandUse, new AfterHandUsedMove.Serializer() },
+        { MoveType.StartRound, new StartRoundMove.Serializer() },
+        { MoveType.Reseed, new ReseedMove.Serializer() },
     };
 }
 
