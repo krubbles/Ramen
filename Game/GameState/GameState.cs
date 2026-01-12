@@ -66,6 +66,11 @@ public sealed class GameState
 
     public bool GameIsDone => HandState.RemainingHands == 0 || ScoringState.CurrentRoundTotalChips >= 300;
 
+    /// <summary>
+    /// Returns a list of legal moves.
+    /// If there is 1, then there is an automatic state change that must happen. 
+    /// If there are multiple, the player/agent has a choice to make. 
+    /// </summary>
     public List<Move> GetMoveOptions()
     {
         _currentLegalMovesBuffer.Clear();
