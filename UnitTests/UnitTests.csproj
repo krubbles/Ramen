@@ -17,8 +17,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\AI\AI.csproj" />
     <ProjectReference Include="..\BalatroEngine\AI.csproj" />
     <ProjectReference Include="..\BalatroSharp\Game.csproj" />
+    <ProjectReference Include="..\Game\Game.csproj" />
   </ItemGroup>
 
   <ItemGroup>
