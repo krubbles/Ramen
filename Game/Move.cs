@@ -90,6 +90,7 @@ public enum MoveType : byte
     AfterHandUse,
     StartRound,
     Reseed,
+    Shuffle,
 }
 
 public interface IMoveSerializer

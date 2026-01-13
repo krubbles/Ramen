@@ -58,11 +58,14 @@ public sealed class GameState
         MoveState.CloneFrom(other.MoveState);
     }
 
-    public void Reseed()
+    public void Reseed(bool shuffle = true)
     {
         ulong newState = FastRandom.SeededByClock().GetState();
-        ReseedMove reseed = new(newState);
-        reseed.Apply(this);
+        new ReseedMove(newState).Apply(this);
+        if (shuffle)
+        {
+            new ShuffleMove().Apply(this);
+        }
     }
 
     public bool GameIsDone => HandState.RemainingHands == 0 || ScoringState.CurrentRoundTotalChips >= 300;
@@ -237,7 +240,6 @@ public sealed class ReseedMove : Move
         }
     }
 }
-
 
 public enum StageOfGame : byte
 {

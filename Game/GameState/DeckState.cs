@@ -53,20 +53,34 @@ public sealed class DeckState
 
     internal void ResetDeck()
     {
-        Span<Card> cards = stackalloc Card[FullDeckCardCount];
-        for (int i = 0; i < cards.Length; ++i)
-            cards[i] = _fullDeckBuffer[i];
-        int remainingDeckIndex = 0;
-        while (cards.Length > 0)
-        {
-            int index = GameState.Random.Next(cards.Length);
-            Card card = cards[index];
-            _deckBuffer[remainingDeckIndex++] = card;
-            cards[index] = cards[^1];
-            cards = cards[0..(cards.Length - 1)];
-        }
+        FullDeck.CopyTo(_deckBuffer);
         RemainingDeckCardCount = FullDeckCardCount;
+        ShuffleDeck();
         GameState.MoveState.ScheduleCallback(OnRemainingDeckChanged);
+    }
+
+    /// <summary>
+    /// Randomly shuffles <see cref="RemainingDeck"/>.
+    /// </summary>
+    internal void ShuffleDeck()
+    {
+        Span<int> indices = stackalloc int[RemainingDeckCardCount];
+        for (int i = 0; i < indices.Length; ++i)
+            indices[i] = GameState.Random.NextInRange(i, RemainingDeckCardCount);
+        for (int i = 0; i < indices.Length; ++i)
+            (_deckBuffer[i], _deckBuffer[indices[i]]) = (_deckBuffer[indices[i]], _deckBuffer[i]);
+    }
+
+    /// <summary>
+    /// Inverts the shuffle produced by <see cref="ShuffleDeck"/> on <see cref="RemainingDeck"/> assuming the <see cref="GameState.Random"/> starts at the same state.
+    /// </summary>
+    internal void UnshuffleDeck()
+    {
+        Span<int> indices = stackalloc int[RemainingDeckCardCount];
+        for (int i = 0; i < indices.Length; ++i)
+            indices[i] = GameState.Random.NextInRange(i, RemainingDeckCardCount);
+        for (int i = indices.Length - 1; i >= 0; --i)
+            (_deckBuffer[i], _deckBuffer[indices[i]]) = (_deckBuffer[indices[i]], _deckBuffer[i]);
     }
 
     internal void Draw(Span<Card> cards)
@@ -97,5 +111,32 @@ public sealed class DeckState
     void UnDraw(Card card)
     {
         _deckBuffer[RemainingDeckCardCount++] = card;
+    }
+}
+
+/// <summary>
+/// Shuffles the state of the <see cref="DeckState.RemainingDeck"/>.
+/// </summary>
+public sealed class ShuffleMove : Move
+{
+    public override MoveType GetMoveType() => MoveType.Shuffle;
+
+    protected override void Apply()
+    {
+        gameState.DeckState.ShuffleDeck();
+    }
+
+    protected override void Revert()
+    {
+        gameState.DeckState.UnshuffleDeck();
+    }
+
+    internal class Serializer : IMoveSerializer
+    {
+        public MoveType MoveType => MoveType.Shuffle;
+
+        public void Serialize(GameStateSerializer serializer, Move move) { }
+
+        public Move Deserialize(GameStateSerializer serializer) => new ShuffleMove();
     }
 }
