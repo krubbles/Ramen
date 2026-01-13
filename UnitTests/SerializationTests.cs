@@ -62,7 +62,7 @@ public class SerializationTests
         games.Clear();
         foreach (GameState game in gdb)
             games.Add(game);
-        Assert.That(games, Has.Count.EqualTo(10), "Loading from database didn't return same number of games that were saved.");
+        Assert.That(games, Has.Count.EqualTo(100), "Loading from database didn't return same number of games that were saved.");
 
     }
 }
