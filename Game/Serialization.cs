@@ -18,9 +18,9 @@ public class GameStateSerializer
 
 public static class StreamExtentions
 {
-    public static void WriteStartTag(this Stream writer, string text) => writer.WriteStruct(text.GetHashCode());
+    public static void WriteStartTag(this Stream writer, string text) => writer.WriteStruct(12345);
 
-    public static void WriteEndTag(this Stream writer, string text) => writer.WriteStruct(0x12345678 + text.GetHashCode());
+    public static void WriteEndTag(this Stream writer, string text) => writer.WriteStruct(123456);
 
     public static unsafe void WriteStruct<T>(this Stream writer, T value) where T : unmanaged
     {
@@ -55,14 +55,14 @@ public static class StreamExtentions
     public static void ReadStartTag(this Stream reader, string text)
     {
         int tag = reader.ReadStruct<int>();
-        if (tag != text.GetHashCode())
+        if (tag != 12345)
             throw new FormatException($"Failed to find start tag {text}");
     }
 
     public static void ReadEndTag(this Stream reader, string text)
     {
         int tag = reader.ReadStruct<int>();
-        if (tag != 0x12345678 + text.GetHashCode())
+        if (tag != 123456)
             throw new FormatException($"Failed to find end tag {text}");
     }
 

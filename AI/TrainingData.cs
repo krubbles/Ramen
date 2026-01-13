@@ -299,10 +299,22 @@ public static class TrainingData
 
     public static void GenerateLastMoveTrainingData(GameEvalModel model, GameDatabase database)
     {
+        int totalGames = 0;
+        foreach (GameState game in database)
+        {
+            if (game.MoveState.MoveHistory.Count > 0)
+                totalGames++;
+        }
+
+        int processed = 0;
         foreach (GameState game in database)
         { 
             if (game.MoveState.MoveHistory.Count == 0)
                 continue;
+
+            processed++;
+            int percent = (int)((float)processed / totalGames * 100);
+            Console.Write($"\rProcessing: {percent}% ({processed}/{totalGames})");
 
             Move lastMove = game.MoveState.MoveHistory[^1];
             RamenAgent agent = new RamenAgent(game, model);
@@ -314,6 +326,7 @@ public static class TrainingData
                 EvaluationTrainingData.Add(sample);
             }
         }
+        Console.WriteLine();
     }
 }
 

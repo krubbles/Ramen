@@ -14,7 +14,7 @@ public record struct TrainingParams(
 
 public static class Training
 {
-    public const float epsilonLow = 0.2f, epsilonHigh = 0.2f;
+    public const float epsilonLow = 1, epsilonHigh = 1000000;
 
     public static void TrainEvaluationModel(GameEvalModel model, TrainingParams tp, CancellationToken cancel)
     {
@@ -87,9 +87,7 @@ public static class Training
                 Tensor processedState = model.ProcessState(inputs.State);
                 int moveCount = (int)inputs.Moves.HandsAndDiscards.size(1);
 
-
-
-                Tensor moveLogits = model.ProcessMove(inputs.Moves, processedState);
+                Tensor moveLogits = model.ProcessMove(inputs.Moves, processedState).squeeze(2);
                 Tensor moveLoss = CalculatePPOLoss(moveLogits, probDist, inputs.Advantage, tp.entropyCoeff, tp.kldCoeff, true, ref kldTotal);
 
                 Tensor loss = moveLoss;

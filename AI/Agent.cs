@@ -180,6 +180,8 @@ public class RamenAgent
             UseHandMove expected = expectedMove as UseHandMove;
             if (move.IsDiscard != expected.IsDiscard)
                 continue;
+            if (move.CardIndices.Length != expected.CardIndices.Length)
+                continue;
             bool match = true;
             for (int i = 0; i < move.CardIndices.Length; ++i)
             {
@@ -199,14 +201,15 @@ public class RamenAgent
         Tensor processedState = Model.ProcessState(stateTensors);
 
         MoveTensors allMoveTensors = CreateMoveTensors(allMoves);
-        Tensor logits = Model.ProcessMove(allMoveTensors, processedState);
+        Tensor logits = Model.ProcessMove(allMoveTensors, processedState).squeeze_(2);
         Tensor probDist = (logits / Math.Max(temp, 0.0001f)).softmax(1);
 
         float expectedProb = probDist[0, expectedIndex].item<float>();
         probDist[0, expectedIndex] = 0;
-
         int samplesNeeded = sampleCount - 1;
         Tensor sampleIndices = multinomial(probDist.view(-1), samplesNeeded);
+        probDist[0, expectedIndex] = expectedProb;
+         
         Tensor indices = concat([tensor(expectedIndex).unsqueeze_(0), sampleIndices], dim: 0);
         MoveTensors sampledMoveTensors = allMoveTensors.IndexSelect(1, indices);
         Tensor sampledProbs = probDist.index_select(1, indices);

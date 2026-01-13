@@ -40,6 +40,9 @@ while (true)
             case "todata":
                 ToData(context);
                 break;
+            case "clear":
+                Clear();
+                break;
         }
     }
     catch (Exception ex)
@@ -201,10 +204,10 @@ void GenerateGames(ConsoleCommandContext context)
             bestMove.Apply(gameState);
             database.AddGame(gameState);
             
-            if ((i + 1) % 50 == 0)
-                Console.WriteLine($"Generated {i + 1}/{games} games");
+            Console.Write($"\rGenerated {i + 1}/{games} games");
         }
         
+        Console.WriteLine();
         Console.WriteLine($"Successfully generated {games} games in database '{dbName}'");
     });
 }
@@ -230,4 +233,10 @@ void ToData(ConsoleCommandContext context)
         int countAfter = TrainingData.EvaluationTrainingData.Count;
         Console.WriteLine($"Added {countAfter - countBefore} training samples from '{dbName}'");
     });
+}
+
+void Clear()
+{
+    TrainingData.EvaluationTrainingData.Clear();
+    Console.WriteLine("Cleared all training data");
 }
