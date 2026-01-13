@@ -53,7 +53,18 @@ public sealed class DeckState
 
     internal void ResetDeck()
     {
-        FullDeck.CopyTo(_deckBuffer);
+        Span<Card> cards = stackalloc Card[FullDeckCardCount];
+        for (int i = 0; i < cards.Length; ++i)
+            cards[i] = _fullDeckBuffer[i];
+        int remainingDeckIndex = 0;
+        while (cards.Length > 0)
+        {
+            int index = GameState.Random.Next(cards.Length);
+            Card card = cards[index];
+            _deckBuffer[remainingDeckIndex++] = card;
+            cards[index] = cards[^1];
+            cards = cards[0..(cards.Length - 1)];
+        }
         RemainingDeckCardCount = FullDeckCardCount;
         GameState.MoveState.ScheduleCallback(OnRemainingDeckChanged);
     }
@@ -61,11 +72,8 @@ public sealed class DeckState
     internal void Draw(Span<Card> cards)
     {
         int count = cards.Length;
-        Span<int> indices = stackalloc int[count];
         for (int i = 0; i < count; ++i)
-            indices[i] = GameState.Random.Next(RemainingDeckCardCount - i);
-        for (int i = 0; i < count; ++i)
-            cards[i] = Draw(indices[i]);
+            cards[i] = Draw();
 
         GameState.MoveState.ScheduleCallback(OnRemainingDeckChanged);
     }
@@ -73,34 +81,21 @@ public sealed class DeckState
     internal void UnDraw(ReadOnlySpan<Card> cards)
     {
         int count = cards.Length;
-        Span<int> indices = stackalloc int[count];
-        for (int i = 0; i < count; ++i)
-            indices[i] = GameState.Random.Next(RemainingDeckCardCount - i);
-
-        for (int i = indices.Length - 1; i >= 0; --i)
-            UnDraw(indices[i], cards[i]);
+        for (int i = cards.Length - 1; i >= 0; --i)
+            UnDraw(cards[i]);
 
         GameState.MoveState.ScheduleCallback(OnRemainingDeckChanged);
     }
 
     // these functions don't call events, so must be private.
 
-    Card Draw(int index)
+    Card Draw()
     {
-        if (index < 0 || index >= RemainingDeckCardCount)
-            throw new IndexOutOfRangeException($"Index {index} out of range [0, {RemainingDeckCardCount})");
-
-        Card card = _deckBuffer[index];
-        _deckBuffer[index] = _deckBuffer[--RemainingDeckCardCount];
-        return card;
+        return _deckBuffer[--RemainingDeckCardCount];
     }
 
-    void UnDraw(int index, Card card)
+    void UnDraw(Card card)
     {
-        if (index < 0 || index >= RemainingDeckCardCount)
-            throw new IndexOutOfRangeException($"Index {index} out of range [0, {RemainingDeckCardCount})");
-
-        _deckBuffer[RemainingDeckCardCount++] = _deckBuffer[index];
-        _deckBuffer[index] = card;
+        _deckBuffer[RemainingDeckCardCount++] = card;
     }
 }
