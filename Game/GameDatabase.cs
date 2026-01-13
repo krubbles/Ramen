@@ -1,4 +1,4 @@
-﻿namespace Ramen.Game;
+namespace Ramen.Game;
 
 using System;
 using System.Collections;
@@ -49,14 +49,13 @@ public class GameDatabase : IEnumerable<GameState>
         {
             if (!File.Exists(_filePath))
                 yield break;
-            using FileStream file = new(_filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            using BufferedStream buffered = new(file);
+            using FileStream file = new(_filePath, FileMode.Open, FileAccess.Read, FileShare.None);
 
             while (file.Position < file.Length)
             {
                 GameState game = new(GameData.Default);
-                game.Deserialize(buffered);
-                yield return game;
+                game.Deserialize(file);
+                yield return game;  
             }
 
         }

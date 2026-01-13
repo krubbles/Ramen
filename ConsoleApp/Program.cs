@@ -37,6 +37,9 @@ while (true)
             case "generate":
                 GenerateGames(context);
                 break;
+            case "todata":
+                ToData(context);
+                break;
         }
     }
     catch (Exception ex)
@@ -212,4 +215,19 @@ void Cancel()
     if (work.TryPeek(out var task))
         task.Wait();
     cancel = new();
+}
+
+void ToData(ConsoleCommandContext context)
+{
+    string dbName = context.GetTextArg(0, "db");
+
+    EnqueueWork(() =>
+    {
+        GameDatabase database = new(dbName, load: true);
+        Console.WriteLine($"Loading {dbName}...");
+        int countBefore = TrainingData.EvaluationTrainingData.Count;
+        TrainingData.GenerateLastMoveTrainingData(model, database);
+        int countAfter = TrainingData.EvaluationTrainingData.Count;
+        Console.WriteLine($"Added {countAfter - countBefore} training samples from '{dbName}'");
+    });
 }

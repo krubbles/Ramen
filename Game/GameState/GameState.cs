@@ -45,7 +45,8 @@ public sealed class GameState
             (int)Stage * 301499677 ^
             ScoringState.GetHashCode() ^
             HandState.GetHashCode() ^
-            DeckState.GetHashCode();
+            DeckState.GetHashCode()
+            ;
     }
 
     [Obsolete("Use rollback via MoveState.RevertToStep() instead")]
@@ -109,8 +110,7 @@ public sealed class GameState
     {
         int versionNumber = 1;
 
-        BufferedStream buffered = new(stream);
-        GameStateSerializer serializer = new(this, buffered);
+        GameStateSerializer serializer = new(this, stream);
 
         serializer.Stream.WriteStartTag("GS");
         serializer.Stream.WriteStruct<int>(versionNumber);
@@ -122,15 +122,14 @@ public sealed class GameState
 
     public void Deserialize(Stream stream)
     {
-        BufferedStream buffered = new(stream);
-        GameStateSerializer serializer = new(this, buffered);
+        GameStateSerializer serializer = new(this, stream);
 
         serializer.Stream.ReadStartTag("GS");
         int versionNumber = serializer.Stream.ReadStruct<int>();
         MoveState.Deserialize(serializer, versionNumber);
         int hash = serializer.Stream.ReadStruct<int>();
         serializer.Stream.ReadEndTag("GS");
-        serializer.Stream.Flush();
+
 #if DEBUG
         if (hash != GetHashCode())
             throw new Exception("Deserialization hash mismatch.");

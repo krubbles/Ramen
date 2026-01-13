@@ -45,16 +45,24 @@ public class SerializationTests
     {
         GameDatabase gdb = new("Test", false, true);
         FastRandom random = new(7);
-        for (int i = 0; i < 10; ++i)
+        List<GameState> originals = new();
+        for (int i = 0; i < 100; ++i)
         {
             GameState gameState = new(GameData.Default);
             gameState.PlayRandomGame(random);
 
             gdb.AddGame(gameState);
+            originals.Add(gameState);
         }
         List<GameState> games = new();
         foreach (GameState game in gdb)
             games.Add(game);
+        Assert.That(games, Has.Count.EqualTo(100), "Loading from database didn't return same number of games that were saved.");
+        GameDatabase newgdb = new("Test", load: true);
+        games.Clear();
+        foreach (GameState game in gdb)
+            games.Add(game);
         Assert.That(games, Has.Count.EqualTo(10), "Loading from database didn't return same number of games that were saved.");
+
     }
 }

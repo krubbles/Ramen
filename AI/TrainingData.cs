@@ -1,4 +1,4 @@
-﻿namespace Ramen.AI;
+namespace Ramen.AI;
 
 using Ramen.Game;
 using System.ComponentModel;
@@ -40,6 +40,7 @@ public static class TrainingData
         public Move Move;
         public float NLProb;
     }
+
 
     static void RunGroup(GameEvalModel model, TrainingDataStats stats, int groupSize = 32)
     {
@@ -292,6 +293,25 @@ public static class TrainingData
                         Console.WriteLine($"Generated {EvaluationTrainingData.Count - startingSampleCount} / {samples} evaluation training samples");
                     }
                 }
+            }
+        }
+    }
+
+    public static void GenerateLastMoveTrainingData(GameEvalModel model, GameDatabase database)
+    {
+        foreach (GameState game in database)
+        { 
+            if (game.MoveState.MoveHistory.Count == 0)
+                continue;
+
+            Move lastMove = game.MoveState.MoveHistory[^1];
+            RamenAgent agent = new RamenAgent(game, model);
+
+            game.MoveState.MoveHistory[^1].Revert(game);
+
+            if (agent.CreateTrainingSample(lastMove, 1.0f, out var sample, out _, 20))
+            {
+                EvaluationTrainingData.Add(sample);
             }
         }
     }
