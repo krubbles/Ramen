@@ -172,8 +172,27 @@ public class RamenAgent
         if (allMoves.Count == 0)
             return false;
 
-        int expectedIndex = 0;// allMoves.IndexOf(expectedMove);
-        if (expectedIndex < 0)
+        
+        int expectedIndex = 0;
+        for (; expectedIndex < allMoves.Count; ++expectedIndex)
+        {
+            UseHandMove move = allMoves[expectedIndex] as UseHandMove;
+            UseHandMove expected = expectedMove as UseHandMove;
+            if (move.IsDiscard != expected.IsDiscard)
+                continue;
+            bool match = true;
+            for (int i = 0; i < move.CardIndices.Length; ++i)
+            {
+                if (move.CardIndices[i] != expected.CardIndices[i])
+                {
+                    match = false;
+                    break;
+                }
+            }
+            if (match)
+                break;          
+        }// allMoves.IndexOf(expectedMove);
+        if (expectedIndex == allMoves.Count)
             throw new ArgumentException("expectedMove is not in available moves");
 
         GameStateTensors stateTensors = Tensors;
@@ -181,34 +200,22 @@ public class RamenAgent
 
         MoveTensors allMoveTensors = CreateMoveTensors(allMoves);
         Tensor logits = Model.ProcessMove(allMoveTensors, processedState);
-        Tensor rewardDist = (logits / Math.Max(temp, 0.0001f)).softmax(1);
+        Tensor probDist = (logits / Math.Max(temp, 0.0001f)).softmax(1);
 
-        float expectedProb = rewardDist[0, expectedIndex].item<float>();
+        float expectedProb = probDist[0, expectedIndex].item<float>();
+        probDist[0, expectedIndex] = 0;
 
-        List<int> sampledIndices = new List<int>();
-        int samplesNeeded = Math.Min(sampleCount - 1, allMoves.Count - 1);
-        if (samplesNeeded > 0)
-        {
-            Tensor sampled = multinomial(rewardDist.view(-1), samplesNeeded, replacement: false);
-            long[] sampledData = sampled.data<long>().ToArray();
-            for (int i = 0; i < samplesNeeded; i++)
-                sampledIndices.Add((int)sampledData[i]);
-        }
-
-        List<int> finalIndices = [expectedIndex];
-        finalIndices.AddRange(sampledIndices);
-
-        MoveTensors sampledMoveTensors = allMoveTensors.IndexSelect(1, tensor(finalIndices.ToArray()).view([-1])).DetachFromDisposeScope();
-
-        Tensor finalProbs = zeros(1, sampleCount);
-        for (int i = 0; i < sampleCount; i++)
-            finalProbs[0, i] = rewardDist[0, finalIndices[i]].item<float>();
-
+        int samplesNeeded = sampleCount - 1;
+        Tensor sampleIndices = multinomial(probDist.view(-1), samplesNeeded);
+        Tensor indices = concat([tensor(expectedIndex).unsqueeze_(0), sampleIndices], dim: 0);
+        MoveTensors sampledMoveTensors = allMoveTensors.IndexSelect(1, indices);
+        Tensor sampledProbs = probDist.index_select(1, indices);
         sample = new()
         {
-            MoveProbDist = finalProbs.DetachFromDisposeScope(),
+            MoveProbDist = sampledProbs.DetachFromDisposeScope(),
             State = stateTensors.Clone().DetachFromDisposeScope(),
-            Moves = sampledMoveTensors,
+            Moves = sampledMoveTensors.DetachFromDisposeScope(),
+            Advantage = ones([1]).DetachFromDisposeScope()
         };
 
         nlProb = -MathF.Log(Math.Max(expectedProb, 1e-9f));
@@ -227,12 +234,6 @@ public class RamenAgent
 
         GameStateTensors stateTensors = Tensors;
         Tensor processedState = Model.ProcessState(stateTensors);
-        Tensor forcastProbs = null, tier = null;
-        if (GameEvalModel.Tiers > 1)
-        {
-            forcastProbs = Model.GetForcastLogits(processedState).softmax(1);
-            tier = multinomial(forcastProbs, 1);
-        }
 
         MoveTensors moveTensors = CreateMoveTensors(allMoves);
 
