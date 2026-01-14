@@ -49,8 +49,8 @@ public class GameEvalModel : Module
         );
 
         UseHandPolicy = Sequential(
-            new Residual(new SwiGLUFeedForward(MoveWidth, 128)),
-            new Residual(new SwiGLUFeedForward(MoveWidth, 128)),
+            new Residual(Sequential(LayerNorm(MoveWidth), Linear(MoveWidth, MoveWidth), GELU(), Linear(MoveWidth, MoveWidth))),
+            new Residual(Sequential(LayerNorm(MoveWidth), Linear(MoveWidth, MoveWidth), GELU(), Linear(MoveWidth, MoveWidth))),
             ReLU(),
             Linear(MoveWidth, 1)
         );
@@ -100,13 +100,13 @@ public class GameEvalModel : Module
 
     public Tensor ProcessMove(Tensor embeddedMove, Tensor processedState)
     {
-        return UseHandPolicy.forward(embeddedMove);
+        return UseHandPolicy.forward(embeddedMove) / 10f;
     }
 
     public Tensor ProcessMove(MoveTensors move, Tensor processedState)
     {
         Tensor embeddedMove = EmbedMove(move);
-        return UseHandPolicy.forward(embeddedMove + processedState.unsqueeze(1).expand(embeddedMove.shape));
+        return UseHandPolicy.forward(embeddedMove + processedState.unsqueeze(1).expand(embeddedMove.shape)) / 10f;
     }
 
     public Tensor GetForcastLogits(Tensor processedState)
@@ -178,9 +178,12 @@ public class SwiGLUFeedForward : Module<Tensor, Tensor>
     private readonly Linear w1; // Gate projection
     private readonly Linear w2; // Up projection
     private readonly Linear w3; // Down projection (optional, usually follows SwiGLU)
+    private readonly LayerNorm ln;
 
     public SwiGLUFeedForward(long inputDim, long hiddenDim) : base(nameof(SwiGLUFeedForward))
     {
+        ln = LayerNorm(inputDim);
+
         // w1 and w2 are the two projections for the GLU
         w1 = Linear(inputDim, hiddenDim, hasBias: false);
         w2 = Linear(inputDim, hiddenDim, hasBias: false);
@@ -191,6 +194,7 @@ public class SwiGLUFeedForward : Module<Tensor, Tensor>
 
     public override Tensor forward(Tensor x)
     {
+        x = ln.forward(x);
         var swishGate = functional.silu(w1.forward(x));
         var intermediate = swishGate * w2.forward(x);
         return w3.forward(intermediate);
