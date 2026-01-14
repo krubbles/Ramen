@@ -39,9 +39,9 @@ public class RamenAgent
     {
         if (GameState.ScoringState.CurrentRoundTotalChips >= 300)
         {
-            return 1f + GameState.HandState.RemainingHands * 0.01f;
+            return 1f + GameState.HandState.RemainingHands * 0.2f;
         }
-        return (float)GameState.ScoringState.CurrentRoundTotalChips / 10000f;
+        return (float)GameState.ScoringState.CurrentRoundTotalChips / 3000f;
     }
 
     public bool MakeHighestScoringMove()
@@ -242,17 +242,18 @@ public class RamenAgent
 
         Tensor logits = Model.ProcessMove(moveTensors, processedState);
 
-        Tensor rewardDist = (logits / Math.Max(temp, 0.0001f)).softmax(1);
+        Tensor probDist = (logits / Math.Max(temp, 0.0001f)).softmax(1);
 
         int samplesToGet = Math.Min(maxUniqueMoves, allMoves.Count);
-        Tensor indices = multinomial(rewardDist.view([-1]), samplesToGet, replacement: false);
-
+        Tensor indices = multinomial(probDist.view([-1]), samplesToGet, replacement: false);
+        Tensor sampledProbs = probDist.index_select(1, indices);
         List<(Move move, float probability)> selected = new();
         long[] sampledIndices = indices.data<long>().ToArray();
+        float[] sampledProbsArray = sampledProbs.data<float>().ToArray();
         for (int i = 0; i < samplesToGet; i++)
         {
             int idx = (int)sampledIndices[i];
-            selected.Add((allMoves[idx], rewardDist[0, idx].item<float>()));
+            selected.Add((allMoves[idx], sampledProbsArray[i]));
         }
 
         return selected;
