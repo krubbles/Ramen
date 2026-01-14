@@ -54,9 +54,10 @@ while (true)
 void Test(ConsoleCommandContext context)
 {
     int samples = context.GetIntArg(0, "samples");
+    float temp = context.GetFloatArg("temp", 0.0001f);
     EnqueueWork(() =>
     {
-        float score = Testing.GetAverageScore(model, samples);
+        float score = Testing.GetAverageScore(model, samples, temp);
         Console.WriteLine("Average Score: " + score);
     });
 }
@@ -125,7 +126,8 @@ void GenerateGames(ConsoleCommandContext context)
     int branches = context.GetIntArg(2, "branches");
     int samples = context.GetIntArg(3, "samples");
     bool log = context.GetBoolArg("log", false);
-    
+    float temp = context.GetFloatArg("temp", 0.1f);
+
     EnqueueWork(() =>
     {
         GameDatabase database = new(dbName);
@@ -171,7 +173,7 @@ void GenerateGames(ConsoleCommandContext context)
                     while (!agent.GameIsDone())
                     {
                         gameState.AdvanceToNextPlayerChoice();
-                        agent.MakeMove(1.0f);
+                        agent.MakeMove(temp);
                     }
                     
                     totalReward += agent.GetCurrentReward();
