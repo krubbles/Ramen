@@ -3,6 +3,9 @@
 using System.Runtime.CompilerServices;
 using Ramen.Game;
 
+/// <summary>
+/// Currently unused.
+/// </summary>
 public static class MeanDistributionAnalyzer
 {
     public static int SampleFromDistribution(FastRandom random, float[] distribution)
