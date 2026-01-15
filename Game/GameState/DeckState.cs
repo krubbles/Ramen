@@ -1,4 +1,4 @@
-﻿namespace Ramen.Game;
+namespace Ramen.Game;
 
 public sealed class DeckState
 {
@@ -111,32 +111,5 @@ public sealed class DeckState
     void UnDraw(Card card)
     {
         _deckBuffer[RemainingDeckCardCount++] = card;
-    }
-}
-
-/// <summary>
-/// Shuffles the state of the <see cref="DeckState.RemainingDeck"/>.
-/// </summary>
-public sealed class ShuffleMove : Move
-{
-    public override MoveType GetMoveType() => MoveType.Shuffle;
-
-    protected override void Apply()
-    {
-        gameState.DeckState.ShuffleDeck();
-    }
-
-    protected override void Revert()
-    {
-        gameState.DeckState.UnshuffleDeck();
-    }
-
-    internal class Serializer : IMoveSerializer
-    {
-        public MoveType MoveType => MoveType.Shuffle;
-
-        public void Serialize(GameStateSerializer serializer, Move move) { }
-
-        public Move Deserialize(GameStateSerializer serializer) => new ShuffleMove();
     }
 }

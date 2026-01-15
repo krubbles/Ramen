@@ -115,7 +115,6 @@ public class GameEvalModel : Module
     }
 }
 
-
 class ResidualMLP : Module<Tensor, Tensor>
 {
     private ModuleList<Linear> upLayers = new();
