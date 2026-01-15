@@ -75,51 +75,99 @@ public class RamenAgent
     }
 
     /// <summary>
-    /// Stochastically picks a move based on the agent's policy model.
+    /// Makes a move based on the policy model's predicted probability distribution.
     /// </summary>
-    public bool MakeMove(float temp) => MakeMove(temp, out _, out _, 1);
-
-    /// <summary>
-    /// Makes a move while also generating a valid training sample. Intended to create PPO/GRPO training data.
-    /// </summary>
-    public bool MakeMove(float temp, out EvaluationTrainingSample sample, out float nlProb, int sampleCount = 20, bool generateSample = false)
+    public EvaluationTrainingSample MakeMove(float temp)
     {
-        nlProb = 0f;
-        sample = default;
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
-        List<Move> moves = GameState.GetMoveOptions();
-        if (moves.Count == 0)
-            return false;
-        if (moves.Count == 1)
-        {
-            moves[0].Apply(GameState);
-            return true;
-        }
+        
+        GameState.AdvanceToNextPlayerChoice();
 
+        if (GameIsDone())
+            return null;
+
+        (Tensor probs, List<Move> moves, MoveTensors moveTensors) = GetPolicyProbDist(temp);
+
+        Tensor indices = multinomial(probs.view([-1]), 1, replacement: false);
+        
+        Tensor sampledProbs = probs.index_select(dim: 1, indices);
+        MoveTensors sampledMoveTensors = moveTensors.IndexSelect(dim: 1, indices);
+       
+        moves[(int)indices[0].item<long>()].Apply(GameState);
+
+        return CreateEvaluationTrainingSample(sampledProbs, sampledMoveTensors); 
+    }
+
+    /// <summary>
+    /// Makes a move based on the policy model's predicted probability distribution.
+    /// Also generates a training sample with the chosen move and <paramref name="sampleCount"/> other moves.
+    /// Intended to create PPO/GRPO training data.
+    /// </summary>
+    public EvaluationTrainingSample MakeMoveAndTrainingSample(float temp, int sampleCount = 20)
+    {
+        using var scope = NewDisposeScope();
+        using var noGrad = no_grad();
+        
+        GameState.AdvanceToNextPlayerChoice();
+
+        if (GameIsDone())
+            return null;
+
+        (Tensor probs, List<Move> moves, MoveTensors moveTensors) = GetPolicyProbDist(temp);
+
+        Tensor indices = multinomial(probs.view([-1]), sampleCount, replacement: false);
+        
+        Tensor sampledProbs = probs.index_select(dim: 1, indices);
+        MoveTensors sampledMoveTensors = moveTensors.IndexSelect(dim: 1, indices);
+       
+        moves[(int)indices[0].item<long>()].Apply(GameState);
+
+        return CreateEvaluationTrainingSample(sampledProbs, sampledMoveTensors, indices); 
+    }
+
+    /// <summary>
+    /// Returns the policy model's predicted probability distribution for the best next move. 
+    /// Returned probs is a 1xN tensor where N is the number of moves.
+    /// </summary>
+    public (Tensor probs, List<Move> moves, MoveTensors moveTensors) GetPolicyProbDist(float temp) 
+    {
         GameStateTensors stateTensors = Tensors;
         Tensor processedState = Model.ProcessState(stateTensors);
+        List<Move> moves = GameState.GetMoveOptions();
         MoveTensors moveTensors = CreateMoveTensors(moves);
         Tensor logits = Model.GetPolicyLogits(moveTensors, processedState);
 
-        Tensor rewardDist = (logits / Math.Max(temp, 0.0001f)).softmax(1);
-        Tensor indices = multinomial(rewardDist.view([-1]), sampleCount, replacement: false);
-        long moveIndex = indices.data<long>()[0];
+        Tensor probs = (logits / Math.Max(temp, 0.0001f)).softmax(1);
+        return (probs, moves, moveTensors);
+    }
 
-        if (generateSample)
+
+    internal EvaluationTrainingSample CreateEvaluationTrainingSample(Tensor probs, MoveTensors moveTensors)
+    {
+        EvaluationTrainingSample sample = new()
         {
-            Tensor target = zeros(sampleCount, 1);
-            target[0, 0] = 1;
-            sample = new()
-            {
-                MoveProbDist = rewardDist.index_select(1, indices).DetachFromDisposeScope(),
-                State = stateTensors.Clone().DetachFromDisposeScope(),
-                Moves = moveTensors.IndexSelect(1, indices).DetachFromDisposeScope(),
-            };
-        }
-        moves[(int)moveIndex].Apply(GameState);
-        nlProb = -MathF.Log(Math.Max(rewardDist[0, (int)moveIndex].item<float>(), 1e-9f));
-        return true;
+            MoveProbDist = probs.DetachFromDisposeScope(),
+            State = Tensors.Clone().DetachFromDisposeScope(),
+            Moves = moveTensors.DetachFromDisposeScope(),
+            ChosenMoveNLProb = -MathF.Log(Math.Max(probs[0, 0].item<float>(), 1e-9f)),
+        };
+        return sample;
+    }
+
+    internal EvaluationTrainingSample CreateEvaluationTrainingSample(Tensor probs, MoveTensors moveTensors, Tensor indices)
+    {
+        Tensor sampledProbs = probs.index_select(dim: 1, indices);
+        MoveTensors sampledMoves = moveTensors.IndexSelect(dim: 1, indices);
+
+        EvaluationTrainingSample sample = new()
+        {
+            State = Tensors.Clone().DetachFromDisposeScope(),
+            Moves = sampledMoves.DetachFromDisposeScope(),
+            MoveProbDist = sampledProbs.DetachFromDisposeScope(),
+            ChosenMoveNLProb = -MathF.Log(Math.Max(probs[0, 0].item<float>(), 1e-9f)), // debug info
+        };
+        return sample;
     }
 
     /// <summary>
@@ -162,25 +210,13 @@ public class RamenAgent
             Score = tensor(scores).view([1, -1])
         };
     }
-
-    /// <summary>
-    /// Creates a training sample for a specific move. This will be getting reworked shortly.
-    /// </summary>
-    public bool CreateTrainingSample(Move expectedMove, float temp, out EvaluationTrainingSample sample, out float nlProb, int sampleCount = 20)
+    
+    static int FindMatchingMoveIndex(List<Move> moves, Move expectedMove)
     {
-        nlProb = 0f;
-        sample = default;
-        using var scope = NewDisposeScope();
-        using var noGrad = no_grad();
-        List<Move> allMoves = GameState.GetMoveOptions();
-        if (allMoves.Count == 0)
-            return false;
-
-        
         int expectedIndex = 0;
-        for (; expectedIndex < allMoves.Count; ++expectedIndex)
+        for (; expectedIndex < moves.Count; ++expectedIndex)
         {
-            UseHandMove move = allMoves[expectedIndex] as UseHandMove;
+            UseHandMove move = moves[expectedIndex] as UseHandMove;
             UseHandMove expected = expectedMove as UseHandMove;
             if (move.IsDiscard != expected.IsDiscard)
                 continue;
@@ -198,33 +234,40 @@ public class RamenAgent
             if (match)
                 break;
         }
+        if (expectedIndex == moves.Count)
+            expectedIndex = -1;
+        return expectedIndex;
+    }
 
-        if (expectedIndex == allMoves.Count)
+    /// <summary>
+    /// Creates a training sample for a specific move. This will be getting reworked shortly.
+    /// </summary>
+    public bool CreateTrainingSample(Move expectedMove, float temp, out EvaluationTrainingSample sample, out float nlProb, int sampleCount = 20)
+    {
+        nlProb = 0f;
+        sample = default;
+        using var scope = NewDisposeScope();
+        using var noGrad = no_grad();
+        List<Move> allMoves = GameState.GetMoveOptions();
+        if (allMoves.Count == 0)
+            return false;
+    
+        int expectedIndex = FindMatchingMoveIndex(allMoves, expectedMove);
+        if (expectedIndex == -1)
             throw new ArgumentException("expectedMove is not in available moves");
 
-        GameStateTensors stateTensors = Tensors;
-        Tensor processedState = Model.ProcessState(stateTensors);
+        (Tensor probs, List<Move> moves, MoveTensors moveTensors) = GetPolicyProbDist(temp);
 
-        MoveTensors allMoveTensors = CreateMoveTensors(allMoves);
-        Tensor logits = Model.GetPolicyLogits(allMoveTensors, processedState).squeeze_(2);
-        Tensor probDist = (logits / Math.Max(temp, 0.0001f)).softmax(1);
-
-        float expectedProb = probDist[0, expectedIndex].item<float>();
-        probDist[0, expectedIndex] = 0;
+        float expectedProb = probs[0, expectedIndex].item<float>();
+        probs[0, expectedIndex] = 0;
         int samplesNeeded = sampleCount - 1;
-        Tensor sampleIndices = multinomial(probDist.view(-1), samplesNeeded);
-        probDist[0, expectedIndex] = expectedProb;
+        Tensor sampleIndices = multinomial(probs.view(-1), samplesNeeded);
+        probs[0, expectedIndex] = expectedProb;
          
         Tensor indices = concat([tensor(expectedIndex).unsqueeze_(0), sampleIndices], dim: 0);
-        MoveTensors sampledMoveTensors = allMoveTensors.IndexSelect(1, indices);
-        Tensor sampledProbs = probDist.index_select(1, indices);
-        sample = new()
-        {
-            MoveProbDist = sampledProbs.DetachFromDisposeScope(),
-            State = stateTensors.Clone().DetachFromDisposeScope(),
-            Moves = sampledMoveTensors.DetachFromDisposeScope(),
-            Advantage = ones([1]).DetachFromDisposeScope()
-        };
+        MoveTensors sampledMoveTensors = moveTensors.IndexSelect(1, indices);
+        Tensor sampledProbs = probs.index_select(1, indices);
+        sample = CreateEvaluationTrainingSample(probs, moveTensors);
 
         nlProb = -MathF.Log(Math.Max(expectedProb, 1e-9f));
         return true;

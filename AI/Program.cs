@@ -68,11 +68,6 @@ class Program
                         sb.Append(s.AverageNLProb(0).ToString("F3"));
                         sb.Append(", ");
                         sb.Append(s.AverageNLProb(1).ToString("F3"));
-                        foreach (int count in s.CountByTier)
-                        {
-                            sb.Append(", ");
-                            sb.Append(count);
-                        }
                     }
                     else
                     {

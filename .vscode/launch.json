@@ -10,11 +10,17 @@
             "request": "launch",
             "preLaunchTask": "build",
             // If you have changed target frameworks, make sure to update the program path.
-            "program": "${workspaceFolder}/ConsoleApp/bin/Debug/net10.0/ConsoleApp.dll",
+            "program": "${workspaceFolder}/ConsoleApp/bin/Debug/net9.0/ConsoleApp.dll",
+            "pipeTransport": {
+                    "pipeCwd": "${workspaceFolder}",
+                    "pipeProgram": "cmd.exe",
+                    "pipeArgs": [ "/c", "start", "/wait" ],
+                    "debuggerPath": "C:\\Program Files\\dotnet\\dotnet.exe" // Point to your dotnet path
+                },            
             "args": [],
             "cwd": "${workspaceFolder}/ConsoleApp",
             // For more information about the 'console' field, see https://aka.ms/VSCode-CS-LaunchJson-Console
-            "console": "internalConsole",
+            "console": "externalTerminal",
             "stopAtEntry": false
         },
         {

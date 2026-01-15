@@ -10,6 +10,10 @@ cancel.TryReset();
 Queue<Task> work = new();
 TrainingParams trainingParams = new(5);
 
+Console.WriteLine("=== PROGRAM STARTED ===");
+System.Diagnostics.Debug.WriteLine("=== DEBUGGER OUTPUT ===");
+        
+
 
 while (true)
 {
