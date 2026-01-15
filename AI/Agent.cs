@@ -100,8 +100,7 @@ public class RamenAgent
         GameStateTensors stateTensors = Tensors;
         Tensor processedState = Model.ProcessState(stateTensors);
         MoveTensors moveTensors = CreateMoveTensors(moves);
-
-        Tensor logits = Model.ProcessMove(moveTensors, processedState);
+        Tensor logits = Model.GetPolicyLogits(moveTensors, processedState);
 
         Tensor rewardDist = (logits / Math.Max(temp, 0.0001f)).softmax(1);
         Tensor indices = multinomial(rewardDist.view([-1]), sampleCount, replacement: false);
@@ -207,7 +206,7 @@ public class RamenAgent
         Tensor processedState = Model.ProcessState(stateTensors);
 
         MoveTensors allMoveTensors = CreateMoveTensors(allMoves);
-        Tensor logits = Model.ProcessMove(allMoveTensors, processedState).squeeze_(2);
+        Tensor logits = Model.GetPolicyLogits(allMoveTensors, processedState).squeeze_(2);
         Tensor probDist = (logits / Math.Max(temp, 0.0001f)).softmax(1);
 
         float expectedProb = probDist[0, expectedIndex].item<float>();
@@ -249,7 +248,7 @@ public class RamenAgent
 
         MoveTensors moveTensors = CreateMoveTensors(allMoves);
 
-        Tensor logits = Model.ProcessMove(moveTensors, processedState);
+        Tensor logits = Model.GetPolicyLogits(moveTensors, processedState);
 
         Tensor probDist = (logits / Math.Max(temp, 0.0001f)).softmax(1);
 

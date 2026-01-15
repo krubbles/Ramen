@@ -1,10 +1,12 @@
 namespace Ramen.AI;
 
-using System.Linq;
 using TorchSharp.Modules;
 using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
 
+/// <summary>
+/// The policy network used for move evaluation.
+/// </summary>
 public class GameEvalModel : Module
 {
     public const int
@@ -103,7 +105,7 @@ public class GameEvalModel : Module
         return UseHandPolicy.forward(embeddedMove) / 10f;
     }
 
-    public Tensor ProcessMove(MoveTensors move, Tensor processedState)
+    public Tensor GetPolicyLogits(MoveTensors move, Tensor processedState)
     {
         Tensor embeddedMove = EmbedMove(move);
         return UseHandPolicy.forward(embeddedMove + processedState.unsqueeze(1).expand(embeddedMove.shape)) / 10f;

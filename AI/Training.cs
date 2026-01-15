@@ -56,7 +56,7 @@ public static class Training
                     int end = Math.Min(i + tp.batchSize, samples);
                     EvaluationTrainingSample inputs = stacked.GetBatch(i, end);
                     Tensor processedState = model.ProcessState(inputs.State);
-                    Tensor logits = model.ProcessMove(inputs.Moves, processedState).squeeze_(2);
+                    Tensor logits = model.GetPolicyLogits(inputs.Moves, processedState).squeeze_(2);
 
                     var logQ = log(inputs.MoveProbDist + 1e-9);
                     var logitsAdjusted = logits - logQ;
@@ -87,7 +87,7 @@ public static class Training
                 Tensor processedState = model.ProcessState(inputs.State);
                 int moveCount = (int)inputs.Moves.HandsAndDiscards.size(1);
 
-                Tensor moveLogits = model.ProcessMove(inputs.Moves, processedState).squeeze(2);
+                Tensor moveLogits = model.GetPolicyLogits(inputs.Moves, processedState).squeeze(2);
                 Tensor moveLoss = CalculatePPOLoss(moveLogits, probDist, inputs.Advantage, tp.entropyCoeff, tp.kldCoeff, true, ref kldTotal);
 
                 Tensor loss = moveLoss;
