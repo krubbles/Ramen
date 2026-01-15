@@ -56,6 +56,7 @@ This class is a group of tensors representing the state of a Move. It is used by
 - Always use file-scoped namespace declarations.
 - Namespace declaration goes first, then using statements. Line break between the two. 
 - All fields should be declared at the top of the class.
+- Never use the private keyword.
 - Private fields should start with an underscore.
 - Public fields and properties should be pascal case.
 - The constructors should be declared immediatley after the fields and before all other functions.
@@ -68,6 +69,7 @@ This class is a group of tensors representing the state of a Move. It is used by
 - Short functions (< 10 lines or so) do not need to be commented. 
 - The code in longer functions should be broken up into a couple steps. Each step should start with a single line command, and there should be a line break between each step.
 - For major, public classes, use small summary blocks on their public fields. Don't bother for minor or private classes. 
+
 # Torch Sharp Guidelines
 - C#/pytorch interop is slow. Do it using as view calls as possible (ex: use data<float>.ToArray() instead of indexing the tensor and calling .item<float>() for each item)
 - Use DisposeScopes. 
