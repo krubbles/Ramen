@@ -1,7 +1,8 @@
 using Ramen.AI;
 using Ramen.Game;
 using Ramen.ConsoleApp;
-using System.Linq;
+using System.Runtime.InteropServices;
+using System.Security.Principal;
 
 GameEvalModel model = new GameEvalModel();
 
@@ -12,8 +13,8 @@ TrainingParams trainingParams = new(5);
 
 Console.WriteLine("=== PROGRAM STARTED ===");
 System.Diagnostics.Debug.WriteLine("=== DEBUGGER OUTPUT ===");
-        
 
+ExternalConsole.Initialize();
 
 while (true)
 {
@@ -245,4 +246,38 @@ void Clear()
 {
     TrainingData.EvaluationTrainingData.Clear();
     Console.WriteLine("Cleared all training data");
+}
+
+static class ExternalConsole
+{
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool FreeConsole();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool AllocConsole();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr GetStdHandle(int nStdHandle);
+
+    private const int STD_OUTPUT_HANDLE = -11;
+    private const int STD_INPUT_HANDLE = -10;
+
+    public static void Initialize()
+    {
+        FreeConsole();
+        if (AllocConsole())
+        {
+            var stdOutPtr = GetStdHandle(STD_OUTPUT_HANDLE);
+            var safeOutHandle = new Microsoft.Win32.SafeHandles.SafeFileHandle(stdOutPtr, true);
+            var sw = new StreamWriter(new FileStream(safeOutHandle, FileAccess.Write)) { AutoFlush = true };
+            Console.SetOut(sw);
+
+            var stdInPtr = GetStdHandle(STD_INPUT_HANDLE);
+            var safeInHandle = new Microsoft.Win32.SafeHandles.SafeFileHandle(stdInPtr, true);
+            var sr = new StreamReader(new FileStream(safeInHandle, FileAccess.Read));
+            Console.SetIn(sr);
+            
+            Console.WriteLine("New Console Window Allocated!");
+        }
+    }
 }
