@@ -4,10 +4,22 @@ using Ramen.Game;
 
 using static TorchSharp.torch;
 
+/// <summary>
+/// AI agent that plays balatro. 
+/// </summary>
 public class RamenAgent
 {
+    /// <summary>
+    /// The balatro gamestate this AI agent is attached to. 
+    /// </summary>
     public readonly GameState GameState;
+    /// <summary>
+    /// A reference to the policy network used by this agent.
+    /// </summary>
     public readonly GameEvalModel Model;
+    /// <summary>
+    /// The PS-RNG used by this agent to make decisions like which move to play. 
+    /// </summary>
     public readonly FastRandom Random;
 
     GameStateTensors _tensors = new();
@@ -27,6 +39,12 @@ public class RamenAgent
         RegisterCallbacks();
     }
 
+    /// <summary>
+    /// Returns the embedded version of the current gamestate. 
+    /// Caches each individual component of the <see cref="GameStateTensors"/> class and only updates them when they change.
+    /// DOES NOT automatically clone when called. If persistent embedding objects are needed, call .Clone() on the return value.
+    /// You may also need to call DetachFromDisposeScope().
+    /// </summary>
     public GameStateTensors Tensors => new()
     {
         FullHand = HandTensor,
@@ -35,6 +53,16 @@ public class RamenAgent
         Score = ScoreTensor,
     };
 
+    /// <summary>
+    /// Return's whether or not the game is complete from the agent's perspective. Many tests and training runs involve subsets of the game,
+    /// so this is not the same as when a game of balatro is typically complete.
+    /// </summary>
+    public bool GameIsDone() => GameState.HandState.RemainingHands <= 0 || GameState.ScoringState.CurrentRoundTotalChips >= 300;
+
+    /// <summary>
+    /// Returns the agent's reward at the current GameState. Note: the reward function is only valid when <see cref="GameIsDone"/> returns true.
+    /// There is no intermediate reward function in the middle of the game.
+    /// </summary>
     public float GetCurrentReward()
     {
         if (GameState.ScoringState.CurrentRoundTotalChips >= 300)
@@ -44,34 +72,14 @@ public class RamenAgent
         return (float)GameState.ScoringState.CurrentRoundTotalChips / 3000f;
     }
 
-    public bool MakeHighestScoringMove()
-    {
-        List<Move> moves = GameState.GetMoveOptions();
-        if (moves.Count == 0)
-            return false;
-        if (moves.Count == 1)
-        {
-            moves[0].Apply(GameState);
-            return true;
-        }
-        double bestScore = double.MinValue;
-        Move bestMove = null;
-        foreach (Move move in moves)
-        {
-            move.Apply(GameState);
-            if (GameState.ScoringState.CurrentRoundTotalChips > bestScore)
-            {
-                bestScore = GameState.ScoringState.CurrentRoundTotalChips;
-                bestMove = move;
-            }
-            move.Revert(GameState);
-        }
-        bestMove.Apply(GameState);
-        return true;
-    }
-
+    /// <summary>
+    /// Stochasically picks a move based on the agent's policy model. 
+    /// </summary>
     public bool MakeMove(float temp) => MakeMove(temp, out _, out _, 1);
 
+    /// <summary>
+    /// Makes a move while also generating a valid training sample. Intended to create PPO/GRPO training data.
+    /// </summary>
     public bool MakeMove(float temp, out EvaluationTrainingSample sample, out float nlProb, int sampleCount = 20, bool generateSample = false)
     {
         nlProb = 0f;
@@ -122,8 +130,10 @@ public class RamenAgent
         return true;
     }
 
-    public bool GameIsDone() => GameState.HandState.RemainingHands <= 0 || GameState.ScoringState.CurrentRoundTotalChips >= 300;
 
+    /// <summary>
+    /// Embeds a list of moves into tensors. 
+    /// </summary>
     private MoveTensors CreateMoveTensors(List<Move> moves)
     {
         int moveCount = moves.Count;
@@ -162,6 +172,9 @@ public class RamenAgent
         };
     }
 
+    /// <summary>
+    /// Creates a training sample for a specific move. This will be getting reworked shortly.
+    /// </summary>
     public bool CreateTrainingSample(Move expectedMove, float temp, out EvaluationTrainingSample sample, out float nlProb, int sampleCount = 20)
     {
         nlProb = 0f;
@@ -225,6 +238,9 @@ public class RamenAgent
         return true;
     }
 
+    /// <summary>
+    /// Stochasically samples multiple moves using the agent's policy model, not making any of them.
+    /// </summary>
     public List<(Move move, float probability)> SampleMoves(float temp, int maxUniqueMoves)
     {
         using var scope = NewDisposeScope();
@@ -259,34 +275,39 @@ public class RamenAgent
         return selected;
     }
 
-    public void FillMoveOtherStateData(GameState gameState, Span<float> otherStates, bool isDiscard, float threshold = 0f)
+
+    /// <summary>
+    /// Plays the hand that scores the most points in the current position. Mostly used for test scenarios.
+    /// </summary>
+    public bool MakeHighestScoringMove()
     {
-        HandState handState = GameState.HandState;
-        ScoringState scoringState = GameState.ScoringState;
-
-        int index = 0;
-
-        otherStates[index++] = (float)scoringState.CurrentRoundTotalChips / 300f;
-
-        otherStates[index++] = handState.RemainingHands == 4 ? 1f : 0f;
-        otherStates[index++] = handState.RemainingHands == 3 ? 1f : 0f;
-        otherStates[index++] = handState.RemainingHands == 2 ? 1f : 0f;
-        otherStates[index++] = handState.RemainingHands == 1 ? 1f : 0f;
-
-        otherStates[index++] = handState.RemainingDiscards == 4 ? 1f : 0f;
-        otherStates[index++] = handState.RemainingDiscards == 3 ? 1f : 0f;
-        otherStates[index++] = handState.RemainingDiscards == 2 ? 1f : 0f;
-        otherStates[index++] = handState.RemainingDiscards == 1 ? 1f : 0f;
-        otherStates[index++] = handState.RemainingDiscards == 0 ? 1f : 0f;
-
-        otherStates[index++] = isDiscard ? 0 : 1;
-        otherStates[index++] = isDiscard ? 1 : 0;
-        otherStates[index++] = threshold;
+        List<Move> moves = GameState.GetMoveOptions();
+        if (moves.Count == 0)
+            return false;
+        if (moves.Count == 1)
+        {
+            moves[0].Apply(GameState);
+            return true;
+        }
+        double bestScore = double.MinValue;
+        Move bestMove = null;
+        foreach (Move move in moves)
+        {
+            move.Apply(GameState);
+            if (GameState.ScoringState.CurrentRoundTotalChips > bestScore)
+            {
+                bestScore = GameState.ScoringState.CurrentRoundTotalChips;
+                bestMove = move;
+            }
+            move.Revert(GameState);
+        }
+        bestMove.Apply(GameState);
+        return true;
     }
 
-
-    public GameStateTensors TensorsCloned => Tensors.Clone().DetachFromDisposeScope();
-
+    /// <summary>
+    /// Shortcut for <see cref="Tensors"/>.FullHand
+    /// </summary>
     public Tensor HandTensor
     {
         get
@@ -300,6 +321,9 @@ public class RamenAgent
         }
     }
 
+    /// <summary>
+    /// Shortcut for <see cref="Tensors"/>.RemainingDeck
+    /// </summary>
     public Tensor RemainingDeckTensor
     {
         get
@@ -313,6 +337,9 @@ public class RamenAgent
         }
     }
 
+    /// <summary>
+    /// Shortcut for <see cref="Tensors"/>.HandsAndDiscards
+    /// </summary>
     public Tensor HandsAndDiscardsTensor
     {
         get
@@ -326,6 +353,9 @@ public class RamenAgent
         }
     }
 
+    /// <summary>
+    /// Shortcut for <see cref="Tensors">.Score    
+    /// </summary>
     public Tensor ScoreTensor
     {
         get
