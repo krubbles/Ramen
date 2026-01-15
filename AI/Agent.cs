@@ -5,20 +5,22 @@ using Ramen.Game;
 using static TorchSharp.torch;
 
 /// <summary>
-/// AI agent that plays balatro. 
+/// AI agent that plays Balatro.
 /// </summary>
 public class RamenAgent
 {
     /// <summary>
-    /// The balatro gamestate this AI agent is attached to. 
+    /// The Balatro game state this AI agent is attached to.
     /// </summary>
     public readonly GameState GameState;
+
     /// <summary>
     /// A reference to the policy network used by this agent.
     /// </summary>
     public readonly GameEvalModel Model;
+
     /// <summary>
-    /// The PS-RNG used by this agent to make decisions like which move to play. 
+    /// The PS-RNG used by this agent to make decisions like which move to play.
     /// </summary>
     public readonly FastRandom Random;
 
@@ -40,7 +42,7 @@ public class RamenAgent
     }
 
     /// <summary>
-    /// Returns the embedded version of the current gamestate. 
+    /// Returns the embedded version of the current game state.
     /// Caches each individual component of the <see cref="GameStateTensors"/> class and only updates them when they change.
     /// DOES NOT automatically clone when called. If persistent embedding objects are needed, call .Clone() on the return value.
     /// You may also need to call DetachFromDisposeScope().
@@ -54,8 +56,8 @@ public class RamenAgent
     };
 
     /// <summary>
-    /// Return's whether or not the game is complete from the agent's perspective. Many tests and training runs involve subsets of the game,
-    /// so this is not the same as when a game of balatro is typically complete.
+    /// Returns whether or not the game is complete from the agent's perspective. Many tests and training runs involve subsets of the game,
+    /// so this is not the same as when a game of Balatro is typically complete.
     /// </summary>
     public bool GameIsDone() => GameState.HandState.RemainingHands <= 0 || GameState.ScoringState.CurrentRoundTotalChips >= 300;
 
@@ -73,7 +75,7 @@ public class RamenAgent
     }
 
     /// <summary>
-    /// Stochasically picks a move based on the agent's policy model. 
+    /// Stochastically picks a move based on the agent's policy model.
     /// </summary>
     public bool MakeMove(float temp) => MakeMove(temp, out _, out _, 1);
 
@@ -97,13 +99,6 @@ public class RamenAgent
 
         GameStateTensors stateTensors = Tensors;
         Tensor processedState = Model.ProcessState(stateTensors);
-        Tensor forcastProbs = null, tier = null;
-        if (GameEvalModel.Tiers > 1)
-        {
-            forcastProbs = Model.GetForcastLogits(processedState).softmax(1);
-            tier = multinomial(forcastProbs, 1);
-        }
-
         MoveTensors moveTensors = CreateMoveTensors(moves);
 
         Tensor logits = Model.ProcessMove(moveTensors, processedState);
@@ -118,11 +113,9 @@ public class RamenAgent
             target[0, 0] = 1;
             sample = new()
             {
-                ForcastProbDist = forcastProbs?.DetachFromDisposeScope(),
                 MoveProbDist = rewardDist.index_select(1, indices).DetachFromDisposeScope(),
                 State = stateTensors.Clone().DetachFromDisposeScope(),
                 Moves = moveTensors.IndexSelect(1, indices).DetachFromDisposeScope(),
-                ForcastTier = tier?.DetachFromDisposeScope()
             };
         }
         moves[(int)moveIndex].Apply(GameState);
@@ -130,9 +123,8 @@ public class RamenAgent
         return true;
     }
 
-
     /// <summary>
-    /// Embeds a list of moves into tensors. 
+    /// Embeds a list of moves into tensors.
     /// </summary>
     private MoveTensors CreateMoveTensors(List<Move> moves)
     {
@@ -205,8 +197,9 @@ public class RamenAgent
                 }
             }
             if (match)
-                break;          
-        }// allMoves.IndexOf(expectedMove);
+                break;
+        }
+
         if (expectedIndex == allMoves.Count)
             throw new ArgumentException("expectedMove is not in available moves");
 
@@ -239,7 +232,7 @@ public class RamenAgent
     }
 
     /// <summary>
-    /// Stochasically samples multiple moves using the agent's policy model, not making any of them.
+    /// Stochastically samples multiple moves using the agent's policy model, not making any of them.
     /// </summary>
     public List<(Move move, float probability)> SampleMoves(float temp, int maxUniqueMoves)
     {
