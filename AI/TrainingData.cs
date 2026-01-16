@@ -316,7 +316,30 @@ public static class TensorGroupExtentions
     }
 
     public static T IndexSelect<T>(this T me, int dim, Tensor indices) where T : ITensorGroup => (T)IndexSelect((ITensorGroup)me, dim, indices);
-    
+
+    public static void Swap(this ITensorGroup me, int dim, int index0, int index1)
+    {
+        foreach (FieldInfo field in GetTensorFields(me.GetType()))
+        {
+            object value = field.GetValue(me);
+            if (value is Tensor tensor)
+            {
+                // Swap two indices along the specified dimension
+                using Tensor index0Tensor = TorchSharp.torch.tensor([index0]);
+                using Tensor index1Tensor = TorchSharp.torch.tensor([index1]);
+                using Tensor temp = tensor.index_select(dim, index0Tensor);
+                tensor.index_copy_(dim, index0Tensor, tensor.index_select(dim, index1Tensor));
+                tensor.index_copy_(dim, index1Tensor, temp);
+            }
+            else if (value is ITensorGroup group)
+            {
+                group.Swap(dim, index0, index1);
+            }
+        }
+    }
+
+    public static void Swap<T>(this T me, int dim, int index0, int index1) where T : ITensorGroup => Swap((ITensorGroup)me, dim, index0, index1);
+
     public static ITensorGroup Clone(this ITensorGroup me)
     {
         ITensorGroup result = MakeNew(me.GetType());
