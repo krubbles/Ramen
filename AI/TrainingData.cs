@@ -171,42 +171,7 @@ public static class TrainingData
         }
         return stats;
     }
-
-    public static void GenerateEvalTrainingDataOneShotBestHand(int samples)
-    {
-        using var scope = NewDisposeScope();
-        int lastLogCount = 0;
-        int startingSampleCount = EvaluationTrainingData.Count;
-        FastRandom random = FastRandom.SeededByClock();
-        GameData gameData = new();
-        using (no_grad())
-        {
-            while (EvaluationTrainingData.Count < startingSampleCount + samples)
-            {
-                gameData.Seed = random.Next();
-                GameState gameState = new(gameData);
-                gameState.StartRound();
-
-                float finalReward = Testing.GetMaxOneShotScore(gameState) / 300f;
-                Tensor target = tensor(finalReward).unsqueeze(0).unsqueeze(0);
-
-                lock (EvaluationTrainingData)
-                {
-                    EvaluationTrainingData.Add(new()
-                    {
-                        State =  default,
-                        MoveProbDist = target.clone().DetachFromDisposeScope(),
-                    });
-                    if (EvaluationTrainingData.Count - startingSampleCount >= lastLogCount + 1000)
-                    {
-                        lastLogCount += 1000;
-                        Console.WriteLine($"Generated {EvaluationTrainingData.Count - startingSampleCount} / {samples} evaluation training samples");
-                    }
-                }
-            }
-        }
-    }
-
+    
     public static void GenerateLastMoveTrainingData(PolicyModel model, GameDatabase database)
     {
         int totalGames = 0;
