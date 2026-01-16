@@ -80,7 +80,7 @@ public abstract class Move
         { MoveType.AfterHandUse, new AfterHandUsedMove.Serializer() },
         { MoveType.StartRound, new StartRoundMove.Serializer() },
         { MoveType.Reseed, new ReseedMove.Serializer() },
-        { MoveType.TrainingData, new TrainingDataMove.Serializer() },
+        { MoveType.AnnotatingData, new AnnotatingDataMove.Serializer() },
     };
 }
 
@@ -92,7 +92,7 @@ public enum MoveType : byte
     StartRound,
     Reseed,
     Shuffle,
-    TrainingData,
+    AnnotatingData,
 }
 
 public interface IMoveSerializer

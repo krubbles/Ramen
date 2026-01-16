@@ -292,16 +292,16 @@ public sealed class ShuffleMove : Move
 /// <summary>
 /// A move that stores arbitrary data without affecting game state.
 /// </summary>
-public sealed class TrainingDataMove : Move
+public sealed class AnnotatingDataMove : Move
 {
     public readonly byte[] Data;
 
-    public TrainingDataMove(byte[] data)
+    public AnnotatingDataMove(byte[] data)
     {
         Data = data ?? Array.Empty<byte>();
     }
 
-    public override MoveType GetMoveType() => MoveType.TrainingData;
+    public override MoveType GetMoveType() => MoveType.AnnotatingData;
 
     protected override void Apply()
     {
@@ -318,18 +318,18 @@ public sealed class TrainingDataMove : Move
 
     internal class Serializer : IMoveSerializer
     {
-        public MoveType MoveType => MoveType.TrainingData;
+        public MoveType MoveType => MoveType.AnnotatingData;
 
         public void Serialize(GameStateSerializer serializer, Move move)
         {
-            TrainingDataMove trainingDataMove = (TrainingDataMove)move;
+            AnnotatingDataMove trainingDataMove = (AnnotatingDataMove)move;
             serializer.Stream.WriteArrayByteSize<byte>(trainingDataMove.Data);
         }
 
         public Move Deserialize(GameStateSerializer serializer)
         {
             byte[] data = serializer.Stream.ReadArrayByteSize<byte>();
-            return new TrainingDataMove(data);
+            return new AnnotatingDataMove(data);
         }
     }
 }
