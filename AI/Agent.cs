@@ -341,6 +341,59 @@ public class RamenAgent
     }
 
     /// <summary>
+    /// Evaluates a list of candidate moves using Monte Carlo sampling and returns the move with the highest average reward.
+    /// </summary>
+    /// <param name="candidateMoves">List of (Move, probability) tuples to evaluate</param>
+    /// <param name="samples">Number of Monte Carlo samples to run for each move</param>
+    /// <param name="temp">Temperature for the policy when playing out simulations</param>
+    /// <returns>The move with the highest average reward across Monte Carlo samples</returns>
+    public Move SelectBestMoveMonteCarlo(List<(Move move, float probability)> candidateMoves, int samples, float temp)
+    {
+        if (candidateMoves.Count == 0)
+            return null;
+        if (candidateMoves.Count == 1)
+            return candidateMoves[0].move;
+
+        float bestAvgReward = float.MinValue;
+        Move bestMove = null;
+
+        foreach (var (candidateMove, _) in candidateMoves)
+        {
+            float totalReward = 0f;
+
+            candidateMove.Apply(GameState);
+            int afterCandidateStep = GameState.MoveState.MoveStep;
+
+            for (int c = 0; c < samples; c++)
+            {
+                GameState.Reseed();
+
+                while (!GameIsDone())
+                {
+                    GameState.AdvanceToNextPlayerChoice();
+                    MakeMove(temp);
+                }
+
+                totalReward += GetCurrentReward();
+
+                GameState.MoveState.RevertToStep(afterCandidateStep);
+            }
+
+            float avgReward = totalReward / samples;
+
+            if (avgReward > bestAvgReward)
+            {
+                bestAvgReward = avgReward;
+                bestMove = candidateMove;
+            }
+
+            GameState.MoveState.RevertToStep(GameState.MoveState.MoveStep - 1);
+        }
+
+        return bestMove;
+    }
+
+    /// <summary>
     /// Shortcut for <see cref="Tensors"/>.FullHand
     /// </summary>
     public Tensor HandTensor

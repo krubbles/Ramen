@@ -218,7 +218,7 @@ public static class TrainingData
 
         int processed = 0;
         foreach (GameState game in database)
-        { 
+        {
             if (game.MoveState.MoveHistory.Count == 0)
                 continue;
 
@@ -237,6 +237,38 @@ public static class TrainingData
             }
         }
         Console.WriteLine();
+    }
+
+    public static GameState PlayGameMonteCarlo(PolicyModel model, int branches, int samples, bool log, float temp)
+    {
+        GameState gameState = new(GameData.Default);
+        RamenAgent agent = new(gameState, model);
+        gameState.AdvanceToNextPlayerChoice();
+
+        List<int> playerChoiceMoveSteps = new();
+
+        while (!agent.GameIsDone())
+        {
+            gameState.AdvanceToNextPlayerChoice();
+            playerChoiceMoveSteps.Add(gameState.MoveState.MoveStep);
+            agent.MakeMove(1.0f);
+        }
+
+        int rollbackIndex = agent.Random.Next(playerChoiceMoveSteps.Count);
+        int rollbackStep = playerChoiceMoveSteps[rollbackIndex];
+        gameState.MoveState.RevertToStep(rollbackStep);
+
+        var candidateMoves = agent.SampleMoves(1.0f, branches);
+        Move bestMove = agent.SelectBestMoveMonteCarlo(candidateMoves, samples, temp);
+
+        if (log)
+        {
+            Console.WriteLine($"GameState: {gameState}");
+            // Note: We could optionally add logging of move evaluations here if needed
+        }
+
+        bestMove.Apply(gameState);
+        return gameState;
     }
 }
 

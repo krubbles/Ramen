@@ -136,84 +136,17 @@ void GenerateGames(ConsoleCommandContext context)
     EnqueueWork(() =>
     {
         GameDatabase database = new(dbName);
-        
+
         Console.WriteLine($"Generating {games} games in database '{dbName}'...");
-        
+
         for (int i = 0; i < games; i++)
         {
-            GameState gameState = new(GameData.Default);
-            RamenAgent agent = new(gameState, model);
-            gameState.AdvanceToNextPlayerChoice();
-
-            List<int> playerChoiceMoveSteps = new();
-            
-            while (!agent.GameIsDone())
-            {
-                gameState.AdvanceToNextPlayerChoice();
-                playerChoiceMoveSteps.Add(gameState.MoveState.MoveStep);
-                agent.MakeMove(1.0f);
-            }
-            
-            int rollbackIndex = agent.Random.Next(playerChoiceMoveSteps.Count);
-            int rollbackStep = playerChoiceMoveSteps[rollbackIndex];
-            gameState.MoveState.RevertToStep(rollbackStep);
-            
-            var candidateMoves = agent.SampleMoves(1.0f, branches);
-            
-            float bestAvgReward = float.MinValue;
-            Move bestMove = null;
-            List<(Move move, float avgReward)> moveEvalutions = new();
-            
-            foreach (var (candidateMove, _) in candidateMoves)
-            {
-                float totalReward = 0f;
-                
-                candidateMove.Apply(gameState);
-                int afterCandidateStep = gameState.MoveState.MoveStep;
-                
-                for (int c = 0; c < samples; c++)
-                {
-                    gameState.Reseed();
-                    
-                    while (!agent.GameIsDone())
-                    {
-                        gameState.AdvanceToNextPlayerChoice();
-                        agent.MakeMove(temp);
-                    }
-                    
-                    totalReward += agent.GetCurrentReward();
-                    
-                    gameState.MoveState.RevertToStep(afterCandidateStep);
-                }
-                
-                float avgReward = totalReward / samples;
-                moveEvalutions.Add((candidateMove, avgReward));
-                
-                if (avgReward > bestAvgReward)
-                {
-                    bestAvgReward = avgReward;
-                    bestMove = candidateMove;
-                }
-
-                gameState.MoveState.RevertToStep(rollbackStep);
-            }
-
-            if (log)
-            {
-                Console.WriteLine($"GameState: {gameState}");
-                var sortedMoves = moveEvalutions.OrderByDescending(x => x.avgReward).ToList();
-                foreach (var (move, avgReward) in sortedMoves)
-                {
-                    Console.WriteLine($"Move: {move} - Avg Reward: {avgReward:F4}");
-                }
-            }
-            
-            bestMove.Apply(gameState);
+            GameState gameState = TrainingData.PlayGameMonteCarlo(model, branches, samples, log, temp);
             database.AddGame(gameState);
-            
+
             Console.Write($"\rGenerated {i + 1}/{games} games");
         }
-        
+
         Console.WriteLine();
         Console.WriteLine($"Successfully generated {games} games in database '{dbName}'");
     });
