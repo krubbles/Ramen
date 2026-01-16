@@ -1,3 +1,5 @@
+# Git
+- Use short commit messages.
 
 # Code Architecture Overview
 This solution is broken up into 4 projects:

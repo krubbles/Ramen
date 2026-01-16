@@ -73,7 +73,7 @@ public static class Testing
         return (moves[0], probs[0]);
     }
 
-    public static float GetAverageScore(GameEvalModel model, int samples = 1000, float temp = 0.0001f, bool log = false)
+    public static float GetAverageScore(PolicyModel model, int samples = 1000, float temp = 0.0001f, bool log = false)
     {
         float totalReward = 0;
         for (int i = 0; i < samples; ++i)

@@ -7,7 +7,7 @@ using static TorchSharp.torch.nn;
 /// <summary>
 /// The policy network used for move evaluation.
 /// </summary>
-public class GameEvalModel : Module
+public class PolicyModel : Module
 {
     public const int
         RemainingDeckEmbedWidth = 128,
@@ -38,7 +38,7 @@ public class GameEvalModel : Module
     public readonly Sequential UseHandPolicy;
     public readonly Sequential UseHandMovePreProcessor;
 
-    public GameEvalModel() : base(nameof(GameEvalModel))
+    public PolicyModel() : base(nameof(PolicyModel))
     {
 
         StateProcessor = Sequential(
@@ -178,7 +178,7 @@ public class SwiGLUFeedForward : Module<Tensor, Tensor>
 {
     private readonly Linear w1; // Gate projection
     private readonly Linear w2; // Up projection
-    private readonly Linear w3; // Down projection (optional, usually follows SwiGLU)
+    private readonly Linear w3; // Down projection 
     private readonly LayerNorm ln;
 
     public SwiGLUFeedForward(long inputDim, long hiddenDim) : base(nameof(SwiGLUFeedForward))

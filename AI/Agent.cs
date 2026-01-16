@@ -17,7 +17,7 @@ public class RamenAgent
     /// <summary>
     /// A reference to the policy network used by this agent.
     /// </summary>
-    public readonly GameEvalModel Model;
+    public readonly PolicyModel Model;
 
     /// <summary>
     /// The PS-RNG used by this agent to make decisions like which move to play.
@@ -33,7 +33,7 @@ public class RamenAgent
 
     bool _disposeTensorsOnRegen = true;
 
-    public RamenAgent(GameState gameState, GameEvalModel model)
+    public RamenAgent(GameState gameState, PolicyModel model)
     {
         GameState = gameState;
         Model = model;

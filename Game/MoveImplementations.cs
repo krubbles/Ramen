@@ -1,5 +1,7 @@
 namespace Ramen.Game;
 
+// REMEMBER: register all Serializer implementations in Move.cs so the serialization code can find them.
+
 /// <summary>
 /// Performs all the setup to begin a round.
 /// </summary>

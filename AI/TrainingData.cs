@@ -41,7 +41,7 @@ public static class TrainingData
     }
 
 
-    static void RunGroup(GameEvalModel model, TrainingDataStats stats, int groupSize = 32)
+    static void RunGroup(PolicyModel model, TrainingDataStats stats, int groupSize = 32)
     {
         GameState gameState = new(new());
         if (true)
@@ -51,7 +51,7 @@ public static class TrainingData
         }
     }
 
-    static void GenerateGRPOTrainingDataGroup(GameEvalModel model, GameState gameState, TrainingDataStats stats, int groupSize = 128)
+    static void GenerateGRPOTrainingDataGroup(PolicyModel model, GameState gameState, TrainingDataStats stats, int groupSize = 128)
     {
         RamenAgent agent = new(gameState, model);
         FastRandom random = FastRandom.SeededByClock();
@@ -128,7 +128,7 @@ public static class TrainingData
         }
     }
 
-    static void GenerateEvalTrainingDataJob(GameEvalModel model, TrainingDataStats stats, int samples, float temp)
+    static void GenerateEvalTrainingDataJob(PolicyModel model, TrainingDataStats stats, int samples, float temp)
     {
         while (EvaluationTrainingData.Count < samples)
         {
@@ -136,7 +136,7 @@ public static class TrainingData
         }
     }
 
-    public static TrainingDataStats GenerateEvaluationTrainingData(GameEvalModel model, int samples, float temp)
+    public static TrainingDataStats GenerateEvaluationTrainingData(PolicyModel model, int samples, float temp)
     {
         Stopwatch watch = Stopwatch.StartNew();
         TrainingDataStats stats = new();
@@ -207,7 +207,7 @@ public static class TrainingData
         }
     }
 
-    public static void GenerateLastMoveTrainingData(GameEvalModel model, GameDatabase database)
+    public static void GenerateLastMoveTrainingData(PolicyModel model, GameDatabase database)
     {
         int totalGames = 0;
         foreach (GameState game in database)

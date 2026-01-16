@@ -25,7 +25,7 @@ class Program
         random.manual_seed(0);
         var device = CPU;
 
-        GameEvalModel model = new();
+        PolicyModel model = new();
 
         long totalTrainableParams = 0;
         foreach (var param in model.parameters())

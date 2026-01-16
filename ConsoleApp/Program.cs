@@ -4,7 +4,7 @@ using Ramen.ConsoleApp;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
 
-GameEvalModel model = new GameEvalModel();
+PolicyModel model = new PolicyModel();
 
 CancellationTokenSource cancel = new();
 cancel.TryReset();

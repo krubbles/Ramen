@@ -16,7 +16,7 @@ public static class Training
 {
     public const float epsilonLow = 1, epsilonHigh = 1000000;
 
-    public static void TrainEvaluationModel(GameEvalModel model, TrainingParams tp, CancellationToken cancel)
+    public static void TrainEvaluationModel(PolicyModel model, TrainingParams tp, CancellationToken cancel)
     {
 
         Console.WriteLine($"Training evaluation model for {tp.epochs} epochs, batch size {tp.batchSize}");
