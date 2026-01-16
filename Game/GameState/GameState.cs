@@ -70,13 +70,28 @@ public sealed class GameState
 
     public bool GameIsDone => HandState.RemainingHands == 0 || ScoringState.CurrentRoundTotalChips >= 300;
 
+    public bool IsPlayerChoice 
+    {
+        get 
+        {
+            if (GameIsDone)
+                return false;
+            if (Stage == StageOfGame.InRoundPlayerChoice)
+                return true;
+            return false;
+        }
+    }
+
     /// <summary>
     /// Returns a list of legal moves.
     /// If there is 1, then there is an automatic state change that must happen. 
     /// If there are multiple, the player/agent has a choice to make. 
+    /// <
     /// </summary>
-    public List<Move> GetMoveOptions()
+    public Move[] GetMoveOptions()
     {
+        // note: make sure this function is synced with IsPlayerChoice().
+        // if IsPlayerChoice
         _currentLegalMovesBuffer.Clear();
         switch (Stage)
         {
@@ -91,22 +106,17 @@ public sealed class GameState
                 break;
 
         }
-        return _currentLegalMovesBuffer;
+        return _currentLegalMovesBuffer.ToArray();
     }
 
     public void AdvanceToNextPlayerChoice()
     {
-        while (GetMoveOptions().Count == 1)
+        while (!IsPlayerChoice)
         {
-            _currentLegalMovesBuffer[0].Apply(this);
+            if (GameIsDone)
+                return;
+            GetMoveOptions()[0].Apply(this);
         }
-    }
-
-    public void StartRound()
-    {
-        DeckState.ResetDeck();
-        HandState.ResetRemainingHandsAndDiscards();
-        ScoringState.ResetCurrentRoundTotalChips();
     }
 
     public void Serialize(Stream stream)
