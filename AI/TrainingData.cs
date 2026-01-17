@@ -76,7 +76,7 @@ public static class TrainingData
                     gameState.AdvanceToNextPlayerChoice();
                     if (agent.GameIsDone())
                         break;
-                    EvaluationTrainingSample sample = agent.MakeMove(temp: 1f);
+                    EvaluationTrainingSample sample = agent.MakeMoveAndTrainingSample(temp: 1f);
                     gameSamples.Add(new() { Sample = sample, N = 1, Move = gameState.MoveState.MoveHistory[^1], NLProb = sample.ChosenMoveNLProb });
                 }
                 if (gameState.ScoringState.CurrentRoundTotalChips < 300)
