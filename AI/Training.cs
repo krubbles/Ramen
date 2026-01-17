@@ -37,7 +37,7 @@ public static class Training
             beta2: 0.998f
             );
 
-        var lossFunc = MSELoss();
+        var lossFunc = CrossEntropyLoss();
 
         int samples = TrainingData.EvaluationTrainingData.Count;
 
@@ -83,14 +83,17 @@ public static class Training
                 int end = Math.Min(i + tp.batchSize, samples);
                 PolicyTrainingSample inputs = stacked.GetBatch(i, end);
 
-                var probDist = inputs.MoveProbDist / inputs.MoveProbDist.sum(dim: 1, true);
                 Tensor processedState = model.ProcessState(inputs.State);
-                int moveCount = (int)inputs.Moves.HandsAndDiscards.size(1);
-
                 Tensor moveLogits = model.GetPolicyLogits(inputs.Moves, processedState).squeeze(2);
-                Tensor moveLoss = CalculatePPOLoss(moveLogits, probDist, inputs.Advantage, tp.entropyCoeff, tp.kldCoeff, true, ref kldTotal);
-
-                Tensor loss = moveLoss;
+                
+                Tensor probDist = inputs.MoveProbDist;
+                Tensor adjustedLogits = moveLogits - log(probDist + 1e-9); // log-q for sampled softmax
+                // target is always index 0
+                Tensor targetRow = zeros(1, adjustedLogits.size(dim: 1));
+                targetRow[0, 0] = 1;
+                Tensor target = targetRow.expand(probDist.size(dim: 0), targetRow.size(dim: 1));
+                
+                Tensor loss = lossFunc.forward(adjustedLogits, target);
                 
                 loss.backward();
                 optimizer.step();
@@ -103,7 +106,6 @@ public static class Training
                     stacked.Dispose();
                     return;
                 }
-
             }
 
             trainLossAvg /= Math.Max(1, trainBatchCount);
@@ -132,8 +134,6 @@ public static class Training
             beta1: 0.9f,
             beta2: 0.998f
             );
-
-        var lossFunc = MSELoss();
 
         int samples = TrainingData.EvaluationTrainingData.Count;
 
