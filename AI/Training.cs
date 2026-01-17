@@ -10,7 +10,7 @@ public record struct TrainingParams(
     int batchSize = 128,
     float learningRate = 1e-5f,
     float entropyCoeff = 0.01f,
-    float kldCoeff = 0.01f);
+    float kldCoeff = 0.0f);
 
 public static class Training
 {

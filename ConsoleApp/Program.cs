@@ -169,7 +169,7 @@ void ToData(ConsoleCommandContext context)
         GameDatabase database = new(dbName, load: true);
         Console.WriteLine($"Loading {dbName}...");
         int countBefore = TrainingData.EvaluationTrainingData.Count;
-        TrainingData.GenerateLastMoveTrainingData(model, database);
+        TrainingData.GenerateTrainingDataFromGames(model, database);
         int countAfter = TrainingData.EvaluationTrainingData.Count;
         Console.WriteLine($"Added {countAfter - countBefore} training samples from '{dbName}'");
     });

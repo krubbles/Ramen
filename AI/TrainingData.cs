@@ -169,7 +169,7 @@ public static class TrainingData
         return stats;
     }
     
-    public static void GenerateLastMoveTrainingData(PolicyModel model, GameDatabase database)
+    public static void GenerateTrainingDataFromGames(PolicyModel model, GameDatabase database)
     {
         int totalGames = 0;
         foreach (GameState game in database)
@@ -188,23 +188,29 @@ public static class TrainingData
             int percent = (int)((float)processed / totalGames * 100);
             Console.Write($"\rProcessing: {percent}% ({processed}/{totalGames})");
 
-            Move lastMove = game.MoveState.MoveHistory[^1];
-            RamenAgent agent = new RamenAgent(game, model);
+            RamenAgent agent = new(game, model);
 
-            game.MoveState.MoveHistory[^1].Revert(game);
-
-            if (agent.CreateTrainingSample(lastMove, 1.0f, out var sample, out _, 20))
+            for (int moveIndex = game.MoveState.MoveHistory.Count - 1; moveIndex >= 0; moveIndex--)
             {
-                EvaluationTrainingData.Add(sample);
+                Move move = game.MoveState.MoveHistory[moveIndex];
+                if (move is AnnotatingDataMove annotation)
+                {
+                    ushort[] branchIndices = GetBranchMoveIndices(annotation);
+
+                    move.Revert(game);
+                    game.MoveState.RevertLastMove(); // we want to create the sample in the context of the state before the move was applied.
+                    EvaluationTrainingSample sample = agent.CreateMonteCarloTrainingSample(branchIndices, temp: 1.0f);
+                    EvaluationTrainingData.Add(sample);
+                }
             }
         }
         Console.WriteLine();
     }
 
-    static ushort[] GetBranchMoveIndices(AnnotatingDataMove annotation) 
+    static ushort[] GetBranchMoveIndices(AnnotatingDataMove annotation)
     {
         byte[] data = annotation.Data;
-        ushort[] indices = new ushort[data.Length * 2];
+        ushort[] indices = new ushort[data.Length / 2];
         Buffer.BlockCopy(data, 0, indices, 0, data.Length);
         return indices;
     }
