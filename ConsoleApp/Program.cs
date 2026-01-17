@@ -156,12 +156,19 @@ void GenerateGames(ConsoleCommandContext context)
 
         Console.WriteLine($"Generating {games} games in database '{dbName}'...");
 
+        float totalReward = 0f;
+
         for (int i = 0; i < games; i++)
         {
             GameState gameState = TrainingData.PlayGameMonteCarlo(model, branches, samples, log, temp);
             database.AddGame(gameState);
 
-            Console.Write($"\rGenerated {i + 1}/{games} games");
+            RamenAgent agent = new(gameState, model);
+            float reward = agent.GetCurrentReward();
+            totalReward += reward;
+            float averageReward = totalReward / (i + 1);
+
+            Console.Write($"\rGenerated {i + 1}/{games} games, average reward: {averageReward:F4}");
         }
 
         Console.WriteLine();
