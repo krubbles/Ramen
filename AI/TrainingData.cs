@@ -201,6 +201,22 @@ public static class TrainingData
         Console.WriteLine();
     }
 
+    static ushort[] GetSampledMoveIndices(AnnotatingDataMove annotation) 
+    {
+        byte[] data = annotation.Data;
+        ushort[] indices = new ushort[data.Length * 2];
+        Buffer.BlockCopy(data, 0, indices, 0, data.Length);
+        return indices;
+    }
+
+    static AnnotatingDataMove GetMoveIndicesAnnotation(ushort[] moveIndices)
+    {
+        byte[] data = new byte[moveIndices.Length / 2];
+        Buffer.BlockCopy(moveIndices, 0, data, 0, data.Length);
+        AnnotatingDataMove annotation = new(data);
+        return annotation;
+    }
+
     public static GameState PlayGameMonteCarlo(PolicyModel model, int branches, int samples, bool log, float temp)
     {
         GameState gameState = new(GameData.Default);
