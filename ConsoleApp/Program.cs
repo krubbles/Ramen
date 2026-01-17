@@ -2,19 +2,18 @@ using Ramen.AI;
 using Ramen.Game;
 using Ramen.ConsoleApp;
 using System.Runtime.InteropServices;
-using System.Security.Principal;
 
-PolicyModel model = new PolicyModel();
+ExternalConsole.Initialize();
+System.Diagnostics.Debug.WriteLine("=== WELCOME! ===");
+
+
+PolicyModel model = new();
 
 CancellationTokenSource cancel = new();
 cancel.TryReset();
 Queue<Task> work = new();
 TrainingParams trainingParams = new(5);
 
-Console.WriteLine("=== PROGRAM STARTED ===");
-System.Diagnostics.Debug.WriteLine("=== DEBUGGER OUTPUT ===");
-
-ExternalConsole.Initialize();
 
 while (true)
 {

@@ -7,7 +7,6 @@
             "type": "process",
             "args": [
                 "build",
-                "${workspaceFolder}/Ramen.sln",
                 "/property:GenerateFullPaths=true",
                 "/consoleloggerparameters:NoSummary;ForceNoAlign"
             ],
@@ -19,7 +18,6 @@
             "type": "process",
             "args": [
                 "publish",
-                "${workspaceFolder}/Ramen.sln",
                 "/property:GenerateFullPaths=true",
                 "/consoleloggerparameters:NoSummary;ForceNoAlign"
             ],
@@ -31,9 +29,7 @@
             "type": "process",
             "args": [
                 "watch",
-                "run",
-                "--project",
-                "${workspaceFolder}/Ramen.sln"
+                "run"
             ],
             "problemMatcher": "$msCompile"
         }

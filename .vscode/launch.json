@@ -2,10 +2,21 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": ".NET Core Launch (console)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/ConsoleApp/bin/Debug/net9.0/ConsoleApp.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "console": "internalConsole"
+        },
+        {
             "name": "C#: ConsoleApp Debug",
             "type": "dotnet",
             "request": "launch",
-            "projectPath": "${workspaceFolder}/ConsoleApp/ConsoleApp.csproj",
-        },       
+            "projectPath": "${workspaceFolder}/ConsoleApp/ConsoleApp.csproj"
+        }       
     ]
 }
