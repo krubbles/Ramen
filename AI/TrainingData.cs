@@ -240,7 +240,7 @@ public static class TrainingData
         while (!agent.GameIsDone())
         {
             gameState.AdvanceToNextPlayerChoice();
-            MoveSampleAnnotationData[] branchData = agent.MakeMoveMonteCarlo(temp: 1, branches, continuations);
+            MoveSampleAnnotationData[] branchData = agent.MakeMoveMonteCarlo(temp: temp, branches, continuations);
             AnnotatingDataMove annotation = GetMoveIndicesAnnotation(branchData);
             annotation.Apply(gameState);
         }

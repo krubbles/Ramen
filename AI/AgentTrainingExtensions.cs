@@ -58,11 +58,11 @@ public static class AgentTrainingExtensions
         for (int i = 0; i < sampleCount; i++)
         {
             Move candidateMove = moves[indicesArray[i]];
-            float totalReward = 0f;
 
             candidateMove.Apply(agent.GameState);
             int afterCandidateStep = agent.GameState.MoveState.MoveStep;
 
+            float totalReward = 0f;
             for (int c = 0; c < continuationCount; c++)
             {
                 agent.GameState.Reseed();
