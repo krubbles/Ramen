@@ -97,7 +97,7 @@ void Train(ConsoleCommandContext context)
 
     int epochs = context.GetIntArg(0, "epochs");
     trainingParams.epochs = epochs;
-    EnqueueWork(() => Training.TrainEvaluationModel(model, trainingParams, cancel.Token));
+    EnqueueWork(() => Training.TrainPolicyModelGRPO(model, trainingParams, cancel.Token));
         
 }
 

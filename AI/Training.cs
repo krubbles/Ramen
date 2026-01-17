@@ -5,20 +5,21 @@ using System.Linq;
 using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
 
-public record struct TrainingParams(
+public record struct TrainingParams
+(
     int epochs = 5,
     int batchSize = 128,
     float learningRate = 1e-5f,
-    float entropyCoeff = 0.01f,
-    float kldCoeff = 0.0f);
+    float entropyCoeff = 0.01f, // only used in GRPO
+    float kldCoeff = 0.0f // only used in GRPO
+);
 
 public static class Training
 {
     public const float epsilonLow = 1, epsilonHigh = 1000000;
 
-    public static void TrainEvaluationModel(PolicyModel model, TrainingParams tp, CancellationToken cancel)
+    public static void TrainPolicyModelSupervised(PolicyModel model, TrainingParams tp, CancellationToken cancel, bool validate = false)
     {
-
         Console.WriteLine($"Training evaluation model for {tp.epochs} epochs, batch size {tp.batchSize}");
 
         PolicyTrainingSample stacked;
@@ -40,7 +41,6 @@ public static class Training
 
         int samples = TrainingData.EvaluationTrainingData.Count;
 
-        bool validate = false;
         int valCount = validate ? Math.Max(1, samples / 10) : 0; 
         int trainCount = Math.Max(0, samples - valCount);
 
@@ -114,6 +114,75 @@ public static class Training
         stacked.Dispose();
     }
 
+    public static void TrainPolicyModelGRPO(PolicyModel model, TrainingParams tp, CancellationToken cancel)
+    {
+        Console.WriteLine($"Training evaluation model for {tp.epochs} epochs, batch size {tp.batchSize}");
+
+        PolicyTrainingSample stacked;
+        lock (TrainingData.EvaluationTrainingData)
+        {
+            stacked = TensorGroupExtentions.Stack(TrainingData.EvaluationTrainingData, false, true);
+        }
+
+        stacked = stacked.IndexSelect(0, randperm(stacked.Advantage.size(0)));
+
+        var optimizer = optim.AdamW(model.parameters(),
+            lr: tp.learningRate,
+            weight_decay: 0.01f,
+            beta1: 0.9f,
+            beta2: 0.998f
+            );
+
+        var lossFunc = MSELoss();
+
+        int samples = TrainingData.EvaluationTrainingData.Count;
+
+        int trainCount = samples;
+
+        for (int epoch = 0; epoch < tp.epochs; ++epoch)
+        {           
+            float trainLossAvg = 0f;
+            int trainBatchCount = 0;
+
+            float kldTotal = 0;
+            for (int i = 0; i < trainCount; i += tp.batchSize)
+            {
+                optimizer.zero_grad();
+
+                int end = Math.Min(i + tp.batchSize, samples);
+                PolicyTrainingSample inputs = stacked.GetBatch(i, end);
+
+                var probDist = inputs.MoveProbDist / inputs.MoveProbDist.sum(dim: 1, true);
+                Tensor processedState = model.ProcessState(inputs.State);
+                int moveCount = (int)inputs.Moves.HandsAndDiscards.size(1);
+
+                Tensor moveLogits = model.GetPolicyLogits(inputs.Moves, processedState).squeeze(2);
+                Tensor moveLoss = CalculatePPOLoss(moveLogits, probDist, inputs.Advantage, tp.entropyCoeff, tp.kldCoeff, true, ref kldTotal);
+
+                Tensor loss = moveLoss;
+                
+                loss.backward();
+                optimizer.step();
+
+                trainLossAvg += loss.item<float>();
+                trainBatchCount++;
+
+                if (cancel.IsCancellationRequested)
+                {
+                    stacked.Dispose();
+                    return;
+                }
+
+            }
+
+            trainLossAvg /= Math.Max(1, trainBatchCount);
+
+            Console.WriteLine($"Eval Epoch {epoch} | Train Loss = {trainLossAvg} | KLD = {kldTotal / Math.Max(1, trainBatchCount)}");
+        }
+
+        stacked.Dispose();
+    }
+
     static Tensor CalculatePPOLoss(Tensor logits, Tensor oldProbs, Tensor advantage, float ec, float kc, bool useIndex0, ref float kldAccumulate, Tensor moveIndex = null)
     {
         var logProbsOld = log(oldProbs.clamp_min(0f) + 1e-9);
@@ -145,6 +214,5 @@ public static class Training
         var loss = (kldLoss - policyReward - entropyReward);
         return loss;
     }
-
 }
 
