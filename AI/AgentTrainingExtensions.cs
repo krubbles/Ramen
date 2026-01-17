@@ -13,7 +13,7 @@ public static class AgentTrainingExtensions
     /// Also generates a training sample with the chosen move and <paramref name="sampleCount"/> other moves.
     /// Intended to create PPO/GRPO training data.
     /// </summary>
-    public static EvaluationTrainingSample MakeMoveAndTrainingSample(this RamenAgent agent, float temp, int sampleCount = 20)
+    public static PolicyTrainingSample MakeMoveAndTrainingSample(this RamenAgent agent, float temp, int sampleCount = 20)
     {
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
@@ -29,7 +29,7 @@ public static class AgentTrainingExtensions
 
         moves[(int)indices[0].item<long>()].Apply(agent.GameState);
 
-        return CreateEvaluationTrainingSample(agent, sampledMoveTensors, sampledProbs);
+        return CreatePolicyTrainingSample(agent, sampledMoveTensors, sampledProbs);
     }
 
     /// <summary>
@@ -115,9 +115,9 @@ public static class AgentTrainingExtensions
     /// <summary>
     /// Creates an evaluation training sample from move tensors and probability distribution.
     /// </summary>
-    public static EvaluationTrainingSample CreateEvaluationTrainingSample(this RamenAgent agent, MoveTensors moveTensors, Tensor probs)
+    public static PolicyTrainingSample CreatePolicyTrainingSample(this RamenAgent agent, MoveTensors moveTensors, Tensor probs)
     {
-        EvaluationTrainingSample sample = new()
+        PolicyTrainingSample sample = new()
         {
             MoveProbDist = probs.DetachFromDisposeScope(),
             State = agent.Tensors.Clone().DetachFromDisposeScope(),
@@ -130,14 +130,14 @@ public static class AgentTrainingExtensions
     /// <summary>
     /// Creates a Monte Carlo training sample for the given move indices.
     /// </summary>
-    public static EvaluationTrainingSample CreateMonteCarloTrainingSample(this RamenAgent agent, ushort[] moveIndices, float temp)
+    public static PolicyTrainingSample CreateMonteCarloTrainingSample(this RamenAgent agent, ushort[] moveIndices, float temp)
     {
         Move[] moves = agent.GameState.GetMoveOptions();
         Move[] sampledMoves = new Move[moveIndices.Length];
         for (int i = 0; i < moveIndices.Length; ++i)
             sampledMoves[i] = moves[moveIndices[i]];
         (MoveTensors sampledMoveTensors, Tensor sampledProbs) = agent.GetPolicyProbDistForMoves(temp, sampledMoves);
-        return CreateEvaluationTrainingSample(agent, sampledMoveTensors, sampledProbs);
+        return CreatePolicyTrainingSample(agent, sampledMoveTensors, sampledProbs);
     }
 
     /// <summary>

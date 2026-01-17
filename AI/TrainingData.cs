@@ -25,13 +25,13 @@ public class TrainingDataStats
 
 public static class TrainingData
 {
-    public static readonly List<EvaluationTrainingSample> EvaluationTrainingData = new();
+    public static readonly List<PolicyTrainingSample> EvaluationTrainingData = new();
 
     public const int PolicyOutputWidth = 9;
 
     class SN
     {
-        public EvaluationTrainingSample Sample;
+        public PolicyTrainingSample Sample;
         public int N;
         public Move Move;
         public float NLProb;
@@ -73,7 +73,7 @@ public static class TrainingData
                     gameState.AdvanceToNextPlayerChoice();
                     if (agent.GameIsDone())
                         break;
-                    EvaluationTrainingSample sample = agent.MakeMoveAndTrainingSample(temp: 1f);
+                    PolicyTrainingSample sample = agent.MakeMoveAndTrainingSample(temp: 1f);
                     gameSamples.Add(new() { Sample = sample, N = 1, Move = gameState.MoveState.MoveHistory[^1], NLProb = sample.ChosenMoveNLProb });
                 }
                 if (gameState.ScoringState.CurrentRoundTotalChips < 300)
@@ -199,7 +199,7 @@ public static class TrainingData
 
                     move.Revert(game);
                     game.MoveState.RevertLastMove(); // we want to create the sample in the context of the state before the move was applied.
-                    EvaluationTrainingSample sample = agent.CreateMonteCarloTrainingSample(branchIndices, temp: 1.0f);
+                    PolicyTrainingSample sample = agent.CreateMonteCarloTrainingSample(branchIndices, temp: 1.0f);
                     EvaluationTrainingData.Add(sample);
                 }
             }
@@ -249,7 +249,7 @@ public class GameStateTensors : ITensorGroup
     public Tensor HandsAndDiscards;
 }
 
-public class EvaluationTrainingSample : ITensorGroup
+public class PolicyTrainingSample : ITensorGroup
 {
     public GameStateTensors State;
     public MoveTensors Moves;

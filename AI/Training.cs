@@ -21,7 +21,7 @@ public static class Training
 
         Console.WriteLine($"Training evaluation model for {tp.epochs} epochs, batch size {tp.batchSize}");
 
-        EvaluationTrainingSample stacked;
+        PolicyTrainingSample stacked;
         lock (TrainingData.EvaluationTrainingData)
         {
             stacked = TensorGroupExtentions.Stack(TrainingData.EvaluationTrainingData, false, true);
@@ -54,7 +54,7 @@ public static class Training
                 for (int i = trainCount; i < samples; i += tp.batchSize)
                 {
                     int end = Math.Min(i + tp.batchSize, samples);
-                    EvaluationTrainingSample inputs = stacked.GetBatch(i, end);
+                    PolicyTrainingSample inputs = stacked.GetBatch(i, end);
                     Tensor processedState = model.ProcessState(inputs.State);
                     Tensor logits = model.GetPolicyLogits(inputs.Moves, processedState).squeeze_(2);
 
@@ -81,7 +81,7 @@ public static class Training
                 optimizer.zero_grad();
 
                 int end = Math.Min(i + tp.batchSize, samples);
-                EvaluationTrainingSample inputs = stacked.GetBatch(i, end);
+                PolicyTrainingSample inputs = stacked.GetBatch(i, end);
 
                 var probDist = inputs.MoveProbDist / inputs.MoveProbDist.sum(dim: 1, true);
                 Tensor processedState = model.ProcessState(inputs.State);
