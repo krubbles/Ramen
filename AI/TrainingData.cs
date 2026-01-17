@@ -199,6 +199,7 @@ public static class TrainingData
 
                     move.Revert(game);
                     game.MoveState.RevertLastMove(); // we want to create the sample in the context of the state before the move was applied.
+                    moveIndex--;
                     PolicyTrainingSample sample = agent.CreateMonteCarloTrainingSample(branchData);
                     EvaluationTrainingData.Add(sample);
                 }

@@ -28,7 +28,7 @@ public static class Training
             stacked = TensorGroupExtentions.Stack(TrainingData.EvaluationTrainingData, false, true);
         }
 
-        stacked = stacked.IndexSelect(0, randperm(stacked.Advantage.size(0)));
+        stacked = stacked.IndexSelect(0, randperm(stacked.MoveProbDist.size(0)));
 
         var optimizer = optim.AdamW(model.parameters(),
             lr: tp.learningRate,
