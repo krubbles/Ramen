@@ -51,6 +51,14 @@ public static class StreamExtentions
         writer.WriteSpan<T>(values);
     }
 
+    public static void WriteArrayUshortSize<T>(this Stream writer, T[] values) where T : unmanaged
+    {
+        if (values.Length > 65535)
+            throw new ArgumentOutOfRangeException($"Cannot ushort size serialize an array with length > 65535. Length = {values.Length}");
+        writer.WriteStruct<ushort>((ushort)values.Length);
+        writer.WriteSpan<T>(values);
+    }
+
 
     public static void ReadStartTag(this Stream reader, string text)
     {
@@ -94,6 +102,14 @@ public static class StreamExtentions
     public static T[] ReadArrayByteSize<T>(this Stream writer) where T : unmanaged
     {
         byte length = writer.ReadStruct<byte>();
+        T[] data = new T[length];
+        writer.ReadSpan<T>(data);
+        return data;
+    }
+
+    public static T[] ReadArrayUshortSize<T>(this Stream writer) where T : unmanaged
+    {
+        ushort length = writer.ReadStruct<ushort>();
         T[] data = new T[length];
         writer.ReadSpan<T>(data);
         return data;
