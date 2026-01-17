@@ -24,8 +24,11 @@ while (true)
         ConsoleCommandContext context = new(command);
         switch (context.Name.ToLower())
         {
+            case "traingrpo":
+                TrainGRPO(context);
+                break;
             case "train":
-                Train(context);
+                TrainSupervised(context);
                 break;
             case "set":
                 Set(context);
@@ -87,7 +90,7 @@ void Play(ConsoleCommandContext context)
     EnqueueWork(() => TrainingData.GenerateEvaluationTrainingData(model, samples, 1f));
 }
 
-void Train(ConsoleCommandContext context)
+void TrainGRPO(ConsoleCommandContext context)
 {
     if (TrainingData.EvaluationTrainingData.Count == 0)
     {
@@ -98,7 +101,21 @@ void Train(ConsoleCommandContext context)
     int epochs = context.GetIntArg(0, "epochs");
     trainingParams.epochs = epochs;
     EnqueueWork(() => Training.TrainPolicyModelGRPO(model, trainingParams, cancel.Token));
-        
+
+}
+
+void TrainSupervised(ConsoleCommandContext context)
+{
+    if (TrainingData.EvaluationTrainingData.Count == 0)
+    {
+        Console.WriteLine("Cannot train, no evaluation training data");
+        return;
+    }
+
+    int epochs = context.GetIntArg(0, "epochs");
+    trainingParams.epochs = epochs;
+    EnqueueWork(() => Training.TrainPolicyModelSupervised(model, trainingParams, cancel.Token));
+
 }
 
 void Set(ConsoleCommandContext context)
