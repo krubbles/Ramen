@@ -59,7 +59,10 @@ public class RamenAgent
     /// Returns whether or not the game is complete from the agent's perspective. Many tests and training runs involve subsets of the game,
     /// so this is not the same as when a game of Balatro is typically complete.
     /// </summary>
-    public bool GameIsDone() => GameState.HandState.RemainingHands <= 0 || GameState.ScoringState.CurrentRoundTotalChips >= 300;
+    public bool GameIsDone() => 
+        GameState.MoveState.MoveHistory.Count >= 2 &&
+        (GameState.HandState.RemainingHands <= 0 || 
+        GameState.ScoringState.CurrentRoundTotalChips >= 300);
 
     /// <summary>
     /// Returns the agent's reward at the current GameState. Note: the reward function is only valid when <see cref="GameIsDone"/> returns true.
