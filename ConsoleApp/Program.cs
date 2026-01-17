@@ -63,8 +63,10 @@ void Test(ConsoleCommandContext context)
     float temp = context.GetFloatArg("temp", 0.0001f);
     EnqueueWork(() =>
     {
-        float score = Testing.GetAverageScore(model, samples, temp);
-        Console.WriteLine("Average Score: " + score);
+        var (mean, ciLower, ciUpper, stdError) = Testing.GetScoreStatistics(model, samples, temp);
+        Console.WriteLine($"Average Score: {mean:F4}");
+        Console.WriteLine($"95% CI: [{ciLower:F4}, {ciUpper:F4}]");
+        Console.WriteLine($"Standard Error: {stdError:F4}");
     });
 }
 

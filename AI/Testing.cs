@@ -1,6 +1,7 @@
-﻿namespace Ramen.AI;
+namespace Ramen.AI;
 
 using Ramen.Game;
+using System.Collections.Generic;
 
 public static class Testing
 {
@@ -93,5 +94,44 @@ public static class Testing
             }
         }
         return totalReward / samples;
+    }
+
+    public static (float mean, double ciLower, double ciUpper, double stdError) GetScoreStatistics(PolicyModel model, int samples = 1000, float temp = 0.0001f, bool log = false)
+    {
+        List<float> scores = new();
+        float totalReward = 0;
+
+        for (int i = 0; i < samples; ++i)
+        {
+            GameState gameState = new(new());
+            RamenAgent agent = new(gameState, model);
+            gameState.AdvanceToNextPlayerChoice();
+            while (gameState.ScoringState.CurrentRoundTotalChips < 300 && gameState.HandState.RemainingHands > 0)
+            {
+                agent.MakeMove(temp);
+            }
+            float reward = agent.GetCurrentReward();
+            scores.Add(reward);
+            totalReward += reward;
+            if (log)
+            {
+                Console.WriteLine(gameState.MoveState.GameToString());
+                Console.WriteLine("Final Reward: " + agent.GetCurrentReward());
+            }
+        }
+
+        float mean = totalReward / samples;
+        double sumSquaredDiffs = 0;
+        foreach (float score in scores)
+        {
+            sumSquaredDiffs += Math.Pow(score - mean, 2);
+        }
+        double variance = sumSquaredDiffs / (samples - 1);
+        double stdDev = Math.Sqrt(variance);
+        double stdError = stdDev / Math.Sqrt(samples);
+        double z = 1.96; // 95% confidence interval
+        double marginOfError = z * stdError;
+
+        return (mean, mean - marginOfError, mean + marginOfError, stdError);
     }
 }
