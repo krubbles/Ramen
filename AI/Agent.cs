@@ -77,7 +77,7 @@ public class RamenAgent
     /// <summary>
     /// Makes a move based on the policy model's predicted probability distribution.
     /// </summary>
-    public EvaluationTrainingSample MakeMove(float temp)
+    public void MakeMove(float temp)
     {
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
@@ -85,18 +85,13 @@ public class RamenAgent
         GameState.AdvanceToNextPlayerChoice();
 
         if (GameIsDone())
-            return null;
+            return;
 
-        (Tensor probs, List<Move> moves, MoveTensors moveTensors) = GetPolicyProbDist(temp);
-
-        Tensor indices = multinomial(probs.view([-1]), 1, replacement: false);
+        (Move[] moves, MoveTensors moveTensors, Tensor probs) = GetPolicyProbDist(temp);
         
-        Tensor sampledProbs = probs.index_select(dim: 1, indices);
-        MoveTensors sampledMoveTensors = moveTensors.IndexSelect(dim: 1, indices);
-       
-        moves[(int)indices[0].item<long>()].Apply(GameState);
-
-        return CreateEvaluationTrainingSample(sampledProbs, sampledMoveTensors); 
+        Tensor index = multinomial(probs, num_samples: 1);
+        Move move = moves[index.item<long>()];
+        move.Apply(GameState);
     }
 
     /// <summary>
@@ -108,42 +103,132 @@ public class RamenAgent
     {
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
-        
+
         GameState.AdvanceToNextPlayerChoice();
 
         if (GameIsDone())
             return null;
 
-        (Tensor probs, List<Move> moves, MoveTensors moveTensors) = GetPolicyProbDist(temp);
-
+        (Move[] moves, MoveTensors moveTensors, Tensor probs) = GetPolicyProbDist(temp);
+        (Move[] sampledMoves, MoveTensors sampledMoveTensors, Tensor sampledProbs) = SampleMoves(moves, moveTensors, probs, sampleCount);
         Tensor indices = multinomial(probs.view([-1]), sampleCount, replacement: false);
-        
-        Tensor sampledProbs = probs.index_select(dim: 1, indices);
-        MoveTensors sampledMoveTensors = moveTensors.IndexSelect(dim: 1, indices);
-       
+
         moves[(int)indices[0].item<long>()].Apply(GameState);
 
-        return CreateEvaluationTrainingSample(sampledProbs, sampledMoveTensors, indices); 
+        return CreateEvaluationTrainingSample(sampledMoveTensors, sampledProbs);
     }
 
     /// <summary>
-    /// Returns the policy model's predicted probability distribution for the best next move. 
+    /// Samples <paramref name="sampleCount"/> moves based on the policy model's prediction, 
+    /// then plays <paramref name="continuationCount"/> continuations after each move. 
+    /// Calculates the average reward for all continuations from each move, and makes the move with the best average.
+    /// Training sample contains the made mode at index 0 and all other sampled moves. 
+    /// </summary>
+    public EvaluationTrainingSample MakeMoveAndTrainingSampleMonteCarlo(float temp, int sampleCount = 20, int continuationCount = 10)
+    {
+        using var scope = NewDisposeScope();
+        using var noGrad = no_grad();
+
+        GameState.AdvanceToNextPlayerChoice();
+
+        if (GameIsDone())
+            return null;
+
+        (Move[] moves, MoveTensors moveTensors, Tensor probs) = GetPolicyProbDist(temp);
+        (Move[] sampledMoves, MoveTensors sampledMoveTensors, Tensor sampledProbs) = SampleMoves(moves, moveTensors, probs, sampleCount);
+
+        float[] avgRewards = new float[sampleCount];
+        int initialStep = GameState.MoveState.MoveStep;
+
+        for (int i = 0; i < sampleCount; i++)
+        {
+            Move candidateMove = sampledMoves[i];
+            float totalReward = 0f;
+
+            candidateMove.Apply(GameState);
+            int afterCandidateStep = GameState.MoveState.MoveStep;
+
+            for (int c = 0; c < continuationCount; c++)
+            {
+                GameState.Reseed();
+
+                while (!GameIsDone())
+                {
+                    GameState.AdvanceToNextPlayerChoice();
+                    MakeMove(temp);
+                }
+
+                totalReward += GetCurrentReward();
+
+                GameState.MoveState.RevertToStep(afterCandidateStep);
+            }
+
+            avgRewards[i] = totalReward / continuationCount;
+
+            GameState.MoveState.RevertToStep(initialStep);
+        }
+
+        // Find the best move based on average rewards
+        int bestIndex = 0;
+        float bestReward = avgRewards[0];
+        for (int i = 1; i < sampleCount; i++)
+        {
+            if (avgRewards[i] > bestReward)
+            {
+                bestReward = avgRewards[i];
+                bestIndex = i;
+            }
+        }
+
+        // Swap the best move to index 0
+        if (bestIndex != 0)
+        {
+            // Swap probabilities
+            Tensor tempProb = sampledProbs[0, 0].clone();
+            sampledProbs[0, 0] = sampledProbs[0, bestIndex];
+            sampledProbs[0, bestIndex] = tempProb;
+
+            // Swap move tensors
+            sampledMoveTensors.Swap(dim: 1, 0, bestIndex);
+            foreach (var property in typeof(MoveTensors).GetProperties())
+            {
+                if (property.PropertyType == typeof(Tensor))
+                {
+                    Tensor tensor = (Tensor)property.GetValue(sampledMoveTensors);
+                    if (tensor is not null)
+                    {
+                        Tensor tempTensor = tensor[TensorIndex.Colon, TensorIndex.Single(0)].clone();
+                        tensor[TensorIndex.Colon, TensorIndex.Single(0)] = tensor[TensorIndex.Colon, TensorIndex.Single(bestIndex)];
+                        tensor[TensorIndex.Colon, TensorIndex.Single(bestIndex)] = tempTensor;
+                    }
+                }
+            }
+        }
+
+        // Apply the best move (now at index 0)
+       sampledMoves[bestIndex].Apply(GameState);
+
+        return CreateEvaluationTrainingSample(sampledMoveTensors, sampledProbs);
+    }
+
+    /// <summary>
+    /// Returns the policy model's predicted probability distribution for the best next move.
     /// Returned probs is a 1xN tensor where N is the number of moves.
     /// </summary>
-    public (Tensor probs, List<Move> moves, MoveTensors moveTensors) GetPolicyProbDist(float temp) 
+    public (Move[] moves, MoveTensors moveTensors, Tensor probs) GetPolicyProbDist(float temp) 
     {
         GameStateTensors stateTensors = Tensors;
         Tensor processedState = Model.ProcessState(stateTensors);
-        List<Move> moves = GameState.GetMoveOptions();
+        Move[] moves = GameState.GetMoveOptions();
         MoveTensors moveTensors = CreateMoveTensors(moves);
         Tensor logits = Model.GetPolicyLogits(moveTensors, processedState);
 
         Tensor probs = (logits / Math.Max(temp, 0.0001f)).softmax(1);
-        return (probs, moves, moveTensors);
+        return (moves, moveTensors, probs);
     }
 
 
-    internal EvaluationTrainingSample CreateEvaluationTrainingSample(Tensor probs, MoveTensors moveTensors)
+    internal EvaluationTrainingSample CreateEvaluationTrainingSample(MoveTensors moveTensors, Tensor probs)
     {
         EvaluationTrainingSample sample = new()
         {
@@ -155,6 +240,7 @@ public class RamenAgent
         return sample;
     }
 
+    // don't use this function with the sampled probs/moves arrays, since it samples them internally.
     internal EvaluationTrainingSample CreateEvaluationTrainingSample(Tensor probs, MoveTensors moveTensors, Tensor indices)
     {
         Tensor sampledProbs = probs.index_select(dim: 1, indices);
@@ -170,12 +256,28 @@ public class RamenAgent
         return sample;
     }
 
+    private (Move[] sampledMoves, MoveTensors sampledMoveTensors, Tensor sampledProbs) SampleMoves(Move[] moves, MoveTensors moveTensors, Tensor probs, int sampleCount)
+    {
+        Tensor indices = multinomial(probs.view([-1]), sampleCount, replacement: false);
+        Tensor sampledProbs = probs.index_select(dim: 1, indices);
+        MoveTensors sampledMoveTensors = moveTensors.IndexSelect(dim: 1, indices);
+
+        long[] indicesArray = indices.data<long>().ToArray();
+        Move[] sampledMoves = new Move[sampleCount];
+        for (int i = 0; i < sampledMoves.Length; ++i)
+            sampledMoves[i] = moves[indicesArray[i]];
+
+        indices.Dispose();
+
+        return (sampledMoves, sampledMoveTensors, sampledProbs);
+    }
+
     /// <summary>
     /// Embeds a list of moves into tensors.
     /// </summary>
-    private MoveTensors CreateMoveTensors(List<Move> moves)
+    private MoveTensors CreateMoveTensors(Move[] moves)
     {
-        int moveCount = moves.Count;
+        int moveCount = moves.Length;
         int[,] playedHands = new int[moveCount, 5];
         int[,] remainingHands = new int[moveCount, 8];
         int[] handsAndDiscards = new int[moveCount];
@@ -211,10 +313,10 @@ public class RamenAgent
         };
     }
     
-    static int FindMatchingMoveIndex(List<Move> moves, Move expectedMove)
+    static int FindMatchingMoveIndex(Move[] moves, Move expectedMove)
     {
         int expectedIndex = 0;
-        for (; expectedIndex < moves.Count; ++expectedIndex)
+        for (; expectedIndex < moves.Length; ++expectedIndex)
         {
             UseHandMove move = moves[expectedIndex] as UseHandMove;
             UseHandMove expected = expectedMove as UseHandMove;
@@ -234,7 +336,7 @@ public class RamenAgent
             if (match)
                 break;
         }
-        if (expectedIndex == moves.Count)
+        if (expectedIndex == moves.Length)
             expectedIndex = -1;
         return expectedIndex;
     }
@@ -248,15 +350,15 @@ public class RamenAgent
         sample = default;
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
-        List<Move> allMoves = GameState.GetMoveOptions();
-        if (allMoves.Count == 0)
+        Move[] allMoves = GameState.GetMoveOptions();
+        if (allMoves.Length == 0)
             return false;
     
         int expectedIndex = FindMatchingMoveIndex(allMoves, expectedMove);
         if (expectedIndex == -1)
             throw new ArgumentException("expectedMove is not in available moves");
 
-        (Tensor probs, List<Move> moves, MoveTensors moveTensors) = GetPolicyProbDist(temp);
+        (Move[] moves, MoveTensors moveTensors, Tensor probs) = GetPolicyProbDist(temp);
 
         float expectedProb = probs[0, expectedIndex].item<float>();
         probs[0, expectedIndex] = 0;
@@ -267,7 +369,7 @@ public class RamenAgent
         Tensor indices = concat([tensor(expectedIndex).unsqueeze_(0), sampleIndices], dim: 0);
         MoveTensors sampledMoveTensors = moveTensors.IndexSelect(1, indices);
         Tensor sampledProbs = probs.index_select(1, indices);
-        sample = CreateEvaluationTrainingSample(probs, moveTensors);
+        sample = CreateEvaluationTrainingSample(moveTensors, probs);
 
         nlProb = -MathF.Log(Math.Max(expectedProb, 1e-9f));
         return true;
@@ -280,10 +382,10 @@ public class RamenAgent
     {
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
-        List<Move> allMoves = GameState.GetMoveOptions();
-        if (allMoves.Count == 0)
+        Move[] allMoves = GameState.GetMoveOptions();
+        if (allMoves.Length == 0)
             return new List<(Move, float)>();
-        if (allMoves.Count == 1)
+        if (allMoves.Length == 1)
             return new List<(Move, float)> { (allMoves[0], 1f) };
 
         GameStateTensors stateTensors = Tensors;
@@ -295,7 +397,7 @@ public class RamenAgent
 
         Tensor probDist = (logits / Math.Max(temp, 0.0001f)).softmax(1);
 
-        int samplesToGet = Math.Min(maxUniqueMoves, allMoves.Count);
+        int samplesToGet = Math.Min(maxUniqueMoves, allMoves.Length);
         Tensor indices = multinomial(probDist.view([-1]), samplesToGet, replacement: false);
         Tensor sampledProbs = probDist.index_select(1, indices);
         List<(Move move, float probability)> selected = new();
@@ -316,10 +418,10 @@ public class RamenAgent
     /// </summary>
     public bool MakeHighestScoringMove()
     {
-        List<Move> moves = GameState.GetMoveOptions();
-        if (moves.Count == 0)
+        Move[] moves = GameState.GetMoveOptions();
+        if (moves.Length == 0)
             return false;
-        if (moves.Count == 1)
+        if (moves.Length == 1)
         {
             moves[0].Apply(GameState);
             return true;
