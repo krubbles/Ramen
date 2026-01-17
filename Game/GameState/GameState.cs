@@ -68,7 +68,10 @@ public sealed class GameState
         }
     }
 
-    public bool GameIsDone => HandState.RemainingHands == 0 || ScoringState.CurrentRoundTotalChips >= 300;
+    public bool GameIsDone => 
+        MoveState.MoveHistory.Count >= 2 &&
+        (HandState.RemainingHands == 0 || 
+        ScoringState.CurrentRoundTotalChips >= 300);
 
     public bool IsPlayerChoice 
     {
