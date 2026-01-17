@@ -323,12 +323,12 @@ public sealed class AnnotatingDataMove : Move
         public void Serialize(GameStateSerializer serializer, Move move)
         {
             AnnotatingDataMove trainingDataMove = (AnnotatingDataMove)move;
-            serializer.Stream.WriteArrayByteSize<byte>(trainingDataMove.Data);
+            serializer.Stream.WriteArrayUshortSize<byte>(trainingDataMove.Data);
         }
 
         public Move Deserialize(GameStateSerializer serializer)
         {
-            byte[] data = serializer.Stream.ReadArrayByteSize<byte>();
+            byte[] data = serializer.Stream.ReadArrayUshortSize<byte>();
             return new AnnotatingDataMove(data);
         }
     }
