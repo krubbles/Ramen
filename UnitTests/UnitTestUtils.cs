@@ -9,10 +9,10 @@ public static class GameStateUnitTestExtentions
         while (true)
         {
             gameState.AdvanceToNextPlayerChoice();
-            List<Move> moves = gameState.GetMoveOptions();
-            if (moves.Count == 0)
+            Move[] moves = gameState.GetMoveOptions();
+            if (moves.Length == 0)
                 return;
-            int moveIndex = random.Next(moves.Count);
+            int moveIndex = random.Next(moves.Length);
             moves[moveIndex].Apply(gameState);
         }
     }
