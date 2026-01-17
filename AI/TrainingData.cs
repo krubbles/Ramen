@@ -232,18 +232,29 @@ public static class TrainingData
         return annotation;
     }
 
-    public static GameState PlayGameMonteCarlo(PolicyModel model, int branches, int continuations, bool log, float temp)
+    public static GameState PlayGameMonteCarlo(PolicyModel model, int branches, int continuations, bool log, float temp, CancellationToken cancel = default)
     {
         GameState gameState = new(GameData.Default);
         RamenAgent agent = new(gameState, model);
-
+        List<int> moveSteps = new();
         while (!agent.GameIsDone())
         {
+            if (cancel.IsCancellationRequested)
+                throw new OperationCanceledException(cancel);
+
             gameState.AdvanceToNextPlayerChoice();
-            MoveSampleAnnotationData[] branchData = agent.MakeMoveMonteCarlo(temp: temp, branches, continuations);
-            AnnotatingDataMove annotation = GetMoveIndicesAnnotation(branchData);
-            annotation.Apply(gameState);
+            moveSteps.Add(gameState.MoveState.MoveStep);
+            agent.MakeMove(1f);
         }
+
+        if (cancel.IsCancellationRequested)
+            throw new OperationCanceledException(cancel);
+
+        gameState.MoveState.RevertToStep(FastRandom.SeededByClock().NextPick(moveSteps));
+
+        MoveSampleAnnotationData[] branchData = agent.MakeMoveMonteCarlo(temp, branches, continuations);
+        AnnotatingDataMove annotation = GetMoveIndicesAnnotation(branchData);
+        annotation.Apply(gameState);
 
         return gameState;
     }

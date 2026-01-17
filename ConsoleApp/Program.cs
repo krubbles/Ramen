@@ -165,7 +165,10 @@ void GenerateGames(ConsoleCommandContext context)
 
         for (int i = 0; i < games; i++)
         {
-            GameState gameState = TrainingData.PlayGameMonteCarlo(model, branches, samples, log, temp);
+            if (cancel.IsCancellationRequested)
+                return;
+
+            GameState gameState = TrainingData.PlayGameMonteCarlo(model, branches, samples, log, temp, cancel.Token);
             database.AddGame(gameState);
 
             RamenAgent agent = new(gameState, model);
