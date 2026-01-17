@@ -104,7 +104,7 @@ public static class AgentTrainingExtensions
         // Apply the best move (now at index 0)
         moves[indicesArray[bestIndexIndex]].Apply(agent.GameState);
 
-        float[] sampledProbs = probs.index_select(dim: 1, indices).data<float>().ToArray();
+        float[] sampledProbs = probs.index_select(dim: 1, indices.squeeze(0)).data<float>().ToArray();
         MoveSampleAnnotationData[] annotationData = new MoveSampleAnnotationData[indicesArray.Length];
         for (int i = 0; i < annotationData.Length; ++i)
         {

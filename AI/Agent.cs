@@ -121,7 +121,7 @@ public class RamenAgent
         MoveTensors moveTensors = CreateMoveTensors(moves);
         Tensor logits = Model.GetPolicyLogits(moveTensors, processedState);
 
-        Tensor probs = (logits / Math.Max(temp, 0.0001f)).softmax(1);
+        Tensor probs = (logits / Math.Max(temp, 0.0001f)).softmax(1).squeeze_(2);
         return (moveTensors, probs);
     }
 
