@@ -201,7 +201,7 @@ public static class TrainingData
         Console.WriteLine();
     }
 
-    static ushort[] GetSampledMoveIndices(AnnotatingDataMove annotation) 
+    static ushort[] GetBranchMoveIndices(AnnotatingDataMove annotation) 
     {
         byte[] data = annotation.Data;
         ushort[] indices = new ushort[data.Length * 2];
@@ -217,35 +217,19 @@ public static class TrainingData
         return annotation;
     }
 
-    public static GameState PlayGameMonteCarlo(PolicyModel model, int branches, int samples, bool log, float temp)
+    public static GameState PlayGameMonteCarlo(PolicyModel model, int branches, int continuations, bool log, float temp)
     {
         GameState gameState = new(GameData.Default);
         RamenAgent agent = new(gameState, model);
-        gameState.AdvanceToNextPlayerChoice();
-
-        List<int> playerChoiceMoveSteps = new();
 
         while (!agent.GameIsDone())
         {
             gameState.AdvanceToNextPlayerChoice();
-            playerChoiceMoveSteps.Add(gameState.MoveState.MoveStep);
-            agent.MakeMove(1.0f);
+            ushort[] branchIndices = agent.MakeMoveMonteCarlo(temp: 1, branches, continuations);
+            AnnotatingDataMove annotation = GetMoveIndicesAnnotation(branchIndices);
+            annotation.Apply(gameState);
         }
 
-        int rollbackIndex = agent.Random.Next(playerChoiceMoveSteps.Count);
-        int rollbackStep = playerChoiceMoveSteps[rollbackIndex];
-        gameState.MoveState.RevertToStep(rollbackStep);
-
-        var candidateMoves = agent.SampleMoves(1.0f, branches);
-        Move bestMove = agent.SelectBestMoveMonteCarlo(candidateMoves, samples, temp);
-
-        if (log)
-        {
-            Console.WriteLine($"GameState: {gameState}");
-            // Note: We could optionally add logging of move evaluations here if needed
-        }
-
-        bestMove.Apply(gameState);
         return gameState;
     }
 }
