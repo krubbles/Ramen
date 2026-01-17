@@ -100,7 +100,7 @@ public class RamenAgent
     /// Returns the policy model's predicted probability distribution for the best next move.
     /// Returned probs is a 1xN tensor where N is the number of moves.
     /// </summary>
-    public (Move[] moves, MoveTensors moveTensors, Tensor probs) GetPolicyProbDist(float temp) 
+    internal (Move[] moves, MoveTensors moveTensors, Tensor probs) GetPolicyProbDist(float temp) 
     {
         Move[] moves = GameState.GetMoveOptions();
         (MoveTensors moveTensors, Tensor probs) = GetPolicyProbDistForMoves(temp, moves);
@@ -111,7 +111,7 @@ public class RamenAgent
     /// Returns the policy model's predicted probability distribution for the best next move given a selected subset of them.
     /// Returned probs is a 1xN tensor where N is the number of moves.
     /// </summary>
-    public (MoveTensors moveTensors, Tensor probs) GetPolicyProbDistForMoves(float temp, Move[] moves)
+    internal (MoveTensors moveTensors, Tensor probs) GetPolicyProbDistForMoves(float temp, Move[] moves)
     {
         GameStateTensors stateTensors = Tensors;
         Tensor processedState = Model.ProcessState(stateTensors);
@@ -125,7 +125,7 @@ public class RamenAgent
     /// <summary>
     /// Embeds a list of moves into tensors.
     /// </summary>
-    private MoveTensors CreateMoveTensors(Move[] moves)
+    internal MoveTensors CreateMoveTensors(Move[] moves)
     {
         int moveCount = moves.Length;
         int[,] playedHands = new int[moveCount, 5];
@@ -162,42 +162,7 @@ public class RamenAgent
             Score = tensor(scores).view([1, -1])
         };
     }
-
-
-
-
-
-
-    
-    static int FindMatchingMoveIndex(Move[] moves, Move expectedMove)
-    {
-        int expectedIndex = 0;
-        for (; expectedIndex < moves.Length; ++expectedIndex)
-        {
-            UseHandMove move = moves[expectedIndex] as UseHandMove;
-            UseHandMove expected = expectedMove as UseHandMove;
-            if (move.IsDiscard != expected.IsDiscard)
-                continue;
-            if (move.CardIndices.Length != expected.CardIndices.Length)
-                continue;
-            bool match = true;
-            for (int i = 0; i < move.CardIndices.Length; ++i)
-            {
-                if (move.CardIndices[i] != expected.CardIndices[i])
-                {
-                    match = false;
-                    break;
-                }
-            }
-            if (match)
-                break;
-        }
-        if (expectedIndex == moves.Length)
-            expectedIndex = -1;
-        return expectedIndex;
-    }
-
-
+  
     /// <summary>
     /// Plays the hand that scores the most points in the current position. Mostly used for test scenarios.
     /// </summary>

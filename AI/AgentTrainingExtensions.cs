@@ -38,7 +38,7 @@ public static class AgentTrainingExtensions
     /// Calculates the average reward for all continuations from each move, and makes the move with the best average.
     /// </summary>
     /// <returns>An array containing the indices to all sampled moves, with the highest average reward move at index 0.</returns>
-    public static ushort[] MakeMoveMonteCarlo(this RamenAgent agent, float temp, int sampleCount, int continuationCount)
+    public static MoveSampleAnnotationData[] MakeMoveMonteCarlo(this RamenAgent agent, float temp, int sampleCount, int continuationCount)
     {
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
@@ -49,15 +49,15 @@ public static class AgentTrainingExtensions
             return null;
 
         (Move[] moves, MoveTensors moveTensors, Tensor probs) = agent.GetPolicyProbDist(temp);
-
-        long[] indices = multinomial(probs, sampleCount).data<long>().ToArray();
+        Tensor indices = multinomial(probs, sampleCount);
+        long[] indicesArray = indices.data<long>().ToArray();
 
         float[] avgRewards = new float[sampleCount];
         int initialStep = agent.GameState.MoveState.MoveStep;
 
         for (int i = 0; i < sampleCount; i++)
         {
-            Move candidateMove = moves[indices[i]];
+            Move candidateMove = moves[indicesArray[i]];
             float totalReward = 0f;
 
             candidateMove.Apply(agent.GameState);
@@ -98,18 +98,20 @@ public static class AgentTrainingExtensions
         // Swap the best move to index 0
         if (bestIndexIndex != 0)
         {
-            (indices[0], indices[bestIndexIndex]) = (indices[bestIndexIndex], indices[0]);
+            (indicesArray[0], indicesArray[bestIndexIndex]) = (indicesArray[bestIndexIndex], indicesArray[0]);
         }
 
         // Apply the best move (now at index 0)
-       moves[indices[bestIndexIndex]].Apply(agent.GameState);
+        moves[indicesArray[bestIndexIndex]].Apply(agent.GameState);
 
-        ushort[] compressedIndices = new ushort[indices.Length];
-        for (int i = 0; i < compressedIndices.Length; ++i)
+        float[] sampledProbs = probs.index_select(dim: 1, indices).data<float>().ToArray();
+        MoveSampleAnnotationData[] annotationData = new MoveSampleAnnotationData[indicesArray.Length];
+        for (int i = 0; i < annotationData.Length; ++i)
         {
-            compressedIndices[i] = (ushort)indices[i];
+            annotationData[i].MoveIndex = (ushort)indicesArray[i];
+            annotationData[i].NLProbTimes1K = (ushort)Math.Clamp(-MathF.Log(sampledProbs[i]) * 1000 + 0.5f, 0, ushort.MaxValue); // encoding for low-bit-depth
         }
-        return compressedIndices;
+        return annotationData;
     }
 
     /// <summary>
@@ -130,14 +132,17 @@ public static class AgentTrainingExtensions
     /// <summary>
     /// Creates a Monte Carlo training sample for the given move indices.
     /// </summary>
-    public static PolicyTrainingSample CreateMonteCarloTrainingSample(this RamenAgent agent, ushort[] moveIndices, float temp)
+    public static PolicyTrainingSample CreateMonteCarloTrainingSample(this RamenAgent agent, MoveSampleAnnotationData[] moveIndices)
     {
         Move[] moves = agent.GameState.GetMoveOptions();
         Move[] sampledMoves = new Move[moveIndices.Length];
         for (int i = 0; i < moveIndices.Length; ++i)
-            sampledMoves[i] = moves[moveIndices[i]];
-        (MoveTensors sampledMoveTensors, Tensor sampledProbs) = agent.GetPolicyProbDistForMoves(temp, sampledMoves);
-        return CreatePolicyTrainingSample(agent, sampledMoveTensors, sampledProbs);
+            sampledMoves[i] = moves[moveIndices[i].MoveIndex];
+        MoveTensors sampledMoveTensors = agent.CreateMoveTensors(sampledMoves);
+        float[] sampledProbs = new float[moveIndices.Length];
+        for (int i = 0; i < moveIndices.Length; ++i)
+            sampledProbs[i] = MathF.Exp(moveIndices[i].NLProbTimes1K / -1000f); // it's fixed precision so the encoding is needed
+        return CreatePolicyTrainingSample(agent, sampledMoveTensors, tensor(sampledProbs).unsqueeze_(0));
     }
 
     /// <summary>

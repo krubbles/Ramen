@@ -195,11 +195,11 @@ public static class TrainingData
                 Move move = game.MoveState.MoveHistory[moveIndex];
                 if (move is AnnotatingDataMove annotation)
                 {
-                    ushort[] branchIndices = GetBranchMoveIndices(annotation);
+                    MoveSampleAnnotationData[] branchData = GetBranchMoveIndices(annotation);
 
                     move.Revert(game);
                     game.MoveState.RevertLastMove(); // we want to create the sample in the context of the state before the move was applied.
-                    PolicyTrainingSample sample = agent.CreateMonteCarloTrainingSample(branchIndices, temp: 1.0f);
+                    PolicyTrainingSample sample = agent.CreateMonteCarloTrainingSample(branchData);
                     EvaluationTrainingData.Add(sample);
                 }
             }
@@ -207,19 +207,19 @@ public static class TrainingData
         Console.WriteLine();
     }
 
-    static ushort[] GetBranchMoveIndices(AnnotatingDataMove annotation)
+    static unsafe MoveSampleAnnotationData[] GetBranchMoveIndices(AnnotatingDataMove annotation)
     {
-        byte[] data = annotation.Data;
-        ushort[] indices = new ushort[data.Length / 2];
-        Buffer.BlockCopy(data, 0, indices, 0, data.Length);
-        return indices;
+        byte[] bytes = annotation.Data;
+        MoveSampleAnnotationData[] data = new MoveSampleAnnotationData[bytes.Length / sizeof(MoveSampleAnnotationData)];
+        Buffer.BlockCopy(bytes, 0, data, 0, bytes.Length);
+        return data;
     }
 
-    static AnnotatingDataMove GetMoveIndicesAnnotation(ushort[] moveIndices)
+    static unsafe AnnotatingDataMove GetMoveIndicesAnnotation(MoveSampleAnnotationData[] data)
     {
-        byte[] data = new byte[moveIndices.Length / 2];
-        Buffer.BlockCopy(moveIndices, 0, data, 0, data.Length);
-        AnnotatingDataMove annotation = new(data);
+        byte[] bytes = new byte[data.Length * sizeof(MoveSampleAnnotationData)];
+        Buffer.BlockCopy(data, 0, bytes, 0, bytes.Length);
+        AnnotatingDataMove annotation = new(bytes);
         return annotation;
     }
 
@@ -231,8 +231,8 @@ public static class TrainingData
         while (!agent.GameIsDone())
         {
             gameState.AdvanceToNextPlayerChoice();
-            ushort[] branchIndices = agent.MakeMoveMonteCarlo(temp: 1, branches, continuations);
-            AnnotatingDataMove annotation = GetMoveIndicesAnnotation(branchIndices);
+            MoveSampleAnnotationData[] branchData = agent.MakeMoveMonteCarlo(temp: 1, branches, continuations);
+            AnnotatingDataMove annotation = GetMoveIndicesAnnotation(branchData);
             annotation.Apply(gameState);
         }
 
@@ -260,4 +260,11 @@ public class PolicyTrainingSample : ITensorGroup
     /// The negative natural log probability of the chosen move.
     /// </summary>
     public float ChosenMoveNLProb;
+}
+
+
+public struct MoveSampleAnnotationData 
+{
+    public ushort MoveIndex;
+    public ushort NLProbTimes1K; // for log-q adjustment
 }
