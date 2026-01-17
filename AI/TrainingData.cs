@@ -211,14 +211,22 @@ public static class TrainingData
     {
         byte[] bytes = annotation.Data;
         MoveSampleAnnotationData[] data = new MoveSampleAnnotationData[bytes.Length / sizeof(MoveSampleAnnotationData)];
-        Buffer.BlockCopy(bytes, 0, data, 0, bytes.Length);
+        fixed (byte* src = bytes)
+        fixed (MoveSampleAnnotationData* dst = data)
+        {
+            Buffer.MemoryCopy(src, dst, bytes.Length, bytes.Length);
+        }
         return data;
     }
 
     static unsafe AnnotatingDataMove GetMoveIndicesAnnotation(MoveSampleAnnotationData[] data)
     {
         byte[] bytes = new byte[data.Length * sizeof(MoveSampleAnnotationData)];
-        Buffer.BlockCopy(data, 0, bytes, 0, bytes.Length);
+        fixed (MoveSampleAnnotationData* src = data)
+        fixed (byte* dst = bytes)
+        {
+            Buffer.MemoryCopy(src, dst, bytes.Length, bytes.Length);
+        }
         AnnotatingDataMove annotation = new(bytes);
         return annotation;
     }
