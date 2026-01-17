@@ -14,7 +14,6 @@ cancel.TryReset();
 Queue<Task> work = new();
 TrainingParams trainingParams = new(5);
 
-
 while (true)
 {
     try
@@ -77,7 +76,12 @@ void EnqueueWork(Action action)
         task.Start();
     task.ContinueWith((task) =>
     {
-        work.Dequeue();
+        Task finished = work.Dequeue();
+        if (finished.Exception != null)
+        {
+            Console.WriteLine(finished.Exception.Message);
+            Console.WriteLine(finished.Exception.InnerException.StackTrace);
+        }
         if (work.Count > 0)
             work.Peek().Start();
     });
