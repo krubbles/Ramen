@@ -43,6 +43,9 @@ while (true)
             case "generate":
                 GenerateGames(context);
                 break;
+            case "stats":
+                Stats(context);
+                break;
             case "todata":
                 ToData(context);
                 break;
@@ -181,6 +184,23 @@ void GenerateGames(ConsoleCommandContext context)
 
         Console.WriteLine();
         Console.WriteLine($"Successfully generated {games} games in database '{dbName}'");
+    });
+}
+
+void Stats(ConsoleCommandContext context)
+{
+    string dbName = context.GetTextArg(0, "db");
+
+    EnqueueWork(() =>
+    {
+        Testing.GameDatabaseStatistics stats = Testing.GetGameDatabaseStatistics(dbName);
+
+        Console.WriteLine($"Database '{dbName}' games: {stats.TotalGames}");
+        Console.WriteLine($"Played straight: {stats.PlayedStraightPercent:P2}");
+        Console.WriteLine($"Played flush: {stats.PlayedFlushPercent:P2}");
+        Console.WriteLine($"Played full house: {stats.PlayedFullHousePercent:P2}");
+        Console.WriteLine($"Discard same suit: {stats.DiscardSameSuitPercent:P2}");
+        Console.WriteLine($"Discard rank range <= 4: {stats.DiscardRankRangePercent:P2}");
     });
 }
 

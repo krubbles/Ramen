@@ -1,10 +1,46 @@
 namespace Ramen.AI;
 
 using Ramen.Game;
+using System;
 using System.Collections.Generic;
 
 public static class Testing
 {
+    public struct GameDatabaseStatistics
+    {
+        public int TotalGames;
+        public int PlayedStraightGames;
+        public int PlayedFlushGames;
+        public int PlayedFullHouseGames;
+        public int DiscardSameSuitGames;
+        public int DiscardRankRangeGames;
+
+        public readonly float PlayedStraightPercent => TotalGames == 0 ? 0f : (float)PlayedStraightGames / TotalGames;
+        public readonly float PlayedFlushPercent => TotalGames == 0 ? 0f : (float)PlayedFlushGames / TotalGames;
+        public readonly float PlayedFullHousePercent => TotalGames == 0 ? 0f : (float)PlayedFullHouseGames / TotalGames;
+        public readonly float DiscardSameSuitPercent => TotalGames == 0 ? 0f : (float)DiscardSameSuitGames / TotalGames;
+        public readonly float DiscardRankRangePercent => TotalGames == 0 ? 0f : (float)DiscardRankRangeGames / TotalGames;
+    }
+
+    public static GameDatabaseStatistics GetGameDatabaseStatistics(string databaseName)
+    {
+        GameDatabase database = new(databaseName, load: true);
+
+        GameDatabaseStatistics stats = new();
+        foreach (GameState gameState in database)
+        {
+            GameDatabaseStatistics gameStats = AnalyzeSingleGame(gameState);
+            stats.TotalGames += 1;
+            stats.PlayedStraightGames += gameStats.PlayedStraightGames;
+            stats.PlayedFlushGames += gameStats.PlayedFlushGames;
+            stats.PlayedFullHouseGames += gameStats.PlayedFullHouseGames;
+            stats.DiscardSameSuitGames += gameStats.DiscardSameSuitGames;
+            stats.DiscardRankRangeGames += gameStats.DiscardRankRangeGames;
+        }
+
+        return stats;
+    }
+
     public static float GetMaxOneShotScore(GameState gameState)
     {
         float maxScore = 0;
@@ -133,5 +169,104 @@ public static class Testing
         double marginOfError = z * stdError;
 
         return (mean, mean - marginOfError, mean + marginOfError, stdError);
+    }
+
+    static GameDatabaseStatistics AnalyzeSingleGame(GameState gameState)
+    {
+        bool playedStraight = false;
+        bool playedFlush = false;
+        bool playedFullHouse = false;
+        bool discardSameSuit = false;
+        bool discardRankRange = false;
+
+        Move[] moves = gameState.MoveState.MoveHistory.ToArray();
+        gameState.MoveState.RevertToStep(0);
+        for (int i = 0; i < moves.Length; ++i)
+        {
+            Move move = moves[i];
+            move.Apply(gameState);
+
+            if (move is UseHandMove useHandMove)
+            {
+                if (useHandMove.IsDiscard)
+                {
+                    if (!discardSameSuit && IsSameSuitAfterDiscard(gameState.HandState.Hand))
+                        discardSameSuit = true;
+                    if (!discardRankRange && IsRankRangeSmallAfterDiscard(gameState.HandState.Hand))
+                        discardRankRange = true;
+                }
+                else
+                {
+                    HandType handType = gameState.HandState.ActiveHandPatterns.HandType;
+                    if (!playedStraight && IsStraightHandType(handType))
+                        playedStraight = true;
+                    if (!playedFlush && IsFlushHandType(handType))
+                        playedFlush = true;
+                    if (!playedFullHouse && IsFullHouseHandType(handType))
+                        playedFullHouse = true;
+                }
+            }
+        }
+
+        GameDatabaseStatistics result = new();
+        result.PlayedStraightGames = playedStraight ? 1 : 0;
+        result.PlayedFlushGames = playedFlush ? 1 : 0;
+        result.PlayedFullHouseGames = playedFullHouse ? 1 : 0;
+        result.DiscardSameSuitGames = discardSameSuit ? 1 : 0;
+        result.DiscardRankRangeGames = discardRankRange ? 1 : 0;
+        return result;
+    }
+
+    static bool IsStraightHandType(HandType handType)
+    {
+        return handType == HandType.Straight || handType == HandType.StraightFlush;
+    }
+
+    static bool IsFlushHandType(HandType handType)
+    {
+        return handType == HandType.Flush ||
+               handType == HandType.StraightFlush ||
+               handType == HandType.FlushHouse ||
+               handType == HandType.FlushFive;
+    }
+
+    static bool IsFullHouseHandType(HandType handType)
+    {
+        return handType == HandType.FullHouse || handType == HandType.FlushHouse;
+    }
+
+    static bool IsSameSuitAfterDiscard(ReadOnlySpan<Card> hand)
+    {
+        Suit suit = Suit.None;
+        for (int i = 0; i < hand.Length; ++i)
+        {
+            Suit cardSuit = hand[i].Suit;
+            if (cardSuit == Suit.All)
+                continue;
+            if (suit == Suit.None)
+                suit = cardSuit;
+            else if (suit != cardSuit)
+                return false;
+        }
+        return true;
+    }
+
+    static bool IsRankRangeSmallAfterDiscard(ReadOnlySpan<Card> hand)
+    {
+        if (hand.Length == 0)
+            return false;
+
+        int minRank = int.MaxValue;
+        int maxRank = int.MinValue;
+        for (int i = 0; i < hand.Length; ++i)
+        {
+            int rank = hand[i].Rank;
+            if (rank < minRank)
+                minRank = rank;
+            if (rank > maxRank)
+                maxRank = rank;
+        }
+
+        return maxRank - minRank + 1 <= 4;
     }
 }
