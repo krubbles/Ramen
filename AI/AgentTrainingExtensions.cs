@@ -48,7 +48,7 @@ public static class AgentTrainingExtensions
         if (agent.GameIsDone())
             return null;
 
-        (Move[] moves, MoveTensors moveTensors, Tensor probs) = agent.GetPolicyProbDist(temp);
+        (Move[] moves, MoveTensors moveTensors, Tensor probs) = agent.GetPolicyProbDist(temp: 1f);
         Tensor indices = multinomial(probs, sampleCount);
         long[] indicesArray = indices.data<long>().ToArray();
 

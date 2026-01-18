@@ -252,7 +252,11 @@ public static class TrainingData
 
         gameState.MoveState.RevertToStep(FastRandom.SeededByClock().NextPick(moveSteps));
 
+        if (log)
+            Console.WriteLine("\n" + gameState);
         MoveSampleAnnotationData[] branchData = agent.MakeMoveMonteCarlo(temp, branches, continuations);
+        if (log)
+            Console.WriteLine(gameState.MoveState.MoveHistory[^1]);
         AnnotatingDataMove annotation = GetMoveIndicesAnnotation(branchData);
         annotation.Apply(gameState);
 
