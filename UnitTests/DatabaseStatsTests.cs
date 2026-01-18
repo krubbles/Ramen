@@ -20,6 +20,7 @@ public class DatabaseStatsTests
         TestContext.Out.WriteLine($"Played straight: {stats.PlayedStraightPercent:P2}");
         TestContext.Out.WriteLine($"Played flush: {stats.PlayedFlushPercent:P2}");
         TestContext.Out.WriteLine($"Played full house: {stats.PlayedFullHousePercent:P2}");
+        TestContext.Out.WriteLine($"Played two pair: {stats.PlayedTwoPairPercent:P2}");
         TestContext.Out.WriteLine($"Discard same suit: {stats.DiscardSameSuitPercent:P2}");
         TestContext.Out.WriteLine($"Discard rank range <= 4: {stats.DiscardRankRangePercent:P2}");
 
@@ -27,6 +28,7 @@ public class DatabaseStatsTests
         Assert.That(stats.PlayedStraightPercent, Is.GreaterThan(0.01f), "Played straight percent should be > 1%.");
         Assert.That(stats.PlayedFlushPercent, Is.GreaterThan(0.01f), "Played flush percent should be > 1%.");
         Assert.That(stats.PlayedFullHousePercent, Is.GreaterThan(0.01f), "Played full house percent should be > 1%.");
+        Assert.That(stats.PlayedTwoPairPercent, Is.GreaterThan(0.01f), "Played two pair percent should be > 1%.");
         Assert.That(stats.DiscardSameSuitPercent, Is.GreaterThan(0.01f), "Discard same suit percent should be > 1%.");
         Assert.That(stats.DiscardRankRangePercent, Is.GreaterThan(0.01f), "Discard rank range percent should be > 1%.");
     }

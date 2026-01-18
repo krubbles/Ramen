@@ -12,14 +12,30 @@ public static class Testing
         public int PlayedStraightGames;
         public int PlayedFlushGames;
         public int PlayedFullHouseGames;
+        public int PlayedTwoPairGames;
         public int DiscardSameSuitGames;
         public int DiscardRankRangeGames;
 
         public readonly float PlayedStraightPercent => TotalGames == 0 ? 0f : (float)PlayedStraightGames / TotalGames;
         public readonly float PlayedFlushPercent => TotalGames == 0 ? 0f : (float)PlayedFlushGames / TotalGames;
         public readonly float PlayedFullHousePercent => TotalGames == 0 ? 0f : (float)PlayedFullHouseGames / TotalGames;
+        public readonly float PlayedTwoPairPercent => TotalGames == 0 ? 0f : (float)PlayedTwoPairGames / TotalGames;
         public readonly float DiscardSameSuitPercent => TotalGames == 0 ? 0f : (float)DiscardSameSuitGames / TotalGames;
         public readonly float DiscardRankRangePercent => TotalGames == 0 ? 0f : (float)DiscardRankRangeGames / TotalGames;
+
+        public static GameDatabaseStatistics operator +(GameDatabaseStatistics a, GameDatabaseStatistics b)
+        {
+            return new GameDatabaseStatistics
+            {
+                TotalGames = a.TotalGames + b.TotalGames,
+                PlayedStraightGames = a.PlayedStraightGames + b.PlayedStraightGames,
+                PlayedFlushGames = a.PlayedFlushGames + b.PlayedFlushGames,
+                PlayedFullHouseGames = a.PlayedFullHouseGames + b.PlayedFullHouseGames,
+                PlayedTwoPairGames = a.PlayedTwoPairGames + b.PlayedTwoPairGames,
+                DiscardSameSuitGames = a.DiscardSameSuitGames + b.DiscardSameSuitGames,
+                DiscardRankRangeGames = a.DiscardRankRangeGames + b.DiscardRankRangeGames
+            };
+        }
     }
 
     public static GameDatabaseStatistics GetGameDatabaseStatistics(string databaseName)
@@ -30,12 +46,7 @@ public static class Testing
         foreach (GameState gameState in database)
         {
             GameDatabaseStatistics gameStats = AnalyzeSingleGame(gameState);
-            stats.TotalGames += 1;
-            stats.PlayedStraightGames += gameStats.PlayedStraightGames;
-            stats.PlayedFlushGames += gameStats.PlayedFlushGames;
-            stats.PlayedFullHouseGames += gameStats.PlayedFullHouseGames;
-            stats.DiscardSameSuitGames += gameStats.DiscardSameSuitGames;
-            stats.DiscardRankRangeGames += gameStats.DiscardRankRangeGames;
+            stats = stats + gameStats;  
         }
 
         return stats;
@@ -176,6 +187,7 @@ public static class Testing
         bool playedStraight = false;
         bool playedFlush = false;
         bool playedFullHouse = false;
+        bool playedTwoPair = false;
         bool discardSameSuit = false;
         bool discardRankRange = false;
 
@@ -198,41 +210,27 @@ public static class Testing
                 else
                 {
                     HandType handType = gameState.HandState.ActiveHandPatterns.HandType;
-                    if (!playedStraight && IsStraightHandType(handType))
+                    if (!playedStraight && handType == HandType.Straight)
                         playedStraight = true;
-                    if (!playedFlush && IsFlushHandType(handType))
+                    if (!playedFlush && handType == HandType.Flush)
                         playedFlush = true;
-                    if (!playedFullHouse && IsFullHouseHandType(handType))
+                    if (!playedFullHouse && handType == HandType.FullHouse)
                         playedFullHouse = true;
+                    if (!playedTwoPair && handType == HandType.TwoPair)
+                        playedTwoPair = true; 
                 }
             }
         }
 
         GameDatabaseStatistics result = new();
+        result.TotalGames = 1;
         result.PlayedStraightGames = playedStraight ? 1 : 0;
         result.PlayedFlushGames = playedFlush ? 1 : 0;
         result.PlayedFullHouseGames = playedFullHouse ? 1 : 0;
+        result.PlayedTwoPairGames = playedTwoPair ? 1 : 0;
         result.DiscardSameSuitGames = discardSameSuit ? 1 : 0;
         result.DiscardRankRangeGames = discardRankRange ? 1 : 0;
         return result;
-    }
-
-    static bool IsStraightHandType(HandType handType)
-    {
-        return handType == HandType.Straight || handType == HandType.StraightFlush;
-    }
-
-    static bool IsFlushHandType(HandType handType)
-    {
-        return handType == HandType.Flush ||
-               handType == HandType.StraightFlush ||
-               handType == HandType.FlushHouse ||
-               handType == HandType.FlushFive;
-    }
-
-    static bool IsFullHouseHandType(HandType handType)
-    {
-        return handType == HandType.FullHouse || handType == HandType.FlushHouse;
     }
 
     static bool IsSameSuitAfterDiscard(ReadOnlySpan<Card> hand)

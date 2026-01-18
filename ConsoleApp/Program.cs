@@ -3,7 +3,8 @@ using Ramen.Game;
 using Ramen.ConsoleApp;
 using System.Runtime.InteropServices;
 
-ExternalConsole.Initialize();
+// needed for cursor
+// ExternalConsole.Initialize();
 System.Diagnostics.Debug.WriteLine("=== WELCOME! ===");
 
 
