@@ -1,30 +1,36 @@
 namespace Ramen.AI;
 
+using Ramen.Game;
 using static TorchSharp.torch;
 public static class DataAugmentation
 {
     static readonly int[][] SuitRemapPermutations = CreateSuitRemapPermutations();
 
-    public static void AugmentEvaluationTrainingDataBySuitRemap(bool includeIdentity = false)
+    public static void AugmentEvaluationTrainingDataBySuitRemap()
     {
-        AugmentTrainingDataBySuitRemap(TrainingData.EvaluationTrainingData, includeIdentity);
+        AugmentTrainingDataBySuitRemap(TrainingData.PolicyData);
     }
 
-    public static void AugmentTrainingDataBySuitRemap(List<PolicyTrainingSample> samples, bool includeIdentity = false)
+    public static void AugmentTrainingDataBySuitRemap(List<PolicyTrainingSample> samples)
     {
+        FastRandom random = FastRandom.SeededByClock();
         int originalCount = samples.Count;
         for (int i = 0; i < originalCount; ++i)
         {
             PolicyTrainingSample sample = samples[i];
             for (int p = 0; p < SuitRemapPermutations.Length; ++p)
             {
+                if (random.NextFlip(0.8f))
+                    continue;
                 int[] permutation = SuitRemapPermutations[p];
-                if (!includeIdentity && IsIdentitySuitRemap(permutation))
+                if (IsIdentitySuitRemap(permutation))
                     continue;
 
                 PolicyTrainingSample remapped = CreateSuitRemappedSample(sample, permutation);
                 samples.Add(remapped);
             }
+            if ((i + 1) % 1000 == 0)
+                Console.WriteLine($"Augmented {i + 1}/{originalCount} samples...");
         }
     }
 
