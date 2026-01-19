@@ -128,7 +128,7 @@ public static class DataAugmentation
             return;
         }
 
-        for (int i = depth; i < suits.Length; ++i)
+        for (int i = 0; i < suits.Length; ++i)
         {
             if (suitIsUsed[i])
                 continue;

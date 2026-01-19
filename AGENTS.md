@@ -6,6 +6,7 @@
 
 # Unit Tests
 - Don't write tests for things that can be easily validated by looking at the code.
+- Use Assert.That()
 
 # Code Guidelines
 - Always use file-scoped namespace declarations.
