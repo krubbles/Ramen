@@ -25,7 +25,7 @@ public class TrainingDataStats
 
 public static class TrainingData
 {
-    public static readonly List<PolicyTrainingSample> EvaluationTrainingData = new();
+    public static readonly List<PolicyTrainingSample> PolicyData = new();
 
     public const int PolicyOutputWidth = 9;
 
@@ -42,11 +42,7 @@ public static class TrainingData
     static void RunGroup(PolicyModel model, TrainingDataStats stats, int groupSize = 32)
     {
         GameState gameState = new(new());
-        if (true)
-        {
-            GenerateGRPOTrainingDataGroup(model, gameState, stats, groupSize);
-            return;
-        }
+        GenerateGRPOTrainingDataGroup(model, gameState, stats, groupSize);
     }
 
     static void GenerateGRPOTrainingDataGroup(PolicyModel model, GameState gameState, TrainingDataStats stats, int groupSize = 128)
@@ -57,33 +53,28 @@ public static class TrainingData
         using var scope = NewDisposeScope();
         List<SN>[] groupGames = new List<SN>[groupSize];
         float[] groupRewards = new float[groupSize];
-        int baselineMoveCount = gameState.MoveState.MoveHistory.Count;
+        
+        gameState.AdvanceToNextPlayerChoice();
+        int startingMoveCount = gameState.MoveState.MoveHistory.Count;
         using (no_grad())
         {
             for (int group = 0; group < groupSize; ++group)
             {
-                gameState.Random.SetState((ulong)random.Next());
+                gameState.Reseed();
                 
                 List<SN> gameSamples = new();
 
                 groupGames[group] = gameSamples;
 
                 gameState.AdvanceToNextPlayerChoice();
-                while (gameState.HandState.RemainingHands > 1 && gameState.ScoringState.CurrentRoundTotalChips < 300)
+                while (!agent.GameIsDone())
                 {
                     gameState.AdvanceToNextPlayerChoice();
-                    if (agent.GameIsDone())
-                        break;
                     PolicyTrainingSample sample = agent.MakeMoveAndTrainingSample(temp: 1f);
                     gameSamples.Add(new() { Sample = sample, N = 1, Move = gameState.MoveState.MoveHistory[^1], NLProb = sample.ChosenMoveNLProb });
                 }
-                if (gameState.ScoringState.CurrentRoundTotalChips < 300)
-                {
-                    gameState.AdvanceToNextPlayerChoice();
-                    agent.MakeHighestScoringMove();
-                }
                 groupRewards[group] = agent.GetCurrentReward();
-                while (gameState.MoveState.MoveHistory.Count > baselineMoveCount)
+                while (gameState.MoveState.MoveHistory.Count > startingMoveCount)
                     gameState.MoveState.RevertLastMove();
 
             }
@@ -118,54 +109,21 @@ public static class TrainingData
                 SN node = nodes[depth];
                 stats.NodesCount++;
                 node.Sample.Advantage = tensor(advantage).unsqueeze_(0).DetachFromDisposeScope();
-                EvaluationTrainingData.Add(node.Sample);
+                PolicyData.Add(node.Sample);
 
                 stats.TotalNLProbByDepth[depth] += node.NLProb;
                 stats.CountByDepth[depth] += 1;
             }
         }
     }
-
-    static void GenerateEvalTrainingDataJob(PolicyModel model, TrainingDataStats stats, int samples, float temp)
+    public static TrainingDataStats GenerateGRPO(PolicyModel model, int samples, float temp)
     {
-        while (EvaluationTrainingData.Count < samples)
+        Console.WriteLine();
+        TrainingDataStats stats = new();
+        while (stats.GamesCount < samples)
         {
             RunGroup(model, stats);
-        }
-    }
-
-    public static TrainingDataStats GenerateEvaluationTrainingData(PolicyModel model, int samples, float temp)
-    {
-        Stopwatch watch = Stopwatch.StartNew();
-        TrainingDataStats stats = new();
-        if (true)
-        {
-
-            Task[] tasks = new Task[1];
-            for (int i = 0; i < tasks.Length; ++i)
-            {
-                tasks[i] = Task.Run(() =>
-                {
-                    GenerateEvalTrainingDataJob(model, stats, samples, temp);
-                });
-            }
-
-            while (EvaluationTrainingData.Count < samples)
-            {
-                Thread.Sleep(1000);
-                Console.WriteLine($"Samples {EvaluationTrainingData.Count}, time {watch.Elapsed.TotalSeconds:F1}, rate {EvaluationTrainingData.Count / watch.Elapsed.TotalSeconds:F1}");
-                foreach (Task task in tasks)
-                {
-                    if (task.Exception != null)
-                        throw task.Exception;
-                }
-            }
-
-            Task.WaitAll(tasks);
-        }
-        else
-        {
-            GenerateEvalTrainingDataJob(model, stats, samples, temp);
+            Console.Write($"\rGenerated {stats.GamesCount}/{samples} games...");
         }
         return stats;
     }
@@ -202,7 +160,7 @@ public static class TrainingData
                     game.MoveState.RevertLastMove(); // we want to create the sample in the context of the state before the move was applied.
                     moveIndex--;
                     PolicyTrainingSample sample = agent.CreateMonteCarloTrainingSample(branchData);
-                    EvaluationTrainingData.Add(sample);
+                    PolicyData.Add(sample);
                 }
             }
         }

@@ -31,7 +31,7 @@ public class DataAugmentationTests
         List<PolicyTrainingSample> samples = new() { sample };
 
         // Include identity so we have all 24 permutations
-        DataAugmentation.AugmentTrainingDataBySuitRemap(samples, includeIdentity: true);
+        DataAugmentation.AugmentTrainingDataBySuitRemap(samples);
 
         Assert.That(samples.Count, Is.EqualTo(1 + 24), "Expected original + 24 permutations");
 

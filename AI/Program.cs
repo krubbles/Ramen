@@ -42,8 +42,8 @@ class Program
         for (int i = 0; i < 1000; i++)
         {
             int multiplier = 1;
-            TrainingData.EvaluationTrainingData.Clear();
-            TrainingDataStats stat = TrainingData.GenerateEvaluationTrainingData(model, 5000, 1f);
+            TrainingData.PolicyData.Clear();
+            TrainingDataStats stat = TrainingData.GenerateGRPO(model, 5000, 1f);
             stats.Add(stat);
             entropy *= MathF.Pow(0.5f, 1f / 10);
             avgScores.Add(Testing.GetAverageScore(model, 1000 * multiplier));

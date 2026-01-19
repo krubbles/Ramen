@@ -14,43 +14,17 @@ CancellationTokenSource cancel = new();
 cancel.TryReset();
 Queue<Task> work = new();
 TrainingParams trainingParams = new(5);
+List<string> CommandHistory = new();
+const int MaxCommandHistory = 100;
 
 while (true)
 {
     try
     {
-        string command = Console.ReadLine();
-        ConsoleCommandContext context = new(command);
-        switch (context.Name.ToLower())
-        {
-            case "traingrpo":
-                TrainGRPO(context);
-                break;
-            case "train":
-                TrainSupervised(context);
-                break;
-            case "set":
-                Set(context);
-                break;
-            case "cancel":
-                Cancel();
-                break;
-            case "test":
-                Test(context);
-                break;
-            case "generate":
-                GenerateGames(context);
-                break;
-            case "stats":
-                Stats(context);
-                break;
-            case "todata":
-                ToData(context);
-                break;
-            case "clear":
-                Clear();
-                break;
-        }
+        string? command = Console.ReadLine();
+        if (string.IsNullOrWhiteSpace(command))
+            continue;
+        ExecuteCommand(command, isFromRepeat: false);
     }
     catch (Exception ex)
     {
@@ -58,6 +32,103 @@ while (true)
     }
 }
 
+void ExecuteCommand(string command, bool isFromRepeat)
+{
+    ConsoleCommandContext context = new(command);
+    if (!isFromRepeat && context.Name != "repeat")
+        AddCommandHistory(command);
+
+    switch (context.Name)
+    {
+        case "traingrpo":
+            TrainGRPO(context);
+            break;
+        case "train":
+            TrainSupervised(context);
+            break;
+        case "play":
+            Play(context);
+            break;
+        case "set":
+            Set(context);
+            break;
+        case "cancel":
+            Cancel();
+            break;
+        case "test":
+            Test(context);
+            break;
+        case "generate":
+            GenerateGames(context);
+            break;
+        case "stats":
+            Stats(context);
+            break;
+        case "todata":
+            ToData(context);
+            break;
+        case "augment":
+            Augment(context);
+            break;
+        case "clear":
+            Clear();
+            break;
+        case "repeat":
+            Repeat(context);
+            break;
+        default:
+            Console.WriteLine($"Unknown command '{context.Name}'.");
+            break;
+    }
+}
+
+void AddCommandHistory(string command)
+{
+    CommandHistory.Add(command);
+    if (CommandHistory.Count > MaxCommandHistory)
+        CommandHistory.RemoveAt(0);
+}
+
+void Repeat(ConsoleCommandContext context)
+{
+    int commandCount = context.GetIntArg(0, "command count");
+    int repeatCount = context.GetIntArg(1, "repeat count");
+    if (commandCount <= 0 || repeatCount <= 0)
+    {
+        Console.WriteLine("Repeat counts must be greater than 0.");
+        return;
+    }
+
+    if (CommandHistory.Count < commandCount)
+    {
+        Console.WriteLine($"Only {CommandHistory.Count} commands in history.");
+        return;
+    }
+
+    List<string> commands = CommandHistory.GetRange(CommandHistory.Count - commandCount, commandCount);
+    for (int i = 0; i < repeatCount; i++)
+    {
+        foreach (string command in commands)
+            ExecuteCommand(command, isFromRepeat: true);
+    }
+}
+
+void Play(ConsoleCommandContext context)
+{
+    EnqueueWork(() =>
+    {
+
+    int samples = context.GetIntArg(0, "samples");
+    float temp = context.GetFloatArg("temp", 0.1f);
+    bool log = context.GetBoolArg("log", false);
+    TrainingDataStats stats = TrainingData.GenerateGRPO(model, samples, temp);
+    Console.WriteLine("Done playing games.");
+    Console.WriteLine($"Average reward: {stats.TotalReward / stats.GamesCount:F4}");
+    Console.WriteLine($"Average round0 nlprob: {stats.AverageNLProb(0):F4}");
+    Console.WriteLine($"Average round1 nlprob: {stats.AverageNLProb(1):F4}");
+    Console.WriteLine($"Average round2 nlprob: {stats.AverageNLProb(2):F4}");
+    });
+}
 void Test(ConsoleCommandContext context)
 {
     int samples = context.GetIntArg(0, "samples");
@@ -93,7 +164,7 @@ void EnqueueWork(Action action)
 
 void TrainGRPO(ConsoleCommandContext context)
 {
-    if (TrainingData.EvaluationTrainingData.Count == 0)
+    if (TrainingData.PolicyData.Count == 0)
     {
         Console.WriteLine("Cannot train, no evaluation training data");
         return;
@@ -107,7 +178,7 @@ void TrainGRPO(ConsoleCommandContext context)
 
 void TrainSupervised(ConsoleCommandContext context)
 {
-    if (TrainingData.EvaluationTrainingData.Count == 0)
+    if (TrainingData.PolicyData.Count == 0)
     {
         Console.WriteLine("Cannot train, no evaluation training data");
         return;
@@ -217,16 +288,27 @@ void ToData(ConsoleCommandContext context)
     {
         GameDatabase database = new(dbName, load: true);
         Console.WriteLine($"Loading {dbName}...");
-        int countBefore = TrainingData.EvaluationTrainingData.Count;
+        int countBefore = TrainingData.PolicyData.Count;
         TrainingData.GenerateTrainingDataFromGames(model, database);
-        int countAfter = TrainingData.EvaluationTrainingData.Count;
+        int countAfter = TrainingData.PolicyData.Count;
         Console.WriteLine($"Added {countAfter - countBefore} training samples from '{dbName}'");
+    });
+}
+
+void Augment(ConsoleCommandContext context)
+{
+    EnqueueWork(() =>
+    {
+        int countBefore = TrainingData.PolicyData.Count;
+        DataAugmentation.AugmentEvaluationTrainingDataBySuitRemap();
+        int countAfter = TrainingData.PolicyData.Count;
+        Console.WriteLine($"Augmented training data. Added {countAfter - countBefore} samples");
     });
 }
 
 void Clear()
 {
-    TrainingData.EvaluationTrainingData.Clear();
+    TrainingData.PolicyData.Clear();
     Console.WriteLine("Cleared all training data");
 }
 

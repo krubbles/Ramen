@@ -23,9 +23,9 @@ public static class Training
         Console.WriteLine($"Training evaluation model for {tp.epochs} epochs, batch size {tp.batchSize}");
 
         PolicyTrainingSample stacked;
-        lock (TrainingData.EvaluationTrainingData)
+        lock (TrainingData.PolicyData)
         {
-            stacked = TensorGroupExtentions.Stack(TrainingData.EvaluationTrainingData, false, true);
+            stacked = TensorGroupExtentions.Stack(TrainingData.PolicyData, false, true);
         }
 
         stacked = stacked.IndexSelect(0, randperm(stacked.MoveProbDist.size(0)));
@@ -39,7 +39,7 @@ public static class Training
 
         var lossFunc = CrossEntropyLoss();
 
-        int samples = TrainingData.EvaluationTrainingData.Count;
+        int samples = TrainingData.PolicyData.Count;
 
         int valCount = validate ? Math.Max(1, samples / 10) : 0; 
         int trainCount = Math.Max(0, samples - valCount);
@@ -121,9 +121,9 @@ public static class Training
         Console.WriteLine($"Training evaluation model for {tp.epochs} epochs, batch size {tp.batchSize}");
 
         PolicyTrainingSample stacked;
-        lock (TrainingData.EvaluationTrainingData)
+        lock (TrainingData.PolicyData)
         {
-            stacked = TensorGroupExtentions.Stack(TrainingData.EvaluationTrainingData, false, true);
+            stacked = TensorGroupExtentions.Stack(TrainingData.PolicyData, false, true);
         }
 
         stacked = stacked.IndexSelect(0, randperm(stacked.Advantage.size(0)));
@@ -135,7 +135,7 @@ public static class Training
             beta2: 0.998f
             );
 
-        int samples = TrainingData.EvaluationTrainingData.Count;
+        int samples = TrainingData.PolicyData.Count;
 
         int trainCount = samples;
 
