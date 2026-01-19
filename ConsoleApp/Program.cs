@@ -35,9 +35,6 @@ while (true)
             case "cancel":
                 Cancel();
                 break;
-            case "play":
-                Play(context);
-                break;
             case "test":
                 Test(context);
                 break;
@@ -93,11 +90,6 @@ void EnqueueWork(Action action)
     });
 }
 
-void Play(ConsoleCommandContext context)
-{
-    int samples = context.GetIntArg(0, "samples");
-    EnqueueWork(() => TrainingData.GenerateEvaluationTrainingData(model, samples, 1f));
-}
 
 void TrainGRPO(ConsoleCommandContext context)
 {
@@ -154,10 +146,11 @@ void GenerateGames(ConsoleCommandContext context)
 {
     string dbName = context.GetTextArg(0, "db");
     int games = context.GetIntArg(1, "games");
-    int branches = context.GetIntArg(2, "branches");
-    int samples = context.GetIntArg(3, "samples");
+    int branches = context.GetIntArg("br", 2);
+    int samples = context.GetIntArg("samples", 5);
     bool log = context.GetBoolArg("log", false);
     float temp = context.GetFloatArg("temp", 0.1f);
+    bool mc = context.GetBoolArg("mc", true);
 
     EnqueueWork(() =>
     {
@@ -172,7 +165,9 @@ void GenerateGames(ConsoleCommandContext context)
             if (cancel.IsCancellationRequested)
                 return;
 
-            GameState gameState = TrainingData.PlayGameMonteCarlo(model, branches, samples, log, temp, cancel.Token);
+            GameState gameState = mc ?
+                TrainingData.PlayGameMonteCarlo(model, branches, samples, log, temp, cancel.Token) :
+                TrainingData.PlayGame(model, temp, cancel.Token);
             database.AddGame(gameState);
 
             RamenAgent agent = new(gameState, model);
@@ -197,6 +192,7 @@ void Stats(ConsoleCommandContext context)
         Testing.GameDatabaseStatistics stats = Testing.GetGameDatabaseStatistics(dbName);
 
         Console.WriteLine($"Database '{dbName}' games: {stats.TotalGames}");
+        Console.WriteLine($"Played 2 pair: {stats.PlayedTwoPairPercent:P2}");
         Console.WriteLine($"Played straight: {stats.PlayedStraightPercent:P2}");
         Console.WriteLine($"Played flush: {stats.PlayedFlushPercent:P2}");
         Console.WriteLine($"Played full house: {stats.PlayedFullHousePercent:P2}");

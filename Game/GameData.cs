@@ -7,7 +7,7 @@ public sealed class GameData
 
     public int Seed;
 
-    public int Hands = 4, Discards = 3;
+    public int Hands = 1, Discards = 2;
 
     // When true, GameState should choose a random seed instead of using the Seed field.
     public bool RandomizeSeed = true;
