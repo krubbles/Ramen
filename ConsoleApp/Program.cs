@@ -2,6 +2,7 @@ using Ramen.AI;
 using Ramen.Game;
 using Ramen.ConsoleApp;
 using System.Runtime.InteropServices;
+using System.Collections.Concurrent;
 
 // needed for cursor
 // ExternalConsole.Initialize();
@@ -12,7 +13,7 @@ PolicyModel model = new();
 
 CancellationTokenSource cancel = new();
 cancel.TryReset();
-Queue<Task> work = new();
+ConcurrentQueue<Task> work = new();
 TrainingParams trainingParams = new(5);
 List<string> CommandHistory = new();
 const int MaxCommandHistory = 100;
@@ -41,13 +42,13 @@ void ExecuteCommand(string command, bool isFromRepeat)
     switch (context.Name)
     {
         case "traingrpo":
-            TrainGRPO(context);
+            EnqueueWork(() => TrainGRPO(context));
             break;
         case "train":
-            TrainSupervised(context);
+            EnqueueWork(() => TrainSupervised(context));
             break;
         case "play":
-            Play(context);
+            EnqueueWork(() => Play(context));
             break;
         case "set":
             Set(context);
@@ -56,22 +57,22 @@ void ExecuteCommand(string command, bool isFromRepeat)
             Cancel();
             break;
         case "test":
-            Test(context);
+            EnqueueWork(() => Test(context));
             break;
         case "generate":
-            GenerateGames(context);
+            EnqueueWork(() => GenerateGames(context));
             break;
         case "stats":
-            Stats(context);
+            EnqueueWork(() => Stats(context));
             break;
         case "todata":
-            ToData(context);
+            EnqueueWork(() => ToData(context));
             break;
         case "augment":
-            Augment(context);
+            EnqueueWork(() => Augment(context));
             break;
         case "clear":
-            Clear();
+            EnqueueWork(() => Clear());
             break;
         case "repeat":
             Repeat(context);
@@ -115,9 +116,6 @@ void Repeat(ConsoleCommandContext context)
 
 void Play(ConsoleCommandContext context)
 {
-    EnqueueWork(() =>
-    {
-
     int samples = context.GetIntArg(0, "samples");
     float temp = context.GetFloatArg("temp", 0.1f);
     bool log = context.GetBoolArg("log", false);
@@ -127,66 +125,60 @@ void Play(ConsoleCommandContext context)
     Console.WriteLine($"Average round0 nlprob: {stats.AverageNLProb(0):F4}");
     Console.WriteLine($"Average round1 nlprob: {stats.AverageNLProb(1):F4}");
     Console.WriteLine($"Average round2 nlprob: {stats.AverageNLProb(2):F4}");
-    });
 }
+
 void Test(ConsoleCommandContext context)
 {
     int samples = context.GetIntArg(0, "samples");
     float temp = context.GetFloatArg("temp", 0.0001f);
-    EnqueueWork(() =>
-    {
-        var (mean, ciLower, ciUpper, stdError) = Testing.GetScoreStatistics(model, samples, temp);
-        Console.WriteLine($"Average Score: {mean:F4}");
-        Console.WriteLine($"95% CI: [{ciLower:F4}, {ciUpper:F4}]");
-        Console.WriteLine($"Standard Error: {stdError:F4}");
-    });
+    (double mean, double ciLower, double ciUpper, double stdError) = Testing.GetScoreStatistics(model, samples, temp);
+    Console.WriteLine($"Average Score: {mean:F4}");
+    Console.WriteLine($"95% CI: [{ciLower:F4}, {ciUpper:F4}]");
+    Console.WriteLine($"Standard Error: {stdError:F4}");
 }
 
 void EnqueueWork(Action action)
 {
     Task task = new(action);
-    work.Enqueue(task);
-    if (work.Count == 1)
-        task.Start();
-    task.ContinueWith((task) =>
+    lock (work)
     {
-        Task finished = work.Dequeue();
-        if (finished.Exception != null)
+        work.Enqueue(task);
+        if (work.Count == 1)
+            task.Start();
+        task.ContinueWith((task) =>
         {
-            Console.WriteLine(finished.Exception.Message);
-            Console.WriteLine(finished.Exception.InnerException.StackTrace);
-        }
-        if (work.Count > 0)
-            work.Peek().Start();
-    });
+            lock (work)
+            {
+                bool dequeued = work.TryDequeue(out Task finished);
+                if (dequeued && finished.Exception != null)
+                {
+                    Console.WriteLine(finished.Exception.Message);
+                    Console.WriteLine(finished.Exception.InnerException.StackTrace);
+                }
+                if (work.TryPeek(out Task nextTask))
+                {
+                    nextTask.Start();
+                }
+            }
+        });
+    }
 }
 
 
 void TrainGRPO(ConsoleCommandContext context)
 {
-    if (TrainingData.PolicyData.Count == 0)
-    {
-        Console.WriteLine("Cannot train, no evaluation training data");
-        return;
-    }
-
     int epochs = context.GetIntArg(0, "epochs");
+    bool useCispo = context.GetBoolArg("cispo", false);
     trainingParams.epochs = epochs;
-    EnqueueWork(() => Training.TrainPolicyModelGRPO(model, trainingParams, cancel.Token));
+    Training.TrainPolicyModelGRPO(model, trainingParams, cancel.Token, useCispo);
 
 }
 
 void TrainSupervised(ConsoleCommandContext context)
 {
-    if (TrainingData.PolicyData.Count == 0)
-    {
-        Console.WriteLine("Cannot train, no evaluation training data");
-        return;
-    }
-
     int epochs = context.GetIntArg(0, "epochs");
     trainingParams.epochs = epochs;
-    EnqueueWork(() => Training.TrainPolicyModelSupervised(model, trainingParams, cancel.Token));
+    Training.TrainPolicyModelSupervised(model, trainingParams, cancel.Token);
 
 }
 
@@ -222,54 +214,46 @@ void GenerateGames(ConsoleCommandContext context)
     bool log = context.GetBoolArg("log", false);
     float temp = context.GetFloatArg("temp", 0.1f);
     bool mc = context.GetBoolArg("mc", true);
+    GameDatabase database = new(dbName);
 
-    EnqueueWork(() =>
+    Console.WriteLine($"Generating {games} games in database '{dbName}'...");
+
+    float totalReward = 0f;
+
+    for (int i = 0; i < games; i++)
     {
-        GameDatabase database = new(dbName);
+        if (cancel.IsCancellationRequested)
+            return;
 
-        Console.WriteLine($"Generating {games} games in database '{dbName}'...");
+        GameState gameState = mc ?
+            TrainingData.PlayGameMonteCarlo(model, branches, samples, log, temp, cancel.Token) :
+            TrainingData.PlayGame(model, temp, cancel.Token);
+        database.AddGame(gameState);
 
-        float totalReward = 0f;
+        RamenAgent agent = new(gameState, model);
+        float reward = agent.GetCurrentReward();
+        totalReward += reward;
+        float averageReward = totalReward / (i + 1);
 
-        for (int i = 0; i < games; i++)
-        {
-            if (cancel.IsCancellationRequested)
-                return;
+        Console.Write($"\rGenerated {i + 1}/{games} games, average reward: {averageReward:F4}");
+    }
 
-            GameState gameState = mc ?
-                TrainingData.PlayGameMonteCarlo(model, branches, samples, log, temp, cancel.Token) :
-                TrainingData.PlayGame(model, temp, cancel.Token);
-            database.AddGame(gameState);
-
-            RamenAgent agent = new(gameState, model);
-            float reward = agent.GetCurrentReward();
-            totalReward += reward;
-            float averageReward = totalReward / (i + 1);
-
-            Console.Write($"\rGenerated {i + 1}/{games} games, average reward: {averageReward:F4}");
-        }
-
-        Console.WriteLine();
-        Console.WriteLine($"Successfully generated {games} games in database '{dbName}'");
-    });
+    Console.WriteLine();
+    Console.WriteLine($"Successfully generated {games} games in database '{dbName}'");
 }
 
 void Stats(ConsoleCommandContext context)
 {
     string dbName = context.GetTextArg(0, "db");
+    Testing.GameDatabaseStatistics stats = Testing.GetGameDatabaseStatistics(dbName);
 
-    EnqueueWork(() =>
-    {
-        Testing.GameDatabaseStatistics stats = Testing.GetGameDatabaseStatistics(dbName);
-
-        Console.WriteLine($"Database '{dbName}' games: {stats.TotalGames}");
-        Console.WriteLine($"Played 2 pair: {stats.PlayedTwoPairPercent:P2}");
-        Console.WriteLine($"Played straight: {stats.PlayedStraightPercent:P2}");
-        Console.WriteLine($"Played flush: {stats.PlayedFlushPercent:P2}");
-        Console.WriteLine($"Played full house: {stats.PlayedFullHousePercent:P2}");
-        Console.WriteLine($"Discard same suit: {stats.DiscardSameSuitPercent:P2}");
-        Console.WriteLine($"Discard rank range <= 4: {stats.DiscardRankRangePercent:P2}");
-    });
+    Console.WriteLine($"Database '{dbName}' games: {stats.TotalGames}");
+    Console.WriteLine($"Played 2 pair: {stats.PlayedTwoPairPercent:P2}");
+    Console.WriteLine($"Played straight: {stats.PlayedStraightPercent:P2}");
+    Console.WriteLine($"Played flush: {stats.PlayedFlushPercent:P2}");
+    Console.WriteLine($"Played full house: {stats.PlayedFullHousePercent:P2}");
+    Console.WriteLine($"Discard same suit: {stats.DiscardSameSuitPercent:P2}");
+    Console.WriteLine($"Discard rank range <= 4: {stats.DiscardRankRangePercent:P2}");
 }
 
 void Cancel()
@@ -283,27 +267,20 @@ void Cancel()
 void ToData(ConsoleCommandContext context)
 {
     string dbName = context.GetTextArg(0, "db");
-
-    EnqueueWork(() =>
-    {
-        GameDatabase database = new(dbName, load: true);
-        Console.WriteLine($"Loading {dbName}...");
-        int countBefore = TrainingData.PolicyData.Count;
-        TrainingData.GenerateTrainingDataFromGames(model, database);
-        int countAfter = TrainingData.PolicyData.Count;
-        Console.WriteLine($"Added {countAfter - countBefore} training samples from '{dbName}'");
-    });
+    GameDatabase database = new(dbName, load: true);
+    Console.WriteLine($"Loading {dbName}...");
+    int countBefore = TrainingData.PolicyData.Count;
+    TrainingData.GenerateTrainingDataFromGames(model, database);
+    int countAfter = TrainingData.PolicyData.Count;
+    Console.WriteLine($"Added {countAfter - countBefore} training samples from '{dbName}'");
 }
 
 void Augment(ConsoleCommandContext context)
 {
-    EnqueueWork(() =>
-    {
-        int countBefore = TrainingData.PolicyData.Count;
-        DataAugmentation.AugmentEvaluationTrainingDataBySuitRemap();
-        int countAfter = TrainingData.PolicyData.Count;
-        Console.WriteLine($"Augmented training data. Added {countAfter - countBefore} samples");
-    });
+    int countBefore = TrainingData.PolicyData.Count;
+    DataAugmentation.AugmentEvaluationTrainingDataBySuitRemap();
+    int countAfter = TrainingData.PolicyData.Count;
+    Console.WriteLine($"Augmented training data. Added {countAfter - countBefore} samples");
 }
 
 void Clear()
