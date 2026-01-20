@@ -17,7 +17,7 @@ public class TrainingDataStats
     public float[] TotalAttributionByDepth = new float[MaxDepth];
 
     public float MeanReward => TotalReward / GamesCount;
-    public float RewardStdDev => (TotalSquaredReward - TotalReward  * MeanReward) / Math.Max(1, GamesCount - 1);
+    public float RewardStdDev => (TotalSquaredReward - TotalReward * MeanReward) / Math.Max(1, GamesCount - 1);
 
     public float AverageNLProb(int depth) => TotalNLProbByDepth[depth] / Math.Max(1, CountByDepth[depth]);
     public float AverageAttribution(int depth) => TotalAttributionByDepth[depth] / Math.Max(1, CountByDepth[depth]);
@@ -53,7 +53,7 @@ public static class TrainingData
         using var scope = NewDisposeScope();
         List<SN>[] groupGames = new List<SN>[groupSize];
         float[] groupRewards = new float[groupSize];
-        
+
         gameState.AdvanceToNextPlayerChoice();
         int startingMoveCount = gameState.MoveState.MoveHistory.Count;
         using (no_grad())
@@ -61,7 +61,7 @@ public static class TrainingData
             for (int group = 0; group < groupSize; ++group)
             {
                 gameState.Reseed();
-                
+
                 List<SN> gameSamples = new();
 
                 groupGames[group] = gameSamples;
@@ -102,7 +102,8 @@ public static class TrainingData
         {
             float percentile = (group + 0.5f) / groupSize;
             float advantage = (groupRewards[group] - mean) / MathF.Max(stdDev, 1e-8f);
-
+            if (float.IsNaN(advantage) || float.IsInfinity(advantage))
+                advantage = 0;
             List<SN> nodes = groupGames[group];
             for (int depth = 0; depth < nodes.Count; ++depth)
             {
@@ -127,7 +128,7 @@ public static class TrainingData
         }
         return stats;
     }
-    
+
     public static void GenerateTrainingDataFromGames(PolicyModel model, GameDatabase database)
     {
         int totalGames = 0;
@@ -262,7 +263,7 @@ public class PolicyTrainingSample : ITensorGroup
 }
 
 
-public struct MoveSampleAnnotationData 
+public struct MoveSampleAnnotationData
 {
     public ushort MoveIndex;
     public ushort NLProbTimes1K; // for log-q adjustment
