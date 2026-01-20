@@ -16,7 +16,7 @@ public record struct TrainingParams
 
 public static class Training
 {
-    public const float epsilonLow = 1, epsilonHigh = 1000000;
+    public const float epsilonLow = 0.2f, epsilonHigh = 0.2f;
 
     public static void TrainPolicyModelSupervised(PolicyModel model, TrainingParams tp, CancellationToken cancel, bool validate = false)
     {
@@ -41,7 +41,7 @@ public static class Training
 
         int samples = TrainingData.PolicyData.Count;
 
-        int valCount = validate ? Math.Max(1, samples / 10) : 0; 
+        int valCount = validate ? Math.Max(1, samples / 10) : 0;
         int trainCount = Math.Max(0, samples - valCount);
 
         for (int epoch = 0; epoch < tp.epochs; ++epoch)
@@ -85,16 +85,16 @@ public static class Training
 
                 Tensor processedState = model.ProcessState(inputs.State);
                 Tensor moveLogits = model.GetPolicyLogits(inputs.Moves, processedState).squeeze(2);
-                
+
                 Tensor probDist = inputs.MoveProbDist;
                 Tensor adjustedLogits = moveLogits - log(probDist + 1e-9); // log-q for sampled softmax
                 // target is always index 0
                 Tensor targetRow = zeros(1, adjustedLogits.size(dim: 1));
                 targetRow[0, 0] = 1;
                 Tensor target = targetRow.expand(probDist.size(dim: 0), targetRow.size(dim: 1));
-                
+
                 Tensor loss = lossFunc.forward(adjustedLogits, target);
-                
+
                 loss.backward();
                 optimizer.step();
 
@@ -116,7 +116,7 @@ public static class Training
         stacked.Dispose();
     }
 
-    public static void TrainPolicyModelGRPO(PolicyModel model, TrainingParams tp, CancellationToken cancel)
+    public static void TrainPolicyModelGRPO(PolicyModel model, TrainingParams tp, CancellationToken cancel, bool useCispo = false)
     {
         Console.WriteLine($"Training evaluation model for {tp.epochs} epochs, batch size {tp.batchSize}");
 
@@ -140,7 +140,7 @@ public static class Training
         int trainCount = samples;
 
         for (int epoch = 0; epoch < tp.epochs; ++epoch)
-        {           
+        {
             float trainLossAvg = 0f;
             int trainBatchCount = 0;
 
@@ -157,10 +157,12 @@ public static class Training
                 int moveCount = (int)inputs.Moves.HandsAndDiscards.size(1);
 
                 Tensor moveLogits = model.GetPolicyLogits(inputs.Moves, processedState).squeeze(2);
-                Tensor moveLoss = CalculatePPOLoss(moveLogits, probDist, inputs.Advantage, tp.entropyCoeff, tp.kldCoeff, true, ref kldTotal);
+                Tensor moveLoss = useCispo ?
+                    CalculateCISPOLoss(moveLogits, probDist, inputs.Advantage, tp.entropyCoeff, true, ref kldTotal) :
+                    CalculatePPOLoss(moveLogits, probDist, inputs.Advantage, tp.entropyCoeff, tp.kldCoeff, true, ref kldTotal);
 
                 Tensor loss = moveLoss;
-                
+
                 loss.backward();
                 optimizer.step();
 
@@ -214,5 +216,33 @@ public static class Training
         var loss = (kldLoss - policyReward - entropyReward);
         return loss;
     }
-}
 
+    static Tensor CalculateCISPOLoss(Tensor logits, Tensor oldProbs, Tensor advantage, float ec, bool useIndex0, ref float kldAccumulate, Tensor moveIndex = null)
+    {
+        Tensor logProbsOld = log(oldProbs.clamp_min(0f) + 1e-9);
+        Tensor logProbs = functional.log_softmax(logits, dim: 1);
+
+        Tensor logPiNew = useIndex0 ?
+            logProbs.select(1, 0) :
+            logProbs.gather(1, moveIndex);
+
+        Tensor logPiOld = useIndex0 ?
+            logProbsOld.select(1, 0) :
+            logProbsOld.gather(1, moveIndex);
+
+        Tensor ratio = exp(logPiNew - logPiOld);
+        Tensor clippedRatio = clamp(ratio, 1f - epsilonLow, 1f + epsilonHigh);
+        Tensor weight = clippedRatio.detach();
+
+        Tensor probs = exp(logProbs);
+        Tensor entropy = -(probs * logProbs).sum(1).mean();
+
+        Tensor kld = (oldProbs * (logProbsOld - logProbs)).sum(dim: 1).mean();
+        kldAccumulate += kld.item<float>();
+
+        Tensor policyLoss = -(weight * advantage * logPiNew).mean();
+        Tensor entropyReward = ec * entropy;
+        Tensor loss = policyLoss - entropyReward;
+        return loss;
+    }
+}
