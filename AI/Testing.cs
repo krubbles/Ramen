@@ -46,9 +46,8 @@ public static class Testing
         foreach (GameState gameState in database)
         {
             GameDatabaseStatistics gameStats = AnalyzeSingleGame(gameState);
-            stats = stats + gameStats;  
+            stats += gameStats;
         }
-
         return stats;
     }
 
@@ -217,7 +216,7 @@ public static class Testing
                     if (!playedFullHouse && handType == HandType.FullHouse)
                         playedFullHouse = true;
                     if (!playedTwoPair && handType == HandType.TwoPair)
-                        playedTwoPair = true; 
+                        playedTwoPair = true;
                 }
             }
         }
