@@ -22,14 +22,14 @@ while (true)
 {
     try
     {
-        string? command = Console.ReadLine();
+        string command = Console.ReadLine();
         if (string.IsNullOrWhiteSpace(command))
             continue;
         ExecuteCommand(command, isFromRepeat: false);
     }
     catch (Exception ex)
     {
-        Console.WriteLine(ex.ToString()); 
+        Console.WriteLine(ex.ToString());
     }
 }
 
@@ -117,9 +117,9 @@ void Repeat(ConsoleCommandContext context)
 void Play(ConsoleCommandContext context)
 {
     int samples = context.GetIntArg(0, "samples");
-    float temp = context.GetFloatArg("temp", 0.1f);
+    float temp = context.GetFloatArg("temp", 1f);
     bool log = context.GetBoolArg("log", false);
-    TrainingDataStats stats = TrainingData.GenerateGRPO(model, samples, temp);
+    TrainingDataStats stats = TrainingData.GenerateGRPO(model, samples);
     Console.WriteLine("Done playing games.");
     Console.WriteLine($"Average reward: {stats.TotalReward / stats.GamesCount:F4}");
     Console.WriteLine($"Average round0 nlprob: {stats.AverageNLProb(0):F4}");
@@ -317,7 +317,7 @@ static class ExternalConsole
             var safeInHandle = new Microsoft.Win32.SafeHandles.SafeFileHandle(stdInPtr, true);
             var sr = new StreamReader(new FileStream(safeInHandle, FileAccess.Read));
             Console.SetIn(sr);
-            
+
             Console.WriteLine("New Console Window Allocated!");
         }
     }

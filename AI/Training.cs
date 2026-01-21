@@ -10,7 +10,7 @@ public record struct TrainingParams
     int epochs = 5,
     int batchSize = 128,
     float learningRate = 1e-5f,
-    float entropyCoeff = 0.01f, // only used in GRPO
+    float entropyCoeff = 0.00f, // only used in GRPO
     float kldCoeff = 0.0f // only used in GRPO
 );
 
@@ -118,7 +118,7 @@ public static class Training
 
     public static void TrainPolicyModelGRPO(PolicyModel model, TrainingParams tp, CancellationToken cancel, bool useCispo = false)
     {
-        Console.WriteLine($"Training evaluation model for {tp.epochs} epochs, batch size {tp.batchSize}");
+        Console.WriteLine($"Training evaluation model for {tp.epochs} epochs, batch size {tp.batchSize}, data size {TrainingData.PolicyData.Count}");
 
         PolicyTrainingSample stacked;
         lock (TrainingData.PolicyData)
@@ -132,7 +132,7 @@ public static class Training
             lr: tp.learningRate,
             weight_decay: 0.01f,
             beta1: 0.9f,
-            beta2: 0.998f
+            beta2: 0.95f
             );
 
         int samples = TrainingData.PolicyData.Count;

@@ -1,7 +1,6 @@
 namespace Ramen.AI;
 
 using Ramen.Game;
-using System.Diagnostics;
 using static TorchSharp.torch;
 
 public class TrainingDataStats
@@ -39,7 +38,7 @@ public static class TrainingData
     }
 
 
-    static void RunGroup(PolicyModel model, TrainingDataStats stats, int groupSize = 32)
+    static void RunGroup(PolicyModel model, TrainingDataStats stats, int groupSize = 512)
     {
         GameState gameState = new(new());
         GenerateGRPOTrainingDataGroup(model, gameState, stats, groupSize);
@@ -117,7 +116,7 @@ public static class TrainingData
             }
         }
     }
-    public static TrainingDataStats GenerateGRPO(PolicyModel model, int samples, float temp)
+    public static TrainingDataStats GenerateGRPO(PolicyModel model, int samples)
     {
         Console.WriteLine();
         TrainingDataStats stats = new();
@@ -199,9 +198,7 @@ public static class TrainingData
         RamenAgent agent = new(gameState, model);
         while (!agent.GameIsDone())
         {
-            if (cancel.IsCancellationRequested)
-                throw new OperationCanceledException(cancel);
-
+            cancel.ThrowIfCancellationRequested();
             gameState.AdvanceToNextPlayerChoice();
             agent.MakeMove(temp);
         }
@@ -215,16 +212,13 @@ public static class TrainingData
         List<int> moveSteps = new();
         while (!agent.GameIsDone())
         {
-            if (cancel.IsCancellationRequested)
-                throw new OperationCanceledException(cancel);
-
+            cancel.ThrowIfCancellationRequested();
             gameState.AdvanceToNextPlayerChoice();
             moveSteps.Add(gameState.MoveState.MoveStep);
             agent.MakeMove(1f);
         }
 
-        if (cancel.IsCancellationRequested)
-            throw new OperationCanceledException(cancel);
+        cancel.ThrowIfCancellationRequested();
 
         gameState.MoveState.RevertToStep(FastRandom.SeededByClock().NextPick(moveSteps));
 
