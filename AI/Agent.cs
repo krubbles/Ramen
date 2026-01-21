@@ -59,9 +59,9 @@ public class RamenAgent
     /// Returns whether or not the game is complete from the agent's perspective. Many tests and training runs involve subsets of the game,
     /// so this is not the same as when a game of Balatro is typically complete.
     /// </summary>
-    public bool GameIsDone() => 
+    public bool GameIsDone() =>
         GameState.MoveState.MoveHistory.Count >= 2 &&
-        (GameState.HandState.RemainingHands <= 0 || 
+        (GameState.HandState.RemainingHands <= 0 ||
         GameState.ScoringState.CurrentRoundTotalChips >= 300);
 
     /// <summary>
@@ -74,7 +74,7 @@ public class RamenAgent
         {
             return 1f + GameState.HandState.RemainingHands * 0.2f;
         }
-        return (float)GameState.ScoringState.CurrentRoundTotalChips / 3000f;
+        return (float)GameState.ScoringState.CurrentRoundTotalChips / 1000f;
     }
 
     /// <summary>
@@ -84,14 +84,14 @@ public class RamenAgent
     {
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
-        
+
         GameState.AdvanceToNextPlayerChoice();
 
         if (GameIsDone())
             return;
 
         (Move[] moves, MoveTensors moveTensors, Tensor probs) = GetPolicyProbDist(temp);
-        
+
         Tensor index = multinomial(probs, num_samples: 1);
         Move move = moves[index.item<long>()];
         move.Apply(GameState);
@@ -103,7 +103,7 @@ public class RamenAgent
     /// Returns the policy model's predicted probability distribution for the best next move.
     /// Returned probs is a 1xN tensor where N is the number of moves.
     /// </summary>
-    internal (Move[] moves, MoveTensors moveTensors, Tensor probs) GetPolicyProbDist(float temp) 
+    internal (Move[] moves, MoveTensors moveTensors, Tensor probs) GetPolicyProbDist(float temp)
     {
         Move[] moves = GameState.GetMoveOptions();
         (MoveTensors moveTensors, Tensor probs) = GetPolicyProbDistForMoves(temp, moves);
@@ -165,7 +165,7 @@ public class RamenAgent
             Score = tensor(scores).view([1, -1])
         };
     }
-  
+
     /// <summary>
     /// Plays the hand that scores the most points in the current position. Mostly used for test scenarios.
     /// </summary>
@@ -245,7 +245,7 @@ public class RamenAgent
     }
 
     /// <summary>
-    /// Shortcut for <see cref="Tensors">.Score    
+    /// Shortcut for <see cref="Tensors">.Score
     /// </summary>
     public Tensor ScoreTensor
     {
@@ -310,4 +310,3 @@ public class RamenAgent
         return handTensor.MoveToOuterDisposeScope();
     }
 }
-
