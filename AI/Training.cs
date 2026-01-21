@@ -2,6 +2,7 @@
 namespace Ramen.AI;
 
 using System.Linq;
+using TorchSharp.Modules;
 using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
 
@@ -17,6 +18,22 @@ public record struct TrainingParams
 public static class Training
 {
     public const float epsilonLow = 0.2f, epsilonHigh = 0.2f;
+    public static AdamW Optimizer;
+    static PolicyModel _model;
+
+    static void SetModelAndOptimizer(PolicyModel model, TrainingParams tp)
+    {
+        if (_model == model)
+            return;
+        _model = model;
+        Optimizer = optim.AdamW(model.parameters(),
+            lr: tp.learningRate,
+            weight_decay: 0.01f,
+            beta1: 0.9f,
+            beta2: 0.998f
+        );
+        Optimizer.zero_grad();
+    }
 
     public static void TrainPolicyModelSupervised(PolicyModel model, TrainingParams tp, CancellationToken cancel, bool validate = false)
     {
@@ -30,12 +47,7 @@ public static class Training
 
         stacked = stacked.IndexSelect(0, randperm(stacked.MoveProbDist.size(0)));
 
-        var optimizer = optim.AdamW(model.parameters(),
-            lr: tp.learningRate,
-            weight_decay: 0.01f,
-            beta1: 0.9f,
-            beta2: 0.998f
-            );
+        SetModelAndOptimizer(model, tp);
 
         var lossFunc = CrossEntropyLoss();
 
@@ -78,7 +90,7 @@ public static class Training
             float kldTotal = 0;
             for (int i = 0; i < trainCount; i += tp.batchSize)
             {
-                optimizer.zero_grad();
+                Optimizer.zero_grad();
 
                 int end = Math.Min(i + tp.batchSize, samples);
                 PolicyTrainingSample inputs = stacked.GetBatch(i, end);
@@ -96,7 +108,7 @@ public static class Training
                 Tensor loss = lossFunc.forward(adjustedLogits, target);
 
                 loss.backward();
-                optimizer.step();
+                Optimizer.step();
 
                 trainLossAvg += loss.item<float>();
                 trainBatchCount++;
@@ -128,12 +140,7 @@ public static class Training
 
         stacked = stacked.IndexSelect(0, randperm(stacked.Advantage.size(0)));
 
-        var optimizer = optim.AdamW(model.parameters(),
-            lr: tp.learningRate,
-            weight_decay: 0.01f,
-            beta1: 0.9f,
-            beta2: 0.95f
-            );
+        SetModelAndOptimizer(model, tp);
 
         int samples = TrainingData.PolicyData.Count;
 
@@ -147,7 +154,7 @@ public static class Training
             float kldTotal = 0;
             for (int i = 0; i < trainCount; i += tp.batchSize)
             {
-                optimizer.zero_grad();
+                Optimizer.zero_grad();
 
                 int end = Math.Min(i + tp.batchSize, samples);
                 PolicyTrainingSample inputs = stacked.GetBatch(i, end);
@@ -164,7 +171,7 @@ public static class Training
                 Tensor loss = moveLoss;
 
                 loss.backward();
-                optimizer.step();
+                Optimizer.step();
 
                 trainLossAvg += loss.item<float>();
                 trainBatchCount++;
