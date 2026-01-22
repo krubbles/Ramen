@@ -136,7 +136,7 @@ public static class TensorGroupExtentions
     }
 
     public static T DetachFromDisposeScope<T>(this T me) where T : ITensorGroup => (T)DetachFromDisposeScope((ITensorGroup)me);
-    
+
     public static void Dispose(this ITensorGroup me)
     {
         foreach (FieldInfo field in GetTensorFields(me.GetType()))
@@ -162,7 +162,7 @@ public static class TensorGroupExtentions
             List<FieldInfo> tList = new(5);
             foreach (FieldInfo field in type.GetFields())
             {
-                if (field.FieldType == typeof(Tensor)|| (typeof(ITensorGroup)).IsAssignableFrom(field.FieldType))
+                if (field.FieldType == typeof(Tensor) || (typeof(ITensorGroup)).IsAssignableFrom(field.FieldType))
                 {
                     tList.Add(field);
                 }
@@ -174,12 +174,4 @@ public static class TensorGroupExtentions
     }
 
     static readonly Dictionary<Type, FieldInfo[]> _tensorFieldsByType = [];
-}
-
-public class MoveTensors : ITensorGroup
-{
-    public Tensor PlayedHand;
-    public Tensor RemainingHand;
-    public Tensor HandsAndDiscards;
-    public Tensor Score;
 }

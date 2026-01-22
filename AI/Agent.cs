@@ -133,7 +133,6 @@ public class RamenAgent
         int moveCount = moves.Length;
         int[,] playedHands = new int[moveCount, 5];
         int[,] remainingHands = new int[moveCount, 8];
-        int[] handsAndDiscards = new int[moveCount];
         float[] scores = new float[moveCount];
 
         HandState handState = GameState.HandState;
@@ -149,7 +148,6 @@ public class RamenAgent
             for (int i = 0; i < 8; ++i)
                 remainingHands[move, i] = i < hand.Length ? hand[i].ToIndex() : 0;
 
-            handsAndDiscards[move] = GameState.HandState.RemainingHands * 5 + GameState.HandState.RemainingDiscards;
             scores[move] = (float)GameState.ScoringState.CurrentRoundTotalChips / 300f;
 
             moves[move].Revert(GameState);
@@ -161,7 +159,6 @@ public class RamenAgent
         {
             RemainingHand = tensor(remainingHands).unsqueeze_(0),
             PlayedHand = tensor(playedHands).unsqueeze_(0),
-            HandsAndDiscards = tensor(handsAndDiscards).view([1, -1]),
             Score = tensor(scores).view([1, -1])
         };
     }
