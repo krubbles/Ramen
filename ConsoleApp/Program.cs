@@ -78,6 +78,12 @@ void ExecuteCommand(string command, bool isFromRepeat)
         case "trim":
             EnqueueWork(() => Trim(context));
             break;
+        case "delete":
+            EnqueueWork(() => Delete(context));
+            break;
+        case "combine":
+            EnqueueWork(() => Combine(context));
+            break;
         case "repeat":
             Repeat(context);
             break;
@@ -308,6 +314,88 @@ void Clear()
 {
     TrainingData.PolicyData.Clear();
     Console.WriteLine("Cleared all training data");
+}
+
+void Delete(ConsoleCommandContext context)
+{
+    string pattern = context.GetTextArg(0, "pattern");
+    
+    if (pattern.Contains("[0-9]"))
+    {
+        string baseName = pattern.Replace("[0-9]", "");
+        for (int i = 0; i <= 9; i++)
+        {
+            string dbName = baseName + i;
+            string dbPath = GameDatabase.GetGameDatabasePath(dbName);
+            if (File.Exists(dbPath))
+            {
+                File.Delete(dbPath);
+                Console.WriteLine($"Deleted database '{dbName}'");
+            }
+        }
+    }
+    else
+    {
+        string dbPath = GameDatabase.GetGameDatabasePath(pattern);
+        if (File.Exists(dbPath))
+        {
+            File.Delete(dbPath);
+            Console.WriteLine($"Deleted database '{pattern}'");
+        }
+        else
+        {
+            Console.WriteLine($"Database '{pattern}' does not exist");
+        }
+    }
+}
+
+void Combine(ConsoleCommandContext context)
+{
+    string targetDb = context.GetTextArg(0, "target db");
+    List<string> sourceDbs = new();
+    
+    for (int i = 1; i <= context.NumberOfArguments; i++)
+    {
+        sourceDbs.Add(context.GetTextArg(i, $"source db {i}"));
+    }
+
+    if (sourceDbs.Count == 0)
+    {
+        Console.WriteLine("No source databases specified");
+        return;
+    }
+
+    string targetPath = GameDatabase.GetGameDatabasePath(targetDb);
+    if (File.Exists(targetPath))
+    {
+        Console.WriteLine($"Target database '{targetDb}' already exists");
+        return;
+    }
+
+    GameDatabase target = new(targetDb, load: false);
+    int totalGames = 0;
+
+    foreach (string sourceDb in sourceDbs)
+    {
+        string sourcePath = GameDatabase.GetGameDatabasePath(sourceDb);
+        if (!File.Exists(sourcePath))
+        {
+            Console.WriteLine($"Source database '{sourceDb}' does not exist");
+            continue;
+        }
+
+        GameDatabase source = new(sourceDb, load: true);
+        int gamesAdded = 0;
+        foreach (GameState game in source)
+        {
+            target.AddGame(game);
+            gamesAdded++;
+        }
+        totalGames += gamesAdded;
+        Console.WriteLine($"Added {gamesAdded} games from '{sourceDb}'");
+    }
+
+    Console.WriteLine($"Successfully combined {sourceDbs.Count} databases into '{targetDb}' ({totalGames} total games)");
 }
 
 static class ExternalConsole

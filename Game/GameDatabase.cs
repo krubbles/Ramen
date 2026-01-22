@@ -10,16 +10,25 @@ public class GameDatabase : IEnumerable<GameState>
     readonly string _filePath;
     int _activeEnumerators = 0;
 
-    public GameDatabase(string name, bool load = true, bool delete = false)
+    public static string GetGameDatabasesFolder()
     {
         string folderPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
             "Ramen", "GameDatabases"
         );
+        return folderPath;
+    }
 
-        Directory.CreateDirectory(folderPath);
+    public static string GetGameDatabasePath(string name)
+    {
+        return Path.Combine(GetGameDatabasesFolder(), $"{name}.bin");
+    }
 
-        _filePath = Path.Combine(folderPath, $"{name}.bin");
+    public GameDatabase(string name, bool load = true, bool delete = false)
+    {
+        Directory.CreateDirectory(GetGameDatabasesFolder());
+
+        _filePath = GetGameDatabasePath(name);
 
         if (!load && File.Exists(_filePath))
         {
