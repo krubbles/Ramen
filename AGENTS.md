@@ -11,15 +11,16 @@
 # Code Guidelines
 - Always use file-scoped namespace declarations.
 - Namespace declaration goes first, then using statements. Line break between the two. 
-- All classes, functions, properties, and non-private/protected fields should be pascal case.
+- Classes, functions, properties, and public/internal fields: PascalCase
+- Private/protected fields: _camelCase
+- Tuple fields: camelCase
 - Never use the private keyword.
 - Never use the var keyword (except dispose scopes)
-- There should be a line-break seperating each function.
-- Use new() syntax whenever possible.
-- Declare inline arrays using [a, b] instead of new Foo[] { a, b }
+- Seperate functions with line-breaks
+- Use new() 
+- Use [a, b] instead of new Foo[] { a, b }
 - Function summary blocks should NOT describe implementation details or obvious facts.
 - When calling a function, arguments should be named if their meaning cannot be implied from the calling code. 
-- Short functions (< 10 lines) do not need to be commented. 
 
 # Ordering Code Inside A Class
 1. Fields
