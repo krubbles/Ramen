@@ -60,7 +60,7 @@ public class RamenAgent
     /// so this is not the same as when a game of Balatro is typically complete.
     /// </summary>
     public bool GameIsDone() =>
-        GameState.MoveState.MoveHistory.Count >= 2 &&
+        GameState.ScoringState.CurrentRoundTotalChips >= 1 &&
         (GameState.HandState.RemainingHands <= 0 ||
         GameState.ScoringState.CurrentRoundTotalChips >= 300);
 

@@ -31,8 +31,7 @@ public sealed class GameState
         MoveState = new(this);
 
         int seed = gameData.RandomizeSeed ? FastRandom.SeededByClock().Next() : gameData.Seed;
-        ReseedMove seeder = new(FastRandom.SeedToState((ulong)seed));
-        seeder.Apply(this);
+        new ReseedMove(FastRandom.SeedToState((ulong)seed)).Apply(this);
 
         GameData.InitStartingDeck(this);
 
@@ -68,8 +67,8 @@ public sealed class GameState
         }
     }
 
-    public bool GameIsDone => 
-        MoveState.MoveHistory.Count >= 2 &&
+    public bool GameIsDone =>
+        ScoringState.CurrentRoundTotalChips >= 1 &&
         (HandState.RemainingHands == 0 || 
         ScoringState.CurrentRoundTotalChips >= 300);
 
