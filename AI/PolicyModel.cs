@@ -82,12 +82,6 @@ public class PolicyModel : Module
             Linear(MoveWidth, 2)
         );
 
-        ForcastPolicy = Sequential(
-            Linear(StateWidth, StateWidth),
-            ReLU(),
-            Linear(StateWidth, Tiers)
-        );
-
         RegisterComponents();
     }
 
@@ -172,13 +166,7 @@ public class PolicyModel : Module
         Tensor expandedState = processedState.unsqueeze(1).expand(embeddedMove.shape[0], embeddedMove.shape[1], processedState.shape[1]);
         Tensor moveInput = cat([embeddedMove, expandedState], dim: -1);
         Tensor pairLogits = MoveEvaluator.forward(moveInput);
-        Tensor actionIndex = move.ActionIndex.to_type(ScalarType.Int64).unsqueeze(2);
-        return pairLogits.gather(2, actionIndex);
-    }
-
-    public Tensor GetForcastLogits(Tensor processedState)
-    {
-        return ForcastPolicy.forward(processedState);
+        return pairLogits;
     }
 }
 

@@ -50,9 +50,4 @@ public class MoveTensors : ITensorGroup
     /// <see cref="ScoringState.CurrentRoundTotalChips"/> after move is made.
     /// </summary>
     public Tensor Score;
-
-    /// <summary>
-    /// 0 for play, 1 for discard.
-    /// </summary>
-    public Tensor ActionIndex;
 }

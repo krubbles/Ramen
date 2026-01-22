@@ -3,6 +3,7 @@ using Ramen.Game;
 using Ramen.ConsoleApp;
 using System.Runtime.InteropServices;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 
 // needed for cursor
 // ExternalConsole.Initialize();
@@ -136,12 +137,15 @@ void Play(ConsoleCommandContext context)
     int samples = context.GetIntArg(0, "samples");
     float temp = context.GetFloatArg("temp", 1f);
     bool log = context.GetBoolArg("log", false);
+    Stopwatch stopwatch = Stopwatch.StartNew();
     TrainingDataStats stats = TrainingData.GenerateGRPO(model, samples);
+    stopwatch.Stop();
     Console.WriteLine("Done playing games.");
     Console.WriteLine($"Average reward: {stats.TotalReward / stats.GamesCount:F4}");
     Console.WriteLine($"Average round0 nlprob: {stats.AverageNLProb(0):F4}");
     Console.WriteLine($"Average round1 nlprob: {stats.AverageNLProb(1):F4}");
     Console.WriteLine($"Average round2 nlprob: {stats.AverageNLProb(2):F4}");
+    Console.WriteLine($"Play profiling: {stats.GamesCount} games in {stopwatch.Elapsed.TotalSeconds:F2}s ({stats.GamesCount / stopwatch.Elapsed.TotalSeconds:F2} games/s)");
 }
 
 void Test(ConsoleCommandContext context)
