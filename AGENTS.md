@@ -5,11 +5,10 @@
 - Use short commit messages.
 
 # Unit Tests
-- Don't write tests for things that can be easily validated by looking at the code.
 - Use Assert.That()
 
 # Code Guidelines
-- Always use file-scoped namespace declarations.
+- Use file-scoped namespace declarations.
 - Namespace declaration goes first, then using statements. Line break between the two. 
 - Classes, functions, properties, and public/internal fields: PascalCase
 - Private/protected fields: _camelCase
@@ -17,7 +16,7 @@
 - Never use the private keyword.
 - Never use the var keyword (except dispose scopes)
 - Seperate functions with line-breaks
-- Use new() 
+- Constructor syntax priority: [], then new(), then new Foo()
 - Use [a, b] instead of new Foo[] { a, b }
 - Function summary blocks should NOT describe implementation details or obvious facts.
 - When calling a function, arguments should be named if their meaning cannot be implied from the calling code. 
@@ -29,11 +28,10 @@
 4. Other properties
 5. non static functions (public then internal then protected then private)
 6. static functions (public then internal then protected then private)
-
-Note: private functions that are only called in one place should be placed directly after their calling function.
+Note: private functions with exactly 1 caller should be placed directly after their calling function.
 
 # Torch Sharp Guidelines
-- If you need to access most of the data in a tensor, use .data<T>.().ToArray() instead of using .item<T>() multiple times. 
-- Don't use using statements on individual tensors, instead, add a using var scope = NewDisposeScope() at the top of the function instead.
+- If you need to access most of the data in a tensor, use .data<T>().ToArray() instead of using .item<T>() multiple times. 
+- Don't use using statements on individual tensors, instead, add using var scope = NewDisposeScope() to the top of the function.
 - Call .MoveToOuterDisposeScope() on tensors created in functions who's ownership should be transfered to their calling context.
 - The first argument of amax() is a dim array. 
