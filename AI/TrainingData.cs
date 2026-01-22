@@ -234,14 +234,6 @@ public static class TrainingData
 }
 
 
-public class GameStateTensors : ITensorGroup
-{
-    public Tensor FullHand;
-    public Tensor RemainingDeck;
-    public Tensor Score;
-    public Tensor HandsAndDiscards;
-}
-
 public class PolicyTrainingSample : ITensorGroup
 {
     public GameStateTensors State;
@@ -254,7 +246,6 @@ public class PolicyTrainingSample : ITensorGroup
     /// </summary>
     public float ChosenMoveNLProb;
 }
-
 
 public struct MoveSampleAnnotationData
 {
