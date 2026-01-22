@@ -4,6 +4,31 @@ using TorchSharp.Modules;
 using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
 
+/// High level policy network topology:
+/// - Input: Embedded GameState + Embedded Moves (<see cref="GameStateTensors"/> + <see cref="MoveTensors"/>)
+/// - Always assume there is a batch dimension at dim 0.
+/// - Process <see cref="GameStateTensors.RemainingDeck"/> using card set processing described below.
+/// - Process <see cref="GameStateTensors.FullHand"/>
+/// - Embed <see cref="GameStateTensors.HandsAndDiscards"/> using a learnable embedding
+/// - Embed <see cref="GameStateTensors.Score"/> using a 1XN linear layer
+/// - Concat all the above vectors.
+/// - Pass through a residual MLP to get a processed state vector.
+/// - For each move (discard and play for same hand are grouped):
+///    - Process <see cref="MoveTensors.PlayedHand"/> 
+///    - Process <see cref="MoveTensors.RemainingHand"/>
+///    - Embed <see cref="MoveTensors.Score"/> using a 1XN linear layer
+///    - Concat the above vectors + the processed state vectors.
+///    - Pass through a residual MLP to get 2 logits: play logit, and discard logit.
+/// - Use a view to collapse the Nx2 logits from all the [play, discard] pairs into a single policy logits tensor.
+/// - Return the output policy tensor.
+/// Card set processing: 
+/// - Embed each card into a length (13 + 4) vector, 1-hot encoding rank and suit.
+/// - Generate a pooled length (13 + 4) * 2 vector, the concat of the sum and max over the embedded cards.
+/// - Generate 4 similar pooled vectors for each suit, where it only pools over cards of that suit.
+/// - Process the concat of [general pooled vector, suit pooled vector] with a small sequential NN to get four processed vectors, then sum them.
+/// - The resulting vector is the output.
+/// - This process makes the NN mostly suit agnostic, improving generalization.
+
 /// <summary>
 /// The policy network used for move evaluation.
 /// </summary>
@@ -96,7 +121,6 @@ public class PolicyModel : Module
         Tensor remainingHand = EmbedCardSet(_embedRemainingHand, move.RemainingHand);
         Tensor playedHand = EmbedCardSet(_embedPlayedHand, move.PlayedHand);
         Tensor score = _scoreUpscaleMove.forward(move.Score.unsqueeze(2));
-        Tensor handsAndDiscards = _embedHandsAndDiscardsMove.forward(move.HandsAndDiscards);
         return score + remainingHand;
     }
 
@@ -178,7 +202,7 @@ public class SwiGLUFeedForward : Module<Tensor, Tensor>
 {
     private readonly Linear w1; // Gate projection
     private readonly Linear w2; // Up projection
-    private readonly Linear w3; // Down projection 
+    private readonly Linear w3; // Down projection
     private readonly LayerNorm ln;
 
     public SwiGLUFeedForward(long inputDim, long hiddenDim) : base(nameof(SwiGLUFeedForward))
