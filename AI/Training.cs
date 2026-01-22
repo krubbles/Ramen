@@ -161,7 +161,7 @@ public static class Training
 
                 var probDist = inputs.MoveProbDist / inputs.MoveProbDist.sum(dim: 1, true);
                 Tensor processedState = model.ProcessState(inputs.State);
-                int moveCount = (int)inputs.Moves.HandsAndDiscards.size(1);
+                int moveCount = (int)inputs.Moves.Score.size(1);
 
                 Tensor moveLogits = model.GetPolicyLogits(inputs.Moves, processedState).squeeze(2);
                 Tensor moveLoss = useCispo ?

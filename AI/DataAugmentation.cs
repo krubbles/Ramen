@@ -48,29 +48,29 @@ public static class DataAugmentation
         if (remapped.State != null)
         {
             Tensor originalFullHand = remapped.State.FullHand;
-            remapped.State.FullHand = RemapCardIndexTensor(remapped.State.FullHand, suitRemap);
+            remapped.State.FullHand = RemapCardSuitTensor(remapped.State.FullHand, suitRemap);
             originalFullHand?.Dispose();
 
             Tensor originalRemainingDeck = remapped.State.RemainingDeck;
-            remapped.State.RemainingDeck = RemapCardIndexTensor(remapped.State.RemainingDeck, suitRemap);
+            remapped.State.RemainingDeck = RemapCardSuitTensor(remapped.State.RemainingDeck, suitRemap);
             originalRemainingDeck?.Dispose();
         }
 
         if (remapped.Moves != null)
         {
             Tensor originalPlayedHand = remapped.Moves.PlayedHand;
-            remapped.Moves.PlayedHand = RemapCardIndexTensor(remapped.Moves.PlayedHand, suitRemap);
+            remapped.Moves.PlayedHand = RemapCardSuitTensor(remapped.Moves.PlayedHand, suitRemap);
             originalPlayedHand?.Dispose();
 
             Tensor originalRemainingHand = remapped.Moves.RemainingHand;
-            remapped.Moves.RemainingHand = RemapCardIndexTensor(remapped.Moves.RemainingHand, suitRemap);
+            remapped.Moves.RemainingHand = RemapCardSuitTensor(remapped.Moves.RemainingHand, suitRemap);
             originalRemainingHand?.Dispose();
         }
 
         return remapped;
     }
 
-    static Tensor RemapCardIndexTensor(Tensor t, int[] suitRemap)
+    static Tensor RemapCardSuitTensor(Tensor t, int[] suitRemap)
     {
         if (t is null)
             return null;
@@ -82,31 +82,33 @@ public static class DataAugmentation
         if (dtype == ScalarType.Int32)
         {
             int[] data = t.data<int>().ToArray();
-            for (int i = 0; i < data.Length; ++i)
-                data[i] = RemapCardIndex(data[i], suitRemap);
+            for (int i = 0; i + 1 < data.Length; i += 2)
+            {
+                int rank = data[i];
+                int suit = data[i + 1];
+                if (rank <= 0 || suit <= 0)
+                    continue;
+                int suitIndex = suit - 1;
+                data[i + 1] = suitRemap[suitIndex] + 1;
+            }
             Tensor remapped = tensor(data, dtype: ScalarType.Int32).view(shape).to(t.device);
             return remapped.MoveToOuterDisposeScope();
         }
         else
         {
             long[] data = t.data<long>().ToArray();
-            for (int i = 0; i < data.Length; ++i)
-                data[i] = RemapCardIndex((int)data[i], suitRemap);
+            for (int i = 0; i + 1 < data.Length; i += 2)
+            {
+                long rank = data[i];
+                long suit = data[i + 1];
+                if (rank <= 0 || suit <= 0)
+                    continue;
+                int suitIndex = (int)suit - 1;
+                data[i + 1] = suitRemap[suitIndex] + 1;
+            }
             Tensor remapped = tensor(data, dtype: ScalarType.Int64).view(shape).to(t.device);
             return remapped.MoveToOuterDisposeScope();
         }
-    }
-
-    static int RemapCardIndex(int cardIndex, int[] suitRemap)
-    {
-        if (cardIndex <= 0)
-            return cardIndex;
-
-        int zeroBased = cardIndex - 1;
-        int suitIndex = zeroBased / 13;
-        int rankIndex = zeroBased % 13;
-        int mappedSuitIndex = suitRemap[suitIndex];
-        return rankIndex + 1 + mappedSuitIndex * 13;
     }
 
     static bool IsIdentitySuitRemap(int[] suitRemap)

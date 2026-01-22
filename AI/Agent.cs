@@ -131,9 +131,10 @@ public class RamenAgent
     internal MoveTensors CreateMoveTensors(Move[] moves)
     {
         int moveCount = moves.Length;
-        int[,] playedHands = new int[moveCount, 5];
-        int[,] remainingHands = new int[moveCount, 8];
+        long[,,] playedHands = new long[moveCount, 5, 2];
+        long[,,] remainingHands = new long[moveCount, 8, 2];
         float[] scores = new float[moveCount];
+        int[] actionIndices = new int[moveCount];
 
         HandState handState = GameState.HandState;
         int hash = GameState.GetHashCode();
@@ -142,11 +143,26 @@ public class RamenAgent
             moves[move].Apply(GameState);
 
             UseHandMove useHandMove = (UseHandMove)moves[move];
+            actionIndices[move] = useHandMove.IsDiscard ? 1 : 0;
             for (int i = 0; i < 5; ++i)
-                playedHands[move, i] = i < useHandMove.UsedCards.Length ? useHandMove.UsedCards[i].ToIndex() : 0;
+            {
+                if (i < useHandMove.UsedCards.Length)
+                {
+                    Card card = useHandMove.UsedCards[i];
+                    playedHands[move, i, 0] = card.Rank - 2;
+                    playedHands[move, i, 1] = (int)card.Suit;
+                }
+            }
             Span<Card> hand = handState.Hand;
             for (int i = 0; i < 8; ++i)
-                remainingHands[move, i] = i < hand.Length ? hand[i].ToIndex() : 0;
+            {
+                if (i < hand.Length)
+                {
+                    Card card = hand[i];
+                    remainingHands[move, i, 0] = card.Rank - 2;
+                    remainingHands[move, i, 1] = (int)card.Suit;
+                }
+            }
 
             scores[move] = (float)GameState.ScoringState.CurrentRoundTotalChips / 300f;
 
@@ -159,7 +175,8 @@ public class RamenAgent
         {
             RemainingHand = tensor(remainingHands).unsqueeze_(0),
             PlayedHand = tensor(playedHands).unsqueeze_(0),
-            Score = tensor(scores).view([1, -1])
+            Score = tensor(scores).view([1, -1]),
+            ActionIndex = tensor(actionIndices).view([1, -1])
         };
     }
 
@@ -297,10 +314,15 @@ public class RamenAgent
 
     static Tensor TensorizeCardSet(ReadOnlySpan<Card> hand, int embedSize)
     {
-        int[] cards = new int[embedSize];
+        long[,] cards = new long[embedSize, 2];
         for (int i = 0; i < embedSize; ++i)
         {
-            cards[i] = i < hand.Length ? hand[i].ToIndex() : 0;
+            if (i < hand.Length)
+            {
+                Card card = hand[i];
+                cards[i, 0] = card.Rank;
+                cards[i, 1] = (int)card.Suit;
+            }
         }
 
         Tensor handTensor = tensor(cards);

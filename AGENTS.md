@@ -16,6 +16,7 @@
 - Never use the var keyword (except dispose scopes)
 - There should be a line-break seperating each function.
 - Use new() syntax whenever possible.
+- Declare inline arrays using [a, b] instead of new Foo[] { a, b }
 - Function summary blocks should NOT describe implementation details or obvious facts.
 - When calling a function, arguments should be named if their meaning cannot be implied from the calling code. 
 - Short functions (< 10 lines) do not need to be commented. 
@@ -34,3 +35,4 @@ Note: private functions that are only called in one place should be placed direc
 - If you need to access most of the data in a tensor, use .data<T>.().ToArray() instead of using .item<T>() multiple times. 
 - Don't use using statements on individual tensors, instead, add a using var scope = NewDisposeScope() at the top of the function instead.
 - Call .MoveToOuterDisposeScope() on tensors created in functions who's ownership should be transfered to their calling context.
+- The first argument of amax() is a dim array. 

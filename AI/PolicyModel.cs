@@ -1,5 +1,6 @@
 namespace Ramen.AI;
 
+using Ramen.Game;
 using TorchSharp.Modules;
 using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
@@ -10,13 +11,13 @@ using static TorchSharp.torch.nn;
 /// - Process <see cref="GameStateTensors.RemainingDeck"/> using card set processing described below.
 /// - Process <see cref="GameStateTensors.FullHand"/>
 /// - Embed <see cref="GameStateTensors.HandsAndDiscards"/> using a learnable embedding
-/// - Embed <see cref="GameStateTensors.Score"/> using a 1XN linear layer
+/// - Include <see cref="GameStateTensors.Score"/> as a single scalar input logit
 /// - Concat all the above vectors.
 /// - Pass through a residual MLP to get a processed state vector.
 /// - For each move (discard and play for same hand are grouped):
 ///    - Process <see cref="MoveTensors.PlayedHand"/> 
 ///    - Process <see cref="MoveTensors.RemainingHand"/>
-///    - Embed <see cref="MoveTensors.Score"/> using a 1XN linear layer
+///    - Include <see cref="MoveTensors.Score"/> as a single scalar input logit
 ///    - Concat the above vectors + the processed state vectors.
 ///    - Pass through a residual MLP to get 2 logits: play logit, and discard logit.
 /// - Use a view to collapse the Nx2 logits from all the [play, discard] pairs into a single policy logits tensor.
@@ -35,66 +36,101 @@ using static TorchSharp.torch.nn;
 public class PolicyModel : Module
 {
     public const int
-        RemainingDeckEmbedWidth = 128,
-        FullHandEmbedWidth = 128,
-        RemainingHandEmbedWidth = 64,
-        PlayedHandEmbedWidth = 64,
-        StateOtherStateWidth = 13,
-        MoveOtherStateWidth = 13,
+        RankCount = 13,
+        SuitCount = 4,
+        CardEmbedWidth = RankCount + SuitCount,
+        CardPoolWidth = CardEmbedWidth * 2,
+        CardSuitConcatWidth = CardPoolWidth * 2,
+        CardSuitProcessorHiddenWidth = 128,
+        CardSetWidth = 64,
+        HandsAndDiscardsEmbedWidth = 32,
+        StateWidth = 192,
+        MoveWidth = 128,
+        StateDepth = 2,
+        MoveDepth = 2,
         Tiers = 1;
 
     public const int
-        StateProcessorInputWidth = RemainingDeckEmbedWidth + FullHandEmbedWidth + StateOtherStateWidth,
-        MoveEvaluatorInputWidth = RemainingHandEmbedWidth + PlayedHandEmbedWidth + MoveOtherStateWidth;
+        StateProcessorInputWidth = CardSetWidth + CardSetWidth + HandsAndDiscardsEmbedWidth + 1,
+        MoveEvaluatorInputWidth = CardSetWidth + CardSetWidth + 1 + StateWidth;
 
-    public const int StateWidth = 64;
-    public const int MoveWidth = 192;
-    private readonly Embedding _embedRemainingDeck = Embedding(53, MoveWidth);
-    private readonly Embedding _embedFullHand = Embedding(53, StateWidth);
-    private readonly Embedding _embedRemainingHand = Embedding(53, MoveWidth);
-    private readonly Embedding _embedPlayedHand = Embedding(53, MoveWidth);
-    private readonly Embedding _embedHandsAndDiscardsMove = Embedding(25, MoveWidth);
-    private readonly Embedding _embedHandsAndDiscardsState = Embedding(25, StateWidth);
-    private readonly Linear _scoreUpscaleState = Linear(1, StateWidth, false);
-    private readonly Linear _scoreUpscaleMove = Linear(1, MoveWidth, false);
+    readonly Embedding _embedHandsAndDiscards = Embedding(25, HandsAndDiscardsEmbedWidth);
+    readonly Sequential _cardSetSuitProcessor;
 
     public readonly Sequential StateProcessor;
+    public readonly Sequential MoveEvaluator;
     public readonly Sequential ForcastPolicy;
-    public readonly Sequential UseHandPolicy;
-    public readonly Sequential UseHandMovePreProcessor;
 
     public PolicyModel() : base(nameof(PolicyModel))
     {
+        _cardSetSuitProcessor = Sequential(
+            Linear(CardSuitConcatWidth, CardSuitProcessorHiddenWidth),
+            ReLU(),
+            Linear(CardSuitProcessorHiddenWidth, CardSetWidth)
+        );
 
         StateProcessor = Sequential(
-            new ResidualMLP(StateWidth, 3),
-            Linear(StateWidth, MoveWidth)
-        );
-
-        UseHandMovePreProcessor = Sequential(
-            Linear(MoveEvaluatorInputWidth, 128)
-        );
-
-        UseHandPolicy = Sequential(
-            new Residual(Sequential(LayerNorm(MoveWidth), Linear(MoveWidth, MoveWidth), GELU(), Linear(MoveWidth, MoveWidth))),
-            new Residual(Sequential(LayerNorm(MoveWidth), Linear(MoveWidth, MoveWidth), GELU(), Linear(MoveWidth, MoveWidth))),
+            Linear(StateProcessorInputWidth, StateWidth),
             ReLU(),
-            Linear(MoveWidth, 1)
+            new ResidualMLP(StateWidth, StateDepth)
+        );
+
+        MoveEvaluator = Sequential(
+            Linear(MoveEvaluatorInputWidth, MoveWidth),
+            ReLU(),
+            new ResidualMLP(MoveWidth, MoveDepth),
+            Linear(MoveWidth, 2)
         );
 
         ForcastPolicy = Sequential(
-            Linear(128, 128),
+            Linear(StateWidth, StateWidth),
             ReLU(),
-            Linear(128, Tiers)
+            Linear(StateWidth, Tiers)
         );
 
         RegisterComponents();
     }
 
-    public static Tensor EmbedCardSet(Embedding embedding, Tensor hand)
+    Tensor ProcessCardSet(Tensor cardSet)
     {
-        Tensor embeddedHand = embedding.forward(hand).sum(dim: hand.Dimensions - 1) / hand.size((int)hand.Dimensions - 1);
-        return embeddedHand;
+        int cardDim = (int)cardSet.Dimensions - 2;
+        Tensor cardRanks = cardSet.select(cardSet.Dimensions - 1, 0);
+        Tensor cardSuits = cardSet.select(cardSet.Dimensions - 1, 1);
+
+        Tensor rankIndex = cardRanks.clamp(0, RankCount - 1);
+        Tensor suitIndex = cardSuits.clamp(0, SuitCount - 1);
+
+        Tensor rankOneHot = functional.one_hot(rankIndex, RankCount).to_type(ScalarType.Float32);
+        Tensor suitOneHot = functional.one_hot(suitIndex, SuitCount).to_type(ScalarType.Float32);
+        Tensor cardEmbed = cat([rankOneHot, suitOneHot], dim: -1);
+
+        Tensor[] suitSums = new Tensor[SuitCount];
+        Tensor[] suitMaxes = new Tensor[SuitCount];
+
+        Tensor processedSum = null;
+        for (Suit suit = Suit.Diamond; suit <= Suit.Spade; ++suit)
+        {
+            Tensor suitMask = cardSuits.eq((int)suit);
+            Tensor suitMaskFloat = suitMask.unsqueeze(-1).to_type(cardEmbed.dtype);
+            Tensor suitEmbed = cardEmbed * suitMaskFloat;
+            Tensor suitSum = suitEmbed.sum(dim: cardDim);
+            Tensor suitMax = suitEmbed.amax(dims: [cardDim]);
+            suitSums[(int)suit - 1] = suitSum;
+            suitMaxes[(int)suit - 1] = suitMax;
+        }
+
+        Tensor pooledSum = stack(suitSums, dim: 0).sum(dim: 0);
+        Tensor pooledMax = stack(suitMaxes, dim: 0).amax(dims: [0]);
+        Tensor pooledGeneral = cat([pooledSum, pooledMax], dim: -1);
+
+        for (Suit suit = Suit.Diamond; suit <= Suit.Spade; ++suit)
+        {
+            Tensor suitConcat = cat([pooledGeneral, suitSums[(int)suit - 1], suitMaxes[(int)suit - 1]], dim: -1);
+            Tensor suitProcessed = _cardSetSuitProcessor.forward(suitConcat);
+            processedSum = processedSum is null ? suitProcessed : processedSum + suitProcessed;
+        }
+
+        return processedSum;
     }
 
     public Tensor ProcessState(Tensor embeddedState)
@@ -109,30 +145,35 @@ public class PolicyModel : Module
 
     Tensor EmbedState(GameStateTensors gameState)
     {
-        Tensor hand = EmbedCardSet(_embedFullHand, gameState.FullHand);
-        Tensor deck = EmbedCardSet(_embedRemainingDeck, gameState.RemainingDeck);
-        Tensor score = _scoreUpscaleState.forward(gameState.Score);
-        Tensor handsAndDiscards = _embedHandsAndDiscardsState.forward(gameState.HandsAndDiscards);
-        return score + hand + handsAndDiscards;
+        Tensor hand = ProcessCardSet(gameState.FullHand);
+        Tensor deck = ProcessCardSet(gameState.RemainingDeck);
+        Tensor handsAndDiscards = _embedHandsAndDiscards.forward(gameState.HandsAndDiscards);
+        return cat([deck, hand, handsAndDiscards, gameState.Score], dim: -1);
     }
 
     Tensor EmbedMove(MoveTensors move)
     {
-        Tensor remainingHand = EmbedCardSet(_embedRemainingHand, move.RemainingHand);
-        Tensor playedHand = EmbedCardSet(_embedPlayedHand, move.PlayedHand);
-        Tensor score = _scoreUpscaleMove.forward(move.Score.unsqueeze(2));
-        return score + remainingHand;
+        Tensor remainingHand = ProcessCardSet(move.RemainingHand);
+        Tensor playedHand = ProcessCardSet(move.PlayedHand);
+        Tensor score = move.Score.unsqueeze(2);
+        return cat([playedHand, remainingHand, score], dim: -1);
     }
 
     public Tensor ProcessMove(Tensor embeddedMove, Tensor processedState)
     {
-        return UseHandPolicy.forward(embeddedMove) / 10f;
+        Tensor expandedState = processedState.unsqueeze(1).expand(embeddedMove.shape[0], embeddedMove.shape[1], processedState.shape[1]);
+        Tensor moveInput = cat([embeddedMove, expandedState], dim: -1);
+        return MoveEvaluator.forward(moveInput);
     }
 
     public Tensor GetPolicyLogits(MoveTensors move, Tensor processedState)
     {
         Tensor embeddedMove = EmbedMove(move);
-        return UseHandPolicy.forward(embeddedMove + processedState.unsqueeze(1).expand(embeddedMove.shape)) / 10f;
+        Tensor expandedState = processedState.unsqueeze(1).expand(embeddedMove.shape[0], embeddedMove.shape[1], processedState.shape[1]);
+        Tensor moveInput = cat([embeddedMove, expandedState], dim: -1);
+        Tensor pairLogits = MoveEvaluator.forward(moveInput);
+        Tensor actionIndex = move.ActionIndex.to_type(ScalarType.Int64).unsqueeze(2);
+        return pairLogits.gather(2, actionIndex);
     }
 
     public Tensor GetForcastLogits(Tensor processedState)
