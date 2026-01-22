@@ -1,0 +1,104 @@
+namespace BalatroAI.Game;
+
+using System;
+using System.Collections.Generic;
+
+public static class Combinatorics
+{
+    static readonly Dictionary<(int A, int B), int[]> Cache = new();
+
+    /// <summary>
+    /// Get all combinations of choosing b items from a items (a choose b).
+    /// </summary>
+    /// <returns>A read-only span of integers representing a 2D array size (B, A choose B). 
+    /// Each row is a set of indices representing a unique subset of A.</returns>
+    public static ReadOnlySpan<int> GetAChooseBCombinations(int a, int b)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(a, nameof(a));
+        ArgumentOutOfRangeException.ThrowIfNegative(b, nameof(b));
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(b, a, nameof(b));
+
+        (int A, int B) key = (a, b);
+
+        lock (Cache)
+        {
+            if (Cache.TryGetValue(key, out int[] cached))
+            {
+                return cached;
+            }
+        }
+
+        int[] combinations = GenerateCombinations(a, b);
+
+        lock (Cache)
+        {
+            Cache.TryAdd(key, combinations);
+            return combinations;
+        }
+    }
+
+
+    static int[] GenerateCombinations(int a, int b)
+    {
+        int count = CalculateCombinationCount(a, b);
+        int[] output = new int[count * b];
+        int[] combo = new int[b];
+
+        for (int i = 0; i < b; i++)
+        {
+            combo[i] = i;
+        }
+
+        int index = 0;
+
+        while (true)
+        {
+            int offset = index * b;
+
+            for (int i = 0; i < b; i++)
+            {
+                output[offset + i] = combo[i];
+            }
+
+            index++;
+
+            int k = b - 1;
+
+            while (k >= 0 && combo[k] == a - b + k)
+            {
+                k--;
+            }
+
+            if (k < 0)
+            {
+                break;
+            }
+
+            combo[k]++;
+
+            for (int i = k + 1; i < b; i++)
+            {
+                combo[i] = combo[i - 1] + 1;
+            }
+        }
+
+        return output;
+    }
+
+    static int CalculateCombinationCount(int a, int b)
+    {
+        long count = 1;
+
+        for (int i = 1; i <= b; i++)
+        {
+            count = count * (a - (b - i)) / i;
+
+            if (count > int.MaxValue)
+            {
+                throw new OverflowException();
+            }
+        }
+
+        return (int)count;
+    }
+}
