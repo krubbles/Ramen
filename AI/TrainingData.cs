@@ -53,7 +53,6 @@ public static class TrainingData
         List<SN>[] groupGames = new List<SN>[groupSize];
         float[] groupRewards = new float[groupSize];
 
-        gameState.AdvanceToNextPlayerChoice();
         int startingMoveCount = gameState.MoveState.MoveHistory.Count;
         using (no_grad())
         {

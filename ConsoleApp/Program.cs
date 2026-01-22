@@ -74,6 +74,9 @@ void ExecuteCommand(string command, bool isFromRepeat)
         case "clear":
             EnqueueWork(() => Clear());
             break;
+        case "trim":
+            EnqueueWork(() => Trim(context));
+            break;
         case "repeat":
             Repeat(context);
             break;
@@ -112,6 +115,20 @@ void Repeat(ConsoleCommandContext context)
         foreach (string command in commands)
             ExecuteCommand(command, isFromRepeat: true);
     }
+}
+
+void Trim(ConsoleCommandContext context)
+{
+    int count = context.GetIntArg(0, "count");
+
+    if (TrainingData.PolicyData.Count <= count)
+    {
+        Console.WriteLine($"Only {TrainingData.PolicyData.Count} commands in history.");
+        return;
+    }
+
+    TrainingData.PolicyData.RemoveRange(0, TrainingData.PolicyData.Count - count);
+    Console.WriteLine($"Trimmed data buffer to {count} commands.");
 }
 
 void Play(ConsoleCommandContext context)
