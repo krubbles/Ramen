@@ -43,11 +43,11 @@ public class RamenAgent
 
     /// <summary>
     /// Returns the embedded version of the current game state.
-    /// Caches each individual component of the <see cref="GameStateTensors"/> class and only updates them when they change.
+    /// Caches each individual component of the <see cref="AI.GameStateTensors"/> class and only updates them when they change.
     /// DOES NOT automatically clone when called. If persistent embedding objects are needed, call .Clone() on the return value.
     /// You may also need to call DetachFromDisposeScope().
     /// </summary>
-    public GameStateTensors Tensors => new()
+    public GameStateTensors GameStateTensors => new()
     {
         FullHand = HandTensor,
         RemainingDeck = RemainingDeckTensor,
@@ -90,49 +90,41 @@ public class RamenAgent
         if (GameIsDone())
             return;
 
-        (Move[] moves, UseHandTensors moveTensors, Tensor probs) = GetPolicyProbDist(temp);
+        (UseHandTensors moveTensors, Tensor probs) = GetPolicyProbDist(temp);
 
-        Tensor index = multinomial(probs, num_samples: 1);
-        Move move = moves[index.item<long>()];
+        Tensor indexTensor = multinomial(probs, num_samples: 1);
+        long index = indexTensor.item<long>();
+        UseHandMove move = MoveForIndex((int)index);
         move.Apply(GameState);
     }
 
-
+    public UseHandMove MoveForIndex(int index)
+    {
+        int[][] useHandOptions = Combinatorics.GetCombinations(
+            setSize: GameState.HandState.HandCardCount,
+            minSubsetSize: 1,
+            maxSubsetSize: 5);
+        return new UseHandMove(index % 2 == 1, useHandOptions[index / 2]);
+    }
 
     /// <summary>
     /// Returns the policy model's predicted probability distribution for the best next move.
     /// Returned probs is a 1xN tensor where N is the number of moves.
     /// </summary>
-    internal (Move[] moves, UseHandTensors moveTensors, Tensor probs) GetPolicyProbDist(float temp)
+    internal (UseHandTensors moveTensors, Tensor probs) GetPolicyProbDist(float temp)
     {
-        Move[] moves = GameState.GetMoveOptions();
-        (UseHandTensors moveTensors, Tensor probs) = GetPolicyProbDistForMoves(temp, moves);
-        return (moves, moveTensors, probs);
-    }
-
-    /// <summary>
-    /// Returns the policy model's predicted probability distribution for the best next move given a selected subset of them.
-    /// Returned probs is a 1xN tensor where N is the number of moves.
-    /// </summary>
-    internal (UseHandTensors moveTensors, Tensor probs) GetPolicyProbDistForMoves(float temp, Move[] moves)
-    {
-        GameStateTensors stateTensors = Tensors;
-        Tensor processedState = Model.ProcessState(stateTensors);
-        UseHandTensors moveTensors = CreateMoveTensors();
-        Tensor logits = Model.GetPolicyLogits(moveTensors, processedState);
-
+        (UseHandTensors useHandTensors, _) = CreateUseHandTensors();
+        Tensor logits = Model.GetPolicyLogits(GameStateTensors, useHandTensors);
         Tensor probs = (logits / Math.Max(temp, 0.0001f)).softmax(1).squeeze_(2);
-        return (moveTensors, probs);
+        return (useHandTensors, probs);
     }
 
     /// <summary>
     /// Embeds a list of moves into tensors.
     /// </summary>
-    internal UseHandTensors CreateMoveTensors()
+    internal (UseHandTensors useHandTensors, int moveCount) CreateUseHandTensors()
     {
         int moveCount = Combinatorics.CalculateCombinationCount(GameState.HandState.HandCardCount, 5, 1);
-        long[,,] playedHands = new long[moveCount, 5, 2];
-        long[,,] remainingHands = new long[moveCount, 8, 2];
         float[] scores = new float[moveCount];
 
         HandState handState = GameState.HandState;
@@ -144,10 +136,11 @@ public class RamenAgent
             scores[move] = (float)GameState.ScoringState.CurrentRoundTotalChips / 300f;
             useHandMove.Revert(GameState);
         }
-        return new UseHandTensors
+        UseHandTensors useHandTensors = new UseHandTensors
         {
             Score = tensor(scores).view([1, -1]).DetachFromDisposeScope(),
         };
+        return (useHandTensors, moveCount);
     }
 
     /// <summary>
@@ -181,7 +174,7 @@ public class RamenAgent
 
 
     /// <summary>
-    /// Shortcut for <see cref="Tensors"/>.FullHand
+    /// Shortcut for <see cref="GameStateTensors"/>.FullHand
     /// </summary>
     public Tensor HandTensor
     {
@@ -197,7 +190,7 @@ public class RamenAgent
     }
 
     /// <summary>
-    /// Shortcut for <see cref="Tensors"/>.RemainingDeck
+    /// Shortcut for <see cref="GameStateTensors"/>.RemainingDeck
     /// </summary>
     public Tensor RemainingDeckTensor
     {
@@ -213,7 +206,7 @@ public class RamenAgent
     }
 
     /// <summary>
-    /// Shortcut for <see cref="Tensors"/>.HandsAndDiscards
+    /// Shortcut for <see cref="GameStateTensors"/>.HandsAndDiscards
     /// </summary>
     public Tensor HandsAndDiscardsTensor
     {
@@ -229,7 +222,7 @@ public class RamenAgent
     }
 
     /// <summary>
-    /// Shortcut for <see cref="Tensors">.Score
+    /// Shortcut for <see cref="GameStateTensors">.Score
     /// </summary>
     public Tensor ScoreTensor
     {

@@ -13,20 +13,8 @@ public class PolicyModel : Module
 {
     public const int
         RankCount = 13,
-        SuitCount = 4,
-        CardPoolWidth = RankEmbedWidth * 2,
-        CardSuitConcatWidth = CardPoolWidth * 2,
-        StateWidth = 192,
-        MoveWidth = 128,
-        StateDepth = 2,
-        MoveDepth = 2,
-        Tiers = 1;
-
-    public const int
-        
-
+        SuitCount = 4;
     
-
     const int RankEmbedWidth = 64;
     readonly Embedding _rankEmbedding = Embedding(RankCount, RankEmbedWidth);
 
@@ -70,7 +58,6 @@ public class PolicyModel : Module
 
     public PolicyModel() : base(nameof(PolicyModel))
     {
-
         RegisterComponents();
     }
 

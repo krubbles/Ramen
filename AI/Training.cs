@@ -45,11 +45,9 @@ public static class Training
             stacked = TensorGroupExtentions.Stack(TrainingData.PolicyData, false, true);
         }
 
-        stacked = stacked.IndexSelect(0, randperm(stacked.MoveProbDist.size(0)));
+        stacked = stacked.IndexSelect(0, randperm(stacked.SamplingProb.size(0)));
 
         SetModelAndOptimizer(model, tp);
-
-        var lossFunc = CrossEntropyLoss();
 
         int samples = TrainingData.PolicyData.Count;
 
@@ -67,16 +65,17 @@ public static class Training
                 {
                     int end = Math.Min(i + tp.batchSize, samples);
                     PolicyTrainingSample inputs = stacked.GetBatch(i, end);
-                    Tensor processedState = model.ProcessState(inputs.State);
-                    Tensor logits = model.GetPolicyLogits(inputs.Moves, processedState);
+                    Tensor mask = inputs.Mask, target = inputs.Target, samplingProb = inputs.SamplingProb;
 
-                    var logQ = log(inputs.MoveProbDist + 1e-9);
-                    var logitsAdjusted = logits - logQ;
+                    Tensor logits = model.GetPolicyLogits(inputs.StateTensors, inputs.UseHandTensors);
+                    Tensor logQ = log(samplingProb + 1e-9);
+                    Tensor logitsAdjusted = logits - logQ;
 
-                    var currentBatchSize = logits.shape[0];
-                    var targets = zeros([currentBatchSize], ScalarType.Int64, device: logits.device);
-                    var ceLoss = functional.cross_entropy(logitsAdjusted, targets, reduction: Reduction.None);
-                    var loss = (ceLoss * inputs.Advantage).mean();
+                    Tensor ceLoss = functional.cross_entropy(logitsAdjusted, target, reduction: Reduction.None);
+
+                    Tensor weighted = ceLoss * mask / mask.sum().max(1e-9f);      
+                    Tensor loss = weighted.sum();
+                    loss.backward();
 
                     valLossAvg += loss.item<float>();
                     valBatchCount++;
@@ -94,19 +93,16 @@ public static class Training
 
                 int end = Math.Min(i + tp.batchSize, samples);
                 PolicyTrainingSample inputs = stacked.GetBatch(i, end);
+                Tensor mask = inputs.Mask, target = inputs.Target, samplingProb = inputs.SamplingProb;
 
-                Tensor processedState = model.ProcessState(inputs.State);
-                Tensor moveLogits = model.GetPolicyLogits(inputs.Moves, processedState);
+                Tensor logits = model.GetPolicyLogits(inputs.StateTensors, inputs.UseHandTensors);
+                Tensor logQ = log(samplingProb + 1e-9);
+                Tensor logitsAdjusted = logits - logQ;
 
-                Tensor probDist = inputs.MoveProbDist;
-                Tensor adjustedLogits = moveLogits - log(probDist + 1e-9); // log-q for sampled softmax
-                // target is always index 0
-                Tensor targetRow = zeros(1, adjustedLogits.size(dim: 1));
-                targetRow[0, 0] = 1;
-                Tensor target = targetRow.expand(probDist.size(dim: 0), targetRow.size(dim: 1));
+                Tensor ceLoss = functional.cross_entropy(logitsAdjusted, target, reduction: Reduction.None);
 
-                Tensor loss = lossFunc.forward(adjustedLogits, target);
-
+                Tensor weighted = ceLoss * mask / mask.sum().max(1e-9f);      
+                Tensor loss = weighted.sum();
                 loss.backward();
                 Optimizer.step();
 
@@ -118,70 +114,6 @@ public static class Training
                     stacked.Dispose();
                     return;
                 }
-            }
-
-            trainLossAvg /= Math.Max(1, trainBatchCount);
-
-            Console.WriteLine($"Eval Epoch {epoch} | Train Loss = {trainLossAvg} | KLD = {kldTotal / Math.Max(1, trainBatchCount)}");
-        }
-
-        stacked.Dispose();
-    }
-
-    public static void TrainPolicyModelGRPO(PolicyModel model, TrainingParams tp, CancellationToken cancel, bool useCispo = false)
-    {
-        Console.WriteLine($"Training evaluation model for {tp.epochs} epochs, batch size {tp.batchSize}, data size {TrainingData.PolicyData.Count}");
-
-        PolicyTrainingSample stacked;
-        lock (TrainingData.PolicyData)
-        {
-            stacked = TensorGroupExtentions.Stack(TrainingData.PolicyData, false, true);
-        }
-
-        stacked = stacked.IndexSelect(0, randperm(stacked.Advantage.size(0)));
-
-        SetModelAndOptimizer(model, tp);
-
-        int samples = TrainingData.PolicyData.Count;
-
-        int trainCount = samples;
-
-        for (int epoch = 0; epoch < tp.epochs; ++epoch)
-        {
-            float trainLossAvg = 0f;
-            int trainBatchCount = 0;
-
-            float kldTotal = 0;
-            for (int i = 0; i < trainCount; i += tp.batchSize)
-            {
-                Optimizer.zero_grad();
-
-                int end = Math.Min(i + tp.batchSize, samples);
-                PolicyTrainingSample inputs = stacked.GetBatch(i, end);
-
-                var probDist = inputs.MoveProbDist / inputs.MoveProbDist.sum(dim: 1, true);
-                Tensor processedState = model.ProcessState(inputs.State);
-                int moveCount = (int)inputs.Moves.Score.size(1);
-
-                Tensor moveLogits = model.GetPolicyLogits(inputs.Moves, processedState);
-                Tensor moveLoss = useCispo ?
-                    CalculateCISPOLoss(moveLogits, probDist, inputs.Advantage, tp.entropyCoeff, true, ref kldTotal) :
-                    CalculatePPOLoss(moveLogits, probDist, inputs.Advantage, tp.entropyCoeff, tp.kldCoeff, true, ref kldTotal);
-
-                Tensor loss = moveLoss;
-
-                loss.backward();
-                Optimizer.step();
-
-                trainLossAvg += loss.item<float>();
-                trainBatchCount++;
-
-                if (cancel.IsCancellationRequested)
-                {
-                    stacked.Dispose();
-                    return;
-                }
-
             }
 
             trainLossAvg /= Math.Max(1, trainBatchCount);

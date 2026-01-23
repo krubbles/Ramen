@@ -16,12 +16,12 @@ public class DataAugmentationTests
         // Original sample with one card from each suit and a few extra indices
         PolicyTrainingSample sample = new()
         {
-            State = new GameStateTensors
+            StateTensors = new GameStateTensors
             {
                 FullHand = tensor([1, 14, 27, 40], dtype: ScalarType.Int32),
                 RemainingDeck = tensor([2, 15], dtype: ScalarType.Int32)
             },
-            Moves = new UseHandTensors
+            UseHandTensors = new UseHandTensors
             {
                 PlayedHand = tensor([3], dtype: ScalarType.Int32),
                 RemainingHand = tensor([4], dtype: ScalarType.Int32)
@@ -41,20 +41,20 @@ public class DataAugmentationTests
         int[][] perms = (int[][])field.GetValue(null);
         Assert.That(perms.Length, Is.EqualTo(24), "Expected 24 suit permutations");
 
-        int[] originalFullHand = sample.State.FullHand.data<int>().ToArray();
-        int[] originalRemainingDeck = sample.State.RemainingDeck.data<int>().ToArray();
-        int[] originalPlayedHand = sample.Moves.PlayedHand.data<int>().ToArray();
-        int[] originalRemainingHand = sample.Moves.RemainingHand.data<int>().ToArray();
+        int[] originalFullHand = sample.StateTensors.FullHand.data<int>().ToArray();
+        int[] originalRemainingDeck = sample.StateTensors.RemainingDeck.data<int>().ToArray();
+        int[] originalPlayedHand = sample.UseHandTensors.PlayedHand.data<int>().ToArray();
+        int[] originalRemainingHand = sample.UseHandTensors.RemainingHand.data<int>().ToArray();
 
         bool HasMatchingSample(int[] expectedFullHand, int[] expectedRemainingDeck, int[] expectedPlayedHand, int[] expectedRemainingHand)
         {
             return samples.Skip(1).Any(s =>
             {
-                if (s.State is null || s.Moves is null) return false;
-                int[] fh = s.State.FullHand.data<int>().ToArray();
-                int[] rd = s.State.RemainingDeck.data<int>().ToArray();
-                int[] ph = s.Moves.PlayedHand.data<int>().ToArray();
-                int[] rh = s.Moves.RemainingHand.data<int>().ToArray();
+                if (s.StateTensors is null || s.UseHandTensors is null) return false;
+                int[] fh = s.StateTensors.FullHand.data<int>().ToArray();
+                int[] rd = s.StateTensors.RemainingDeck.data<int>().ToArray();
+                int[] ph = s.UseHandTensors.PlayedHand.data<int>().ToArray();
+                int[] rh = s.UseHandTensors.RemainingHand.data<int>().ToArray();
                 return fh.SequenceEqual(expectedFullHand) && rd.SequenceEqual(expectedRemainingDeck) && ph.SequenceEqual(expectedPlayedHand) && rh.SequenceEqual(expectedRemainingHand);
             });
         }

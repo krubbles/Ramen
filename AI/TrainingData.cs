@@ -236,15 +236,18 @@ public static class TrainingData
 
 public class PolicyTrainingSample : ITensorGroup
 {
-    public GameStateTensors State;
-    public UseHandTensors Moves;
-    public Tensor MoveProbDist;
-    public Tensor Advantage;
+    public GameStateTensors StateTensors;
+    public UseHandTensors UseHandTensors;
+    public Tensor Mask;
+    public Tensor Target;
+    public Tensor SamplingProb;
 
     /// <summary>
     /// The negative natural log probability of the chosen move.
     /// </summary>
     public float ChosenMoveNLProb;
+        public Tensor Advantage;
+
 }
 
 public struct MoveSampleAnnotationData

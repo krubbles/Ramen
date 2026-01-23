@@ -38,32 +38,32 @@ public static class DataAugmentation
     {
         PolicyTrainingSample remapped = new()
         {
-            State = sample.State?.Clone(),
-            Moves = sample.Moves?.Clone(),
-            MoveProbDist = sample.MoveProbDist?.clone(),
+            StateTensors = sample.StateTensors?.Clone(),
+            UseHandTensors = sample.UseHandTensors?.Clone(),
+            SamplingProb = sample.SamplingProb?.clone(),
             Advantage = sample.Advantage?.clone(),
             ChosenMoveNLProb = sample.ChosenMoveNLProb
         };
 
-        if (remapped.State != null)
+        if (remapped.StateTensors != null)
         {
-            Tensor originalFullHand = remapped.State.FullHand;
-            remapped.State.FullHand = RemapCardSuitTensor(remapped.State.FullHand, suitRemap);
+            Tensor originalFullHand = remapped.StateTensors.FullHand;
+            remapped.StateTensors.FullHand = RemapCardSuitTensor(remapped.StateTensors.FullHand, suitRemap);
             originalFullHand?.Dispose();
 
-            Tensor originalRemainingDeck = remapped.State.RemainingDeck;
-            remapped.State.RemainingDeck = RemapCardSuitTensor(remapped.State.RemainingDeck, suitRemap);
+            Tensor originalRemainingDeck = remapped.StateTensors.RemainingDeck;
+            remapped.StateTensors.RemainingDeck = RemapCardSuitTensor(remapped.StateTensors.RemainingDeck, suitRemap);
             originalRemainingDeck?.Dispose();
         }
 
-        if (remapped.Moves != null)
+        if (remapped.UseHandTensors != null)
         {
-            Tensor originalPlayedHand = remapped.Moves.PlayedHand;
-            remapped.Moves.PlayedHand = RemapCardSuitTensor(remapped.Moves.PlayedHand, suitRemap);
+            Tensor originalPlayedHand = remapped.UseHandTensors.PlayedHand;
+            remapped.UseHandTensors.PlayedHand = RemapCardSuitTensor(remapped.UseHandTensors.PlayedHand, suitRemap);
             originalPlayedHand?.Dispose();
 
-            Tensor originalRemainingHand = remapped.Moves.RemainingHand;
-            remapped.Moves.RemainingHand = RemapCardSuitTensor(remapped.Moves.RemainingHand, suitRemap);
+            Tensor originalRemainingHand = remapped.UseHandTensors.RemainingHand;
+            remapped.UseHandTensors.RemainingHand = RemapCardSuitTensor(remapped.UseHandTensors.RemainingHand, suitRemap);
             originalRemainingHand?.Dispose();
         }
 
