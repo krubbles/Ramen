@@ -7,7 +7,8 @@ using System.Diagnostics;
 
 // needed for cursor
 // ExternalConsole.Initialize();
-System.Diagnostics.Debug.WriteLine("=== WELCOME! ===");
+
+Console.WriteLine("=== WELCOME! ===");
 
 
 PolicyModel model = new();
@@ -42,9 +43,6 @@ void ExecuteCommand(string command, bool isFromRepeat)
 
     switch (context.Name)
     {
-        case "traingrpo":
-            EnqueueWork(() => TrainGRPO(context));
-            break;
         case "train":
             EnqueueWork(() => TrainSupervised(context));
             break;
@@ -68,9 +66,6 @@ void ExecuteCommand(string command, bool isFromRepeat)
             break;
         case "todata":
             EnqueueWork(() => ToData(context));
-            break;
-        case "augment":
-            EnqueueWork(() => Augment(context));
             break;
         case "clear":
             EnqueueWork(() => Clear());
@@ -191,16 +186,6 @@ void EnqueueWork(Action action)
     }
 }
 
-
-void TrainGRPO(ConsoleCommandContext context)
-{
-    int epochs = context.GetIntArg(0, "epochs");
-    bool useCispo = context.GetBoolArg("cispo", false);
-    trainingParams.epochs = epochs;
-    Training.TrainPolicyModelGRPO(model, trainingParams, cancel.Token, useCispo);
-
-}
-
 void TrainSupervised(ConsoleCommandContext context)
 {
     int epochs = context.GetIntArg(0, "epochs");
@@ -300,14 +285,6 @@ void ToData(ConsoleCommandContext context)
     TrainingData.GenerateTrainingDataFromGames(model, database);
     int countAfter = TrainingData.PolicyData.Count;
     Console.WriteLine($"Added {countAfter - countBefore} training samples from '{dbName}'");
-}
-
-void Augment(ConsoleCommandContext context)
-{
-    int countBefore = TrainingData.PolicyData.Count;
-    DataAugmentation.AugmentEvaluationTrainingDataBySuitRemap();
-    int countAfter = TrainingData.PolicyData.Count;
-    Console.WriteLine($"Augmented training data. Added {countAfter - countBefore} samples");
 }
 
 void Clear()
