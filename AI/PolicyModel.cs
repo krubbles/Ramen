@@ -99,8 +99,8 @@ public class PolicyModel : Module
 
     Tensor FullHandToUsedHands(Tensor fullHand)
     {
-        Tensor fullHandRanks = _rankEmbedding.forward(fullHand.select(fullHand.Dimensions - 1, 0)); // BatchSize x CardCount x RankEmbedWidth
-        Tensor fullHandSuits = functional.one_hot(fullHand.select(fullHand.Dimensions - 1, 1), SuitCount + 1).to_type(ScalarType.Float32); // BatchSize x CardCount x SuitCount (including null)
+        Tensor fullHandRanks = _rankEmbedding.forward(fullHand.select(2, 0)); // BatchSize x CardCount x RankEmbedWidth
+        Tensor fullHandSuits = functional.one_hot(fullHand.select(2, 1), SuitCount + 1).to_type(ScalarType.Float32); // BatchSize x CardCount x SuitCount (including null)
         
         int useableHandCount = Combinatorics.CalculateCombinationCount(setSize: 8, maxSubsetSize: 5, minSubsetSize: 1);
         Tensor embeddedFullHand = fullHandRanks.sum(dim: 1); // BatchSize x RankEmbedWidth
@@ -185,9 +185,10 @@ public class PolicyModel : Module
     
     public Tensor GetPolicyLogits(GameStateTensors gameStateTensors, UseHandTensors useHandTensors)
     {
-        Tensor processedState = ProcessState(gameStateTensors);
         Tensor processedUseHandTensors = FullHandToUsedHands(gameStateTensors.FullHand);
-        Tensor useHandInputs = cat([processedState, processedUseHandTensors, useHandTensors.Score], dim: -1);
+        Tensor processedState = ProcessState(gameStateTensors);
+        Tensor processedStateExpanded = processedState.unsqueeze(1).expand(processedUseHandTensors.shape);
+        Tensor useHandInputs = cat([processedStateExpanded, processedUseHandTensors, useHandTensors.Score.unsqueeze(2)], dim: -1);
         Tensor moveLogits = _useHandProcessor.forward(useHandInputs).view([processedState.size(0), -1]);
         return moveLogits;
     }

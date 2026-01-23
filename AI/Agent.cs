@@ -283,7 +283,7 @@ public class RamenAgent
             if (i < hand.Length)
             {
                 Card card = hand[i];
-                cards[i, 0] = card.Rank;
+                cards[i, 0] = card.Rank - 2;
                 cards[i, 1] = (int)card.Suit;
             }
         }
