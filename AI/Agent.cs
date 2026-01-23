@@ -90,7 +90,7 @@ public class RamenAgent
         if (GameIsDone())
             return;
 
-        (Move[] moves, MoveTensors moveTensors, Tensor probs) = GetPolicyProbDist(temp);
+        (Move[] moves, UseHandTensors moveTensors, Tensor probs) = GetPolicyProbDist(temp);
 
         Tensor index = multinomial(probs, num_samples: 1);
         Move move = moves[index.item<long>()];
@@ -103,10 +103,10 @@ public class RamenAgent
     /// Returns the policy model's predicted probability distribution for the best next move.
     /// Returned probs is a 1xN tensor where N is the number of moves.
     /// </summary>
-    internal (Move[] moves, MoveTensors moveTensors, Tensor probs) GetPolicyProbDist(float temp)
+    internal (Move[] moves, UseHandTensors moveTensors, Tensor probs) GetPolicyProbDist(float temp)
     {
         Move[] moves = GameState.GetMoveOptions();
-        (MoveTensors moveTensors, Tensor probs) = GetPolicyProbDistForMoves(temp, moves);
+        (UseHandTensors moveTensors, Tensor probs) = GetPolicyProbDistForMoves(temp, moves);
         return (moves, moveTensors, probs);
     }
 
@@ -114,11 +114,11 @@ public class RamenAgent
     /// Returns the policy model's predicted probability distribution for the best next move given a selected subset of them.
     /// Returned probs is a 1xN tensor where N is the number of moves.
     /// </summary>
-    internal (MoveTensors moveTensors, Tensor probs) GetPolicyProbDistForMoves(float temp, Move[] moves)
+    internal (UseHandTensors moveTensors, Tensor probs) GetPolicyProbDistForMoves(float temp, Move[] moves)
     {
         GameStateTensors stateTensors = Tensors;
         Tensor processedState = Model.ProcessState(stateTensors);
-        MoveTensors moveTensors = CreateMoveTensors(moves);
+        UseHandTensors moveTensors = CreateMoveTensors(moves);
         Tensor logits = Model.GetPolicyLogits(moveTensors, processedState);
 
         Tensor probs = (logits / Math.Max(temp, 0.0001f)).softmax(1).squeeze_(2);
@@ -128,7 +128,7 @@ public class RamenAgent
     /// <summary>
     /// Embeds a list of moves into tensors.
     /// </summary>
-    internal MoveTensors CreateMoveTensors(Move[] moves)
+    internal UseHandTensors CreateMoveTensors()
     {
         int moveCount = moves.Length;
         long[,,] playedHands = new long[moveCount, 5, 2];
@@ -139,12 +139,12 @@ public class RamenAgent
         int hash = GameState.GetHashCode();
         for (int move = 0; move < moveCount; ++move)
         {
-            moves[move].Apply(GameState);
-
-            UseHandMove useHandMove = (UseHandMove)moves[move];
-            
+            UseHandMove useHandMove = (UseHandMove)moves[move]; 
             if (useHandMove.IsDiscard)
                 continue;
+
+            useHandMove.Apply(GameState);
+            
                 
             for (int i = 0; i < 5; ++i)
             {
@@ -173,7 +173,7 @@ public class RamenAgent
         if (GameState.GetHashCode() != hash)
             throw new Exception("eee err");
 
-        return new MoveTensors
+        return new UseHandTensors
         {
             RemainingHand = tensor(remainingHands).unsqueeze_(0),
             PlayedHand = tensor(playedHands).unsqueeze_(0),

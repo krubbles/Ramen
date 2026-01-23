@@ -23,8 +23,8 @@ public static class AgentTrainingExtensions
         if (agent.GameIsDone())
             return null;
 
-        (Move[] moves, MoveTensors moveTensors, Tensor probs) = agent.GetPolicyProbDist(temp);
-        (Move[] sampledMoves, MoveTensors sampledMoveTensors, Tensor sampledProbs) = SampleMoves(agent, moves, moveTensors, probs, sampleCount);
+        (Move[] moves, UseHandTensors moveTensors, Tensor probs) = agent.GetPolicyProbDist(temp);
+        (Move[] sampledMoves, UseHandTensors sampledMoveTensors, Tensor sampledProbs) = SampleMoves(agent, moves, moveTensors, probs, sampleCount);
         Tensor indices = multinomial(probs.view([-1]), sampleCount, replacement: false);
 
         moves[(int)indices[0].item<long>()].Apply(agent.GameState);
@@ -48,7 +48,7 @@ public static class AgentTrainingExtensions
         if (agent.GameIsDone())
             return null;
 
-        (Move[] moves, MoveTensors moveTensors, Tensor probs) = agent.GetPolicyProbDist(temp: 1f);
+        (Move[] moves, UseHandTensors moveTensors, Tensor probs) = agent.GetPolicyProbDist(temp: 1f);
         Tensor indices = multinomial(probs, sampleCount);
         long[] indicesArray = indices.data<long>().ToArray();
 
@@ -117,7 +117,7 @@ public static class AgentTrainingExtensions
     /// <summary>
     /// Creates an evaluation training sample from move tensors and probability distribution.
     /// </summary>
-    public static PolicyTrainingSample CreatePolicyTrainingSample(this RamenAgent agent, MoveTensors moveTensors, Tensor probs)
+    public static PolicyTrainingSample CreatePolicyTrainingSample(this RamenAgent agent, UseHandTensors moveTensors, Tensor probs)
     {
         PolicyTrainingSample sample = new()
         {
@@ -138,7 +138,7 @@ public static class AgentTrainingExtensions
         Move[] sampledMoves = new Move[moveIndices.Length];
         for (int i = 0; i < moveIndices.Length; ++i)
             sampledMoves[i] = moves[moveIndices[i].MoveIndex];
-        MoveTensors sampledMoveTensors = agent.CreateMoveTensors(sampledMoves);
+        UseHandTensors sampledMoveTensors = agent.CreateMoveTensors(sampledMoves);
         float[] sampledProbs = new float[moveIndices.Length];
         for (int i = 0; i < moveIndices.Length; ++i)
             sampledProbs[i] = MathF.Exp(moveIndices[i].NLProbTimes1K / -1000f); // it's fixed precision so the encoding is needed
@@ -148,11 +148,11 @@ public static class AgentTrainingExtensions
     /// <summary>
     /// Samples moves based on the policy model's prediction for training data generation.
     /// </summary>
-    private static (Move[] sampledMoves, MoveTensors sampledMoveTensors, Tensor sampledProbs) SampleMoves(this RamenAgent agent, Move[] moves, MoveTensors moveTensors, Tensor probs, int sampleCount)
+    private static (Move[] sampledMoves, UseHandTensors sampledMoveTensors, Tensor sampledProbs) SampleMoves(this RamenAgent agent, Move[] moves, UseHandTensors moveTensors, Tensor probs, int sampleCount)
     {
         Tensor indices = multinomial(probs.view([-1]), sampleCount, replacement: false);
         Tensor sampledProbs = probs.index_select(dim: 1, indices);
-        MoveTensors sampledMoveTensors = moveTensors.IndexSelect(dim: 1, indices);
+        UseHandTensors sampledMoveTensors = moveTensors.IndexSelect(dim: 1, indices);
 
         long[] indicesArray = indices.data<long>().ToArray();
         Move[] sampledMoves = new Move[sampleCount];

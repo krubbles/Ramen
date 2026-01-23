@@ -34,7 +34,7 @@ public class GameStateTensors : ITensorGroup
 /// <summary>
 /// An embedded Move.
 /// </summary>
-public class MoveTensors : ITensorGroup
+public class UseHandTensors : ITensorGroup
 {
     /// <summary>
     /// Vector of cards in <see cref="HandState.ActiveHand"/> immediately after move is made. Encoded as [rank, suit] pairs.

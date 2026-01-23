@@ -18,13 +18,13 @@ public class DataAugmentationTests
         {
             State = new GameStateTensors
             {
-                FullHand = tensor(new int[] { 1, 14, 27, 40 }, dtype: ScalarType.Int32),
-                RemainingDeck = tensor(new int[] { 2, 15 }, dtype: ScalarType.Int32)
+                FullHand = tensor([1, 14, 27, 40], dtype: ScalarType.Int32),
+                RemainingDeck = tensor([2, 15], dtype: ScalarType.Int32)
             },
-            Moves = new MoveTensors
+            Moves = new UseHandTensors
             {
-                PlayedHand = tensor(new int[] { 3 }, dtype: ScalarType.Int32),
-                RemainingHand = tensor(new int[] { 4 }, dtype: ScalarType.Int32)
+                PlayedHand = tensor([3], dtype: ScalarType.Int32),
+                RemainingHand = tensor([4], dtype: ScalarType.Int32)
             }
         };
 

@@ -6,7 +6,7 @@ using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
 
 /// High level policy network topology:
-/// - Input: Embedded GameState + Embedded Moves (<see cref="GameStateTensors"/> + <see cref="MoveTensors"/>)
+/// - Input: Embedded GameState + Embedded Moves (<see cref="GameStateTensors"/> + <see cref="UseHandTensors"/>)
 /// - Always assume there is a batch dimension at dim 0.
 /// - Process <see cref="GameStateTensors.RemainingDeck"/> using card set processing described below.
 /// - Process <see cref="GameStateTensors.FullHand"/>
@@ -15,9 +15,9 @@ using static TorchSharp.torch.nn;
 /// - Concat all the above vectors.
 /// - Pass through a residual MLP to get a processed state vector.
 /// - For each move (discard and play for same hand are grouped):
-///    - Process <see cref="MoveTensors.PlayedHand"/> 
-///    - Process <see cref="MoveTensors.RemainingHand"/>
-///    - Include <see cref="MoveTensors.Score"/> as a single scalar input logit
+///    - Process <see cref="UseHandTensors.PlayedHand"/> 
+///    - Process <see cref="UseHandTensors.RemainingHand"/>
+///    - Include <see cref="UseHandTensors.Score"/> as a single scalar input logit
 ///    - Concat the above vectors + the processed state vectors.
 ///    - Pass through a residual MLP to get 2 logits: play logit, and discard logit.
 /// - Use a view to collapse the Nx2 logits from all the [play, discard] pairs into a single policy logits tensor.
@@ -58,7 +58,7 @@ public class PolicyModel : Module
     readonly Sequential _cardSetSuitProcessor;
 
     public readonly Sequential StateProcessor;
-    public readonly Sequential MoveEvaluator;
+    public readonly Sequential UseHandEvaluator;
     public readonly Sequential ForcastPolicy;
 
     public PolicyModel() : base(nameof(PolicyModel))
@@ -75,7 +75,7 @@ public class PolicyModel : Module
             new ResidualMLP(StateWidth, StateDepth)
         );
 
-        MoveEvaluator = Sequential(
+        UseHandEvaluator = Sequential(
             Linear(MoveEvaluatorInputWidth, MoveWidth),
             ReLU(),
             new ResidualMLP(MoveWidth, MoveDepth),
@@ -145,28 +145,22 @@ public class PolicyModel : Module
         return cat([deck, hand, handsAndDiscards, gameState.Score], dim: -1);
     }
 
-    Tensor EmbedMove(MoveTensors move)
+    Tensor ProcessUseHandTensors(UseHandTensors move)
     {
         Tensor remainingHand = ProcessCardSet(move.RemainingHand);
         Tensor playedHand = ProcessCardSet(move.PlayedHand);
         Tensor score = move.Score.unsqueeze(2);
         return cat([playedHand, remainingHand, score], dim: -1);
     }
-
-    public Tensor ProcessMove(Tensor embeddedMove, Tensor processedState)
+    
+    public Tensor GetPolicyLogits(UseHandTensors moveData, Tensor processedState)
     {
-        Tensor expandedState = processedState.unsqueeze(1).expand(embeddedMove.shape[0], embeddedMove.shape[1], processedState.shape[1]);
-        Tensor moveInput = cat([embeddedMove, expandedState], dim: -1);
-        return MoveEvaluator.forward(moveInput);
-    }
-
-    public Tensor GetPolicyLogits(MoveTensors move, Tensor processedState)
-    {
-        Tensor embeddedMove = EmbedMove(move);
-        Tensor expandedState = processedState.unsqueeze(1).expand(embeddedMove.shape[0], embeddedMove.shape[1], processedState.shape[1]);
-        Tensor moveInput = cat([embeddedMove, expandedState], dim: -1);
-        Tensor pairLogits = MoveEvaluator.forward(moveInput);
-        return pairLogits;
+        Tensor processedUseHandTensors = ProcessUseHandTensors(moveData);
+        Tensor expandedState = processedState.unsqueeze(1).expand(processedUseHandTensors.shape[0], processedUseHandTensors.shape[1], processedState.shape[1]);
+        Tensor moveInput = cat([processedUseHandTensors, expandedState], dim: -1);
+        Tensor playAndDiscardLogits = UseHandEvaluator.forward(moveInput);
+        Tensor moveLogits = playAndDiscardLogits.view([playAndDiscardLogits.size(0), -1]);
+        return moveLogits;
     }
 }
 

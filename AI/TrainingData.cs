@@ -237,7 +237,7 @@ public static class TrainingData
 public class PolicyTrainingSample : ITensorGroup
 {
     public GameStateTensors State;
-    public MoveTensors Moves;
+    public UseHandTensors Moves;
     public Tensor MoveProbDist;
     public Tensor Advantage;
 
