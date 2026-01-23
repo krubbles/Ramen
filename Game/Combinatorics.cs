@@ -4,6 +4,9 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
+/// <summary>
+/// Utility class for enumerating over A choose B combinations, intended for finding play/discard hand moves. 
+/// </summary>
 public static class Combinatorics
 {
     static readonly Dictionary<(int A, int B), int[][]> _cache = [];
@@ -12,13 +15,11 @@ public static class Combinatorics
     /// Get all combinations of choosing <paramref name="subsetSize"/> items from a set with <paramref name="setSize"/> items.
     /// </summary>
     /// <returns>A 2D array of integers size (<paramref name="setSize"/> choose <paramref name="subsetSize"/>, <paramref name="subsetSize"/>). 
-    /// Each row is a set of indices representing a unique subset of <paramref name="subsetSize"/>.</returns>
-    
+    /// Each row is a set of indices representing a unique subset of <paramref name="subsetSize"/>.</returns>    
     public static int[][] GetCombinations(int setSize, int subsetSize)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(setSize, nameof(setSize));
         ArgumentOutOfRangeException.ThrowIfNegative(subsetSize, nameof(subsetSize));
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(subsetSize, setSize, nameof(subsetSize));
 
         (int A, int B) key = (setSize, subsetSize);
 
@@ -46,8 +47,6 @@ public static class Combinatorics
         ArgumentOutOfRangeException.ThrowIfNegative(setSize, nameof(setSize));
         ArgumentOutOfRangeException.ThrowIfNegative(minSubsetSize, nameof(minSubsetSize));
         ArgumentOutOfRangeException.ThrowIfNegative(maxSubsetSize, nameof(maxSubsetSize));
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(minSubsetSize, maxSubsetSize, nameof(minSubsetSize));
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(maxSubsetSize, setSize, nameof(maxSubsetSize));
 
         (int SetSize, int MinSubsetSize, int MaxSubsetSize) key = (setSize, minSubsetSize, maxSubsetSize);
 
@@ -122,6 +121,9 @@ public static class Combinatorics
 
     public static int CalculateCombinationCount(int setSize, int subsetSize)
     {
+        if (subsetSize > setSize || subsetSize <= 0)
+            return 0;
+
         int count = 1;
 
         for (int i = 1; i <= subsetSize; i++)
@@ -132,11 +134,11 @@ public static class Combinatorics
         return count;
     }
 
-    public static int CalculateCombinationCount(int setSize, int subsetSizeMax, int subsetSizeMin)
+    public static int CalculateCombinationCount(int setSize, int maxSubsetSize, int minSubsetSize)
     {
         int count = 0;
 
-        for (int subsetSize = subsetSizeMin; subsetSize <= subsetSizeMax; subsetSize++)
+        for (int subsetSize = minSubsetSize; subsetSize <= maxSubsetSize; subsetSize++)
         {
             count += CalculateCombinationCount(setSize, subsetSize);
         }

@@ -5,30 +5,6 @@ using TorchSharp.Modules;
 using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
 
-/// High level policy network topology:
-/// - Input: Embedded GameState + Embedded Moves (<see cref="GameStateTensors"/> + <see cref="UseHandTensors"/>)
-/// - Always assume there is a batch dimension at dim 0.
-/// - Process <see cref="GameStateTensors.RemainingDeck"/> using card set processing described below.
-/// - Process <see cref="GameStateTensors.FullHand"/>
-/// - Embed <see cref="GameStateTensors.HandsAndDiscards"/> using a learnable embedding
-/// - Include <see cref="GameStateTensors.Score"/> as a single scalar input logit
-/// - Concat all the above vectors.
-/// - Pass through a residual MLP to get a processed state vector.
-/// - For each move (discard and play for same hand are grouped):
-///    - Process <see cref="UseHandTensors.PlayedHand"/> 
-///    - Process <see cref="UseHandTensors.RemainingHand"/>
-///    - Include <see cref="UseHandTensors.Score"/> as a single scalar input logit
-///    - Concat the above vectors + the processed state vectors.
-///    - Pass through a residual MLP to get 2 logits: play logit, and discard logit.
-/// - Use a view to collapse the Nx2 logits from all the [play, discard] pairs into a single policy logits tensor.
-/// - Return the output policy tensor.
-/// Card set processing: 
-/// - Embed each card into a length (13 + 4) vector, 1-hot encoding rank and suit.
-/// - Generate a pooled length (13 + 4) * 2 vector, the concat of the sum and max over the embedded cards.
-/// - Generate 4 similar pooled vectors for each suit, where it only pools over cards of that suit.
-/// - Process the concat of [general pooled vector, suit pooled vector] with a small sequential NN to get four processed vectors, then sum them.
-/// - The resulting vector is the output.
-/// - This process makes the NN mostly suit agnostic, improving generalization.
 
 /// <summary>
 /// The policy network used for move evaluation.
@@ -38,12 +14,8 @@ public class PolicyModel : Module
     public const int
         RankCount = 13,
         SuitCount = 4,
-        CardEmbedWidth = RankCount + SuitCount,
-        CardPoolWidth = CardEmbedWidth * 2,
+        CardPoolWidth = RankEmbedWidth * 2,
         CardSuitConcatWidth = CardPoolWidth * 2,
-        CardSuitProcessorHiddenWidth = 128,
-        CardSetWidth = 64,
-        HandsAndDiscardsEmbedWidth = 32,
         StateWidth = 192,
         MoveWidth = 128,
         StateDepth = 2,
@@ -51,41 +23,122 @@ public class PolicyModel : Module
         Tiers = 1;
 
     public const int
-        StateProcessorInputWidth = CardSetWidth + CardSetWidth + HandsAndDiscardsEmbedWidth + 1,
-        MoveEvaluatorInputWidth = CardSetWidth + CardSetWidth + 1 + StateWidth;
+        
 
+    
+
+    const int RankEmbedWidth = 64;
+    readonly Embedding _rankEmbedding = Embedding(RankCount, RankEmbedWidth);
+
+    const int UseHandCardSetOutputWidth = 64;
+    readonly Sequential _useHandCardSetProcessor = 
+        Sequential(
+            new Bias(RankEmbedWidth * 2),
+            ReLU(),
+            Linear(RankEmbedWidth * 2, UseHandCardSetOutputWidth)
+        );
+
+    const int RemainingDeckCardSetWidth = 0;
+    readonly Sequential _remainingDeckCardSetProcessor = 
+        Sequential(
+            new Bias(RankEmbedWidth * 2),
+            ReLU(),
+            Linear(RankEmbedWidth * 2, RemainingDeckCardSetWidth)
+        );
+
+    public const int HandsAndDiscardsEmbedWidth = 25;
     readonly Embedding _embedHandsAndDiscards = Embedding(25, HandsAndDiscardsEmbedWidth);
-    readonly Sequential _cardSetSuitProcessor;
 
-    public readonly Sequential StateProcessor;
-    public readonly Sequential UseHandEvaluator;
-    public readonly Sequential ForcastPolicy;
+    public const int StateScoreEmbedWidth = 1;
+    public const int StateProcessorInputWidth = RemainingDeckCardSetWidth + HandsAndDiscardsEmbedWidth + 1;
+    public const int StateProcessorOutputWidth = 64;
+    readonly Sequential _stateProcessor = 
+        Sequential(
+            Linear(StateProcessorInputWidth, StateProcessorOutputWidth),
+            ReLU()
+        );
+
+    public const int UseHandScoreEmbedWidth = 1;
+    public const int UseHandProcessorInputWidth = StateProcessorOutputWidth + UseHandCardSetOutputWidth + UseHandScoreEmbedWidth;
+    public const int UseHandProcessorHiddenWidth = 128;
+    readonly Sequential _useHandProcessor = 
+        Sequential(
+            Linear(UseHandProcessorInputWidth, UseHandProcessorHiddenWidth),
+            ReLU(),
+            Linear(UseHandProcessorHiddenWidth, 2)
+        );
 
     public PolicyModel() : base(nameof(PolicyModel))
     {
-        _cardSetSuitProcessor = Sequential(
-            Linear(CardSuitConcatWidth, CardSuitProcessorHiddenWidth),
-            ReLU(),
-            Linear(CardSuitProcessorHiddenWidth, CardSetWidth)
-        );
-
-        StateProcessor = Sequential(
-            Linear(StateProcessorInputWidth, StateWidth),
-            ReLU(),
-            new ResidualMLP(StateWidth, StateDepth)
-        );
-
-        UseHandEvaluator = Sequential(
-            Linear(MoveEvaluatorInputWidth, MoveWidth),
-            ReLU(),
-            new ResidualMLP(MoveWidth, MoveDepth),
-            Linear(MoveWidth, 2)
-        );
 
         RegisterComponents();
     }
 
-    Tensor ProcessCardSet(Tensor cardSet)
+    static readonly Dictionary<(Suit suit, int cardIndex), Tensor> _playedHandSelectionIndices = [];
+    static readonly Dictionary<(Suit suit, int cardIndex), Tensor> _remainingHandSelectionIndices = [];
+
+    static PolicyModel()
+    {
+        // Input: A (batch x cardCount x 1) rank index vector and a (batch x cardCount x 10) suit vector
+        // - Suit vector format is (0, isDiamond, isClub, isHeart, isSpade)
+        // Output: A batch x playedHandCount x rankEmbedWidth tensor for each suit. 
+        // Steps:
+        // 1. Embed the ranks
+        // 2. Outer product the rank embeddings with the suit vectors (bce, bcs -> bcse)
+        // 3. Flatten to (batch x cardCount * 5 x rankEmbedWidth). This lets us select cards of a given suit easily.
+        // 4. We can generate sum of the embeddings of each card of a particular suit in each possible hand by 
+        //    generating 5 index vectors, one for each card position in the played hand (for hands size < 5, some indices will be zero).
+        // So thats what this does. 
+        for (Suit suit = Suit.Diamond; suit <= Suit.Spade; ++suit)
+        {
+            for (int usedCardIndex = 0; usedCardIndex < 5; ++usedCardIndex)
+            {
+                int[] indices = new int[Combinatorics.CalculateCombinationCount(setSize: 8, maxSubsetSize: 5, minSubsetSize: 1)];
+                int indicesIndex = 0;
+                foreach (int[] cardIndices in Combinatorics.GetCombinations(setSize: 8, maxSubsetSize: 5, minSubsetSize: 1))
+                {
+                    indices[indicesIndex++] = 
+                        usedCardIndex < cardIndices.Length ? 
+                        cardIndices[usedCardIndex] * 5 + (int)suit : 
+                        0;
+                }
+                for (int i = 0; i < 5; ++i)
+                    indices[i] = i + (int)suit * 5;
+                Tensor tensorIndices = tensor(indices, ScalarType.Int32);
+                _playedHandSelectionIndices.Add((suit, usedCardIndex), tensorIndices);
+            }
+        }
+    }
+
+    Tensor FullHandToUsedHands(Tensor fullHand)
+    {
+        Tensor fullHandRanks = _rankEmbedding.forward(fullHand.select(fullHand.Dimensions - 1, 0)); // BatchSize x CardCount x RankEmbedWidth
+        Tensor fullHandSuits = functional.one_hot(fullHand.select(fullHand.Dimensions - 1, 1), SuitCount + 1).to_type(ScalarType.Float32); // BatchSize x CardCount x SuitCount (including null)
+        
+        int useableHandCount = Combinatorics.CalculateCombinationCount(setSize: 8, maxSubsetSize: 5, minSubsetSize: 1);
+        Tensor embeddedFullHand = fullHandRanks.sum(dim: 1); // BatchSize x RankEmbedWidth
+        Tensor embeddedFullHandExpanded = embeddedFullHand.unsqueeze(1).expand(embeddedFullHand.size(0), useableHandCount, embeddedFullHand.size(1)); // BatchSize x UseableHandCount x RankEmbedWidth
+        
+        Tensor perSuitEmbeds = einsum("bce, bcs -> bcse", fullHandRanks, fullHandSuits); // BatchSize x CardCount x SuitCount (including null) x RankEmbedWidth
+        Tensor perSuitEmbedsFlattened = perSuitEmbeds.view([perSuitEmbeds.size(0), perSuitEmbeds.size(1) * perSuitEmbeds.size(2), -1]); // BatchSize x CardCount x SuitCount (including null) * RankEmbedWidth
+        Tensor[] perSuitDataArray = new Tensor[4]; // BatchSize x UseableHandCount x SuitProcessOutputWidth
+        for (Suit suit = Suit.Diamond; suit <= Suit.Spade; ++suit)
+        {
+            Tensor[] perCardInPlayedHandInputData = new Tensor[5]; // SuitCount + 1 (null)
+            for (int cardIndex = 0; cardIndex < perCardInPlayedHandInputData.Length; ++cardIndex)
+            {
+                Tensor indices = _playedHandSelectionIndices[(suit, cardIndex)];
+                perCardInPlayedHandInputData[cardIndex] = perSuitEmbedsFlattened.index_select(1, indices); // BatchSize x PlayedHandCount x RankEmbedWidth
+            }
+            Tensor usedHandSuitData = stack(perCardInPlayedHandInputData, dim: 2).sum(dim: 2); // BatchSize x UseableHandCount x RankEmbedWidth
+            Tensor cardSetSuitInput = concat([embeddedFullHandExpanded, usedHandSuitData], dim: -1); // BatchSize x UseableHandCount x (RankEmbedWidth * 2)
+            perSuitDataArray[(int)suit - 1] = _useHandCardSetProcessor.forward(cardSetSuitInput); // BatchSize x UseableHandCount x SuitProcessOutputWidth
+        }
+        Tensor result = stack(perSuitDataArray, dim: 2).sum(dim: 2); // BatchSize x RankEmbedWidth
+        return result;
+    }
+
+    Tensor ProcessCardSet(Tensor cardSet, Sequential processor)
     {
         int cardDim = (int)cardSet.Dimensions - 2;
         Tensor cardRanks = cardSet.select(cardSet.Dimensions - 1, 0);
@@ -120,47 +173,52 @@ public class PolicyModel : Module
         for (Suit suit = Suit.Diamond; suit <= Suit.Spade; ++suit)
         {
             Tensor suitConcat = cat([pooledGeneral, suitSums[(int)suit - 1], suitMaxes[(int)suit - 1]], dim: -1);
-            Tensor suitProcessed = _cardSetSuitProcessor.forward(suitConcat);
+            Tensor suitProcessed = processor.forward(suitConcat);
             processedSum = processedSum is null ? suitProcessed : processedSum + suitProcessed;
         }
 
         return processedSum;
     }
 
-    public Tensor ProcessState(Tensor embeddedState)
+    Tensor ProcessState(Tensor embeddedState)
     {
-        return StateProcessor.forward(embeddedState);
+        return _stateProcessor.forward(embeddedState);
     }
 
-    public Tensor ProcessState(GameStateTensors gameState)
+    Tensor ProcessState(GameStateTensors gameState)
     {
         return ProcessState(EmbedState(gameState));
     }
 
     Tensor EmbedState(GameStateTensors gameState)
     {
-        Tensor hand = ProcessCardSet(gameState.FullHand);
-        Tensor deck = ProcessCardSet(gameState.RemainingDeck);
         Tensor handsAndDiscards = _embedHandsAndDiscards.forward(gameState.HandsAndDiscards);
-        return cat([deck, hand, handsAndDiscards, gameState.Score], dim: -1);
-    }
-
-    Tensor ProcessUseHandTensors(UseHandTensors move)
-    {
-        Tensor remainingHand = ProcessCardSet(move.RemainingHand);
-        Tensor playedHand = ProcessCardSet(move.PlayedHand);
-        Tensor score = move.Score.unsqueeze(2);
-        return cat([playedHand, remainingHand, score], dim: -1);
+        return cat([handsAndDiscards, gameState.Score], dim: -1);
     }
     
-    public Tensor GetPolicyLogits(UseHandTensors moveData, Tensor processedState)
+    public Tensor GetPolicyLogits(GameStateTensors gameStateTensors, UseHandTensors useHandTensors)
     {
-        Tensor processedUseHandTensors = ProcessUseHandTensors(moveData);
-        Tensor expandedState = processedState.unsqueeze(1).expand(processedUseHandTensors.shape[0], processedUseHandTensors.shape[1], processedState.shape[1]);
-        Tensor moveInput = cat([processedUseHandTensors, expandedState], dim: -1);
-        Tensor playAndDiscardLogits = UseHandEvaluator.forward(moveInput);
-        Tensor moveLogits = playAndDiscardLogits.view([playAndDiscardLogits.size(0), -1]);
+        Tensor processedState = ProcessState(gameStateTensors);
+        Tensor processedUseHandTensors = FullHandToUsedHands(gameStateTensors.FullHand);
+        Tensor useHandInputs = cat([processedState, processedUseHandTensors, useHandTensors.Score], dim: -1);
+        Tensor moveLogits = _useHandProcessor.forward(useHandInputs).view([processedState.size(0), -1]);
         return moveLogits;
+    }
+}
+
+class Bias : Module<Tensor, Tensor>
+{
+    Parameter _bias;
+
+    public Bias(int size) : base("Bias")
+    {
+        _bias = Parameter(zeros(size));
+        RegisterComponents();
+    }
+
+    public override Tensor forward(Tensor input)
+    {
+        return input + _bias;
     }
 }
 

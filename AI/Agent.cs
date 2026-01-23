@@ -118,7 +118,7 @@ public class RamenAgent
     {
         GameStateTensors stateTensors = Tensors;
         Tensor processedState = Model.ProcessState(stateTensors);
-        UseHandTensors moveTensors = CreateMoveTensors(moves);
+        UseHandTensors moveTensors = CreateMoveTensors();
         Tensor logits = Model.GetPolicyLogits(moveTensors, processedState);
 
         Tensor probs = (logits / Math.Max(temp, 0.0001f)).softmax(1).squeeze_(2);
@@ -130,54 +130,23 @@ public class RamenAgent
     /// </summary>
     internal UseHandTensors CreateMoveTensors()
     {
-        int moveCount = moves.Length;
+        int moveCount = Combinatorics.CalculateCombinationCount(GameState.HandState.HandCardCount, 5, 1);
         long[,,] playedHands = new long[moveCount, 5, 2];
         long[,,] remainingHands = new long[moveCount, 8, 2];
         float[] scores = new float[moveCount];
 
         HandState handState = GameState.HandState;
-        int hash = GameState.GetHashCode();
-        for (int move = 0; move < moveCount; ++move)
+        int move = 0;
+        foreach (int[] cardIndices in Combinatorics.GetCombinations(handState.HandCardCount, 5))
         {
-            UseHandMove useHandMove = (UseHandMove)moves[move]; 
-            if (useHandMove.IsDiscard)
-                continue;
-
-            useHandMove.Apply(GameState);
-            
-                
-            for (int i = 0; i < 5; ++i)
-            {
-                if (i < useHandMove.UsedCards.Length)
-                {
-                    Card card = useHandMove.UsedCards[i];
-                    playedHands[move, i, 0] = card.Rank - 2;
-                    playedHands[move, i, 1] = (int)card.Suit;
-                }
-            }
-            Span<Card> hand = handState.Hand;
-            for (int i = 0; i < 8; ++i)
-            {
-                if (i < hand.Length)
-                {
-                    Card card = hand[i];
-                    remainingHands[move, i, 0] = card.Rank - 2;
-                    remainingHands[move, i, 1] = (int)card.Suit;
-                }
-            }
-
+            UseHandMove useHandMove = new(false, cardIndices);
+            useHandMove.Apply(GameState);           
             scores[move] = (float)GameState.ScoringState.CurrentRoundTotalChips / 300f;
-
-            moves[move].Revert(GameState);
+            useHandMove.Revert(GameState);
         }
-        if (GameState.GetHashCode() != hash)
-            throw new Exception("eee err");
-
         return new UseHandTensors
         {
-            RemainingHand = tensor(remainingHands).unsqueeze_(0),
-            PlayedHand = tensor(playedHands).unsqueeze_(0),
-            Score = tensor(scores).view([1, -1]),
+            Score = tensor(scores).view([1, -1]).DetachFromDisposeScope(),
         };
     }
 

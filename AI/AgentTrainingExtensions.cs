@@ -138,7 +138,7 @@ public static class AgentTrainingExtensions
         Move[] sampledMoves = new Move[moveIndices.Length];
         for (int i = 0; i < moveIndices.Length; ++i)
             sampledMoves[i] = moves[moveIndices[i].MoveIndex];
-        UseHandTensors sampledMoveTensors = agent.CreateMoveTensors(sampledMoves);
+        UseHandTensors sampledMoveTensors = agent.CreateMoveTensors();
         float[] sampledProbs = new float[moveIndices.Length];
         for (int i = 0; i < moveIndices.Length; ++i)
             sampledProbs[i] = MathF.Exp(moveIndices[i].NLProbTimes1K / -1000f); // it's fixed precision so the encoding is needed

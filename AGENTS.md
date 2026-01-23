@@ -20,6 +20,7 @@
 - Use [a, b] instead of new Foo[] { a, b }
 - Function summary blocks should NOT describe implementation details or obvious facts.
 - When calling a function, arguments should be named if their meaning cannot be implied from the calling code. 
+- Game project does not include TorchSharp and should not have AI related code.
 
 # Ordering Code Inside A Class
 1. Fields

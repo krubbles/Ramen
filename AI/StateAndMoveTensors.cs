@@ -37,17 +37,7 @@ public class GameStateTensors : ITensorGroup
 public class UseHandTensors : ITensorGroup
 {
     /// <summary>
-    /// Vector of cards in <see cref="HandState.ActiveHand"/> immediately after move is made. Encoded as [rank, suit] pairs.
-    /// </summary>
-    public Tensor PlayedHand;
-
-    /// <summary>
-    /// Vector of cards in <see cref="HandState.Hand"/> immediately after move is made. Encoded as [rank, suit] pairs.
-    /// </summary>
-    public Tensor RemainingHand;
-
-    /// <summary>
-    /// <see cref="ScoringState.CurrentRoundTotalChips"/> after move is made.
+    /// <see cref="ScoringState.CurrentRoundTotalChips"/> after hand is played.
     /// </summary>
     public Tensor Score;
 }
