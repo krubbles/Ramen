@@ -115,17 +115,21 @@ public class RamenAgent
     {
         (UseHandTensors useHandTensors, _) = CreateUseHandTensors();
         Tensor logits = Model.GetPolicyLogits(GameStateTensors, useHandTensors);
-        Tensor probs = (logits / Math.Max(temp, 0.0001f)).softmax(1).squeeze_(2);
+        if (GameState.HandState.RemainingDiscards == 0)
+            logits += _maskOutDiscards;
+        Tensor probs = (logits / Math.Max(temp, 0.0001f)).softmax(1);
         return (useHandTensors, probs);
     }
+
+    static readonly Tensor _maskOutDiscards = tensor([0.0f, -1e8f]).repeat(218).view(-1).DetachFromDisposeScope();
 
     /// <summary>
     /// Embeds a list of moves into tensors.
     /// </summary>
     internal (UseHandTensors useHandTensors, int moveCount) CreateUseHandTensors()
     {
-        int moveCount = Combinatorics.CalculateCombinationCount(GameState.HandState.HandCardCount, 5, 1);
-        float[] scores = new float[moveCount];
+        int useHandCount = Combinatorics.CalculateCombinationCount(GameState.HandState.HandCardCount, 5, 1);
+        float[] scores = new float[useHandCount];
 
         HandState handState = GameState.HandState;
         int move = 0;
@@ -140,7 +144,7 @@ public class RamenAgent
         {
             Score = tensor(scores).view([1, -1]).DetachFromDisposeScope(),
         };
-        return (useHandTensors, moveCount);
+        return (useHandTensors, useHandCount * 2);
     }
 
     /// <summary>

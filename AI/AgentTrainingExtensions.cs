@@ -135,12 +135,12 @@ public static class AgentTrainingExtensions
                 throw new ArgumentException("Cannot create a training sample because gamestate is not at a player choice.");
         (UseHandTensors useHandTensors, int moveCount) = agent.CreateUseHandTensors();
         Tensor target = zeros(1, moveCount);
-        target[moveIndices[0].MoveIndex] = 1f;
+        target[0, moveIndices[0].MoveIndex] = 1f;
         Tensor mask = zeros(1, moveCount);
         Tensor probs = ones(1, moveCount);
         for (int i = 0; i < moveIndices.Length; ++i)
         {
-            mask[moveIndices[i].MoveIndex] = 1f;
+            mask[0, moveIndices[i].MoveIndex] = 1f;
             probs[0, moveIndices[i].MoveIndex] = (float)Math.Exp(-moveIndices[i].NLProbTimes1K / 1000.0);
         }
         return agent.CreatePolicyTrainingSample(useHandTensors, probs, target, mask);

@@ -71,7 +71,8 @@ public static class Training
                     Tensor logQ = log(samplingProb + 1e-9);
                     Tensor logitsAdjusted = logits - logQ;
 
-                    Tensor ceLoss = functional.cross_entropy(logitsAdjusted, target, reduction: Reduction.None);
+                    Tensor logProbs = functional.log_softmax(logitsAdjusted, dim: 1);
+                    Tensor ceLoss = -(target * logProbs);
 
                     Tensor weighted = ceLoss * mask / mask.sum().max(1e-9f);      
                     Tensor loss = weighted.sum();
@@ -99,8 +100,9 @@ public static class Training
                 Tensor logQ = log(samplingProb + 1e-9);
                 Tensor logitsAdjusted = logits - logQ;
 
-                Tensor ceLoss = functional.cross_entropy(logitsAdjusted, target, reduction: Reduction.None);
-
+                Tensor logProbs = functional.log_softmax(logitsAdjusted, dim: 1);
+                Tensor ceLoss = -(target * logProbs);
+                
                 Tensor weighted = ceLoss * mask / mask.sum().max(1e-9f);      
                 Tensor loss = weighted.sum();
                 loss.backward();

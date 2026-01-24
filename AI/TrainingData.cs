@@ -69,7 +69,7 @@ public static class TrainingData
                 {
                     gameState.AdvanceToNextPlayerChoice();
                     PolicyTrainingSample sample = agent.MakeMoveAndTrainingSample(temp: 1f);
-                    gameSamples.Add(new() { Sample = sample, N = 1, Move = gameState.MoveState.MoveHistory[^1], NLProb = sample.ChosenMoveNLProb });
+                    // gameSamples.Add(new() { Sample = sample, N = 1, Move = gameState.MoveState.MoveHistory[^1], NLProb = sample.ChosenMoveNLProb });
                 }
                 groupRewards[group] = agent.GetCurrentReward();
                 while (gameState.MoveState.MoveHistory.Count > startingMoveCount)
@@ -77,6 +77,7 @@ public static class TrainingData
 
             }
         }
+        return;
 
         float sum = 0;
         float sqSum = 0;
