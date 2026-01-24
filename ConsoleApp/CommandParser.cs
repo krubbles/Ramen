@@ -21,7 +21,10 @@ public class ConsoleCommandContext
         {
             char c = command[i];
             if (c == '"')
+            {
+                lastQuoteOpened = !lastQuoteOpened;
                 contextDepth += lastQuoteOpened ? 1 : -1;
+            }
             else if ("([{".Contains(c))
                 contextDepth += 1;
             else if ("}])".Contains(c))

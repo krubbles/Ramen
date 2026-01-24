@@ -183,6 +183,129 @@ public sealed class UseHandMove : Move
     }
 }
 
+/// <summary>
+/// Move for drawing a specific hand from the remaining deck.
+/// </summary>
+public sealed class DrawSpecificHandMove : Move
+{
+    public readonly Card[] Cards;
+
+    int[] _removedDeckIndices;
+    StageOfGame _stageBeforeApply;
+
+    public DrawSpecificHandMove(params Card[] cards)
+    {
+        Cards = cards ?? Array.Empty<Card>();
+    }
+
+    public override MoveType GetMoveType() => MoveType.DrawSpecificHand;
+
+    protected override void Apply()
+    {
+        _stageBeforeApply = gameState.Stage;
+
+        _removedDeckIndices = new int[Cards.Length];
+        for (int i = 0; i < Cards.Length; ++i)
+        {
+            _removedDeckIndices[i] = gameState.DeckState.RemoveCardFromRemainingDeck(Cards[i]);
+            gameState.HandState.AddCardToHand(Cards[i]);
+        }
+
+        gameState.Stage = StageOfGame.InRoundPlayerChoice;
+    }
+
+    protected override void Revert()
+    {
+        gameState.Stage = _stageBeforeApply;
+        for (int i = Cards.Length - 1; i >= 0; --i)
+        {
+            gameState.HandState.RemoveCardFromHand(Cards[i]);
+            gameState.DeckState.InsertCardIntoRemainingDeck(Cards[i], _removedDeckIndices[i]);
+        }
+    }
+
+    public override string ToString()
+    {
+        return $"Draw Specific Hand: {CardParseUtils.SerializeHand(Cards)}";
+    }
+
+    internal sealed class Serializer : IMoveSerializer
+    {
+        public MoveType MoveType => MoveType.DrawSpecificHand;
+
+        public void Serialize(GameStateSerializer gsSerializer, Move move)
+        {
+            DrawSpecificHandMove drawMove = (DrawSpecificHandMove)move;
+            gsSerializer.Stream.WriteArrayByteSize<Card>(drawMove.Cards);
+        }
+
+        public Move Deserialize(GameStateSerializer gsSerializer)
+        {
+            Card[] cards = gsSerializer.Stream.ReadArrayByteSize<Card>();
+            return new DrawSpecificHandMove(cards);
+        }
+    }
+}
+
+/// <summary>
+/// Move for setting remaining hands and discards.
+/// </summary>
+public sealed class SetRemainingHandsAndDiscardsMove : Move
+{
+    public readonly int RemainingHands;
+    public readonly int RemainingDiscards;
+
+    int _previousRemainingHands;
+    int _previousRemainingDiscards;
+
+    public SetRemainingHandsAndDiscardsMove(int remainingHands, int remainingDiscards)
+    {
+        RemainingHands = remainingHands;
+        RemainingDiscards = remainingDiscards;
+    }
+
+    public override MoveType GetMoveType() => MoveType.SetRemainingHandsAndDiscards;
+
+    protected override void Apply()
+    {
+        _previousRemainingHands = gameState.HandState.RemainingHands;
+        _previousRemainingDiscards = gameState.HandState.RemainingDiscards;
+
+        gameState.HandState.RemainingHands = RemainingHands;
+        gameState.HandState.RemainingDiscards = RemainingDiscards;
+    }
+
+    protected override void Revert()
+    {
+        gameState.HandState.RemainingHands = _previousRemainingHands;
+        gameState.HandState.RemainingDiscards = _previousRemainingDiscards;
+    }
+
+    public override string ToString()
+    {
+        return $"Set Remaining Hands/Discards: {RemainingHands}/{RemainingDiscards}";
+    }
+
+    internal sealed class Serializer : IMoveSerializer
+    {
+        public MoveType MoveType => MoveType.SetRemainingHandsAndDiscards;
+
+        public void Serialize(GameStateSerializer gsSerializer, Move move)
+        {
+            SetRemainingHandsAndDiscardsMove setMove = (SetRemainingHandsAndDiscardsMove)move;
+            gsSerializer.Stream.WriteStruct<int>(setMove.RemainingHands);
+            gsSerializer.Stream.WriteStruct<int>(setMove.RemainingDiscards);
+        }
+
+        public Move Deserialize(GameStateSerializer gsSerializer)
+        {
+            int remainingHands = gsSerializer.Stream.ReadStruct<int>();
+            int remainingDiscards = gsSerializer.Stream.ReadStruct<int>();
+            return new SetRemainingHandsAndDiscardsMove(remainingHands, remainingDiscards);
+        }
+    }
+}
+
 #if false // not currently in use
 /// <summary>
 /// Move for drawing a fixed quantity of cards.

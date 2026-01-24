@@ -98,7 +98,7 @@ public static class Training
 
                 Tensor logits = model.GetPolicyLogits(inputs.StateTensors, inputs.UseHandTensors);
                 Tensor logQ = log(samplingProb + 1e-9);
-                Tensor logitsAdjusted = logits - logQ;
+                Tensor logitsAdjusted = logits - logQ - (1 - mask) * 1e5f;
 
                 Tensor logProbs = functional.log_softmax(logitsAdjusted, dim: 1);
                 Tensor ceLoss = -(target * logProbs);

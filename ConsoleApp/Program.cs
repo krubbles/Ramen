@@ -79,6 +79,9 @@ void ExecuteCommand(string command, bool isFromRepeat)
         case "combine":
             EnqueueWork(() => Combine(context));
             break;
+        case "policy":
+            EnqueueWork(() => Policy(context));
+            break;
         case "repeat":
             Repeat(context);
             break;
@@ -373,6 +376,46 @@ void Combine(ConsoleCommandContext context)
     }
 
     Console.WriteLine($"Successfully combined {sourceDbs.Count} databases into '{targetDb}' ({totalGames} total games)");
+}
+
+void Policy(ConsoleCommandContext context)
+{
+    string handText = context.GetTextArg(0, "hand");
+    int remainingHands = context.GetIntArg(1, "remaining hands");
+    int remainingDiscards = context.GetIntArg(2, "remaining discards");
+    int topCount = context.GetIntArg("top", 10);
+    if (topCount <= 0)
+    {
+        Console.WriteLine("Top count must be greater than 0.");
+        return;
+    }
+
+    Card[] hand = CardParseUtils.ParseHand(handText);
+
+    GameState gameState = new(GameData.Default);
+    new StartRoundMove().Apply(gameState);
+    new DrawSpecificHandMove(hand).Apply(gameState);
+    new SetRemainingHandsAndDiscardsMove(remainingHands, remainingDiscards).Apply(gameState);
+
+    RamenAgent agent = new(gameState, model);
+    float[] probs = agent.GetPolicyProbDistManaged(1f);
+
+    List<(int index, float prob)> rankedMoves = new(probs.Length);
+    for (int i = 0; i < probs.Length; i++)
+        rankedMoves.Add((i, probs[i]));
+
+    rankedMoves.Sort((a, b) => b.prob.CompareTo(a.prob));
+
+    int displayCount = Math.Min(topCount, rankedMoves.Count);
+    Console.WriteLine($"Top {displayCount} moves:");
+    for (int i = 0; i < displayCount; i++)
+    {
+        int moveIndex = rankedMoves[i].index;
+        UseHandMove move = agent.MoveForIndex(moveIndex);
+        move.Apply(gameState);
+        Console.WriteLine($"{i + 1}. {move} - {rankedMoves[i].prob:F6}");
+        move.Revert(gameState);
+    }
 }
 
 static class ExternalConsole

@@ -80,10 +80,14 @@ public abstract class Move
         { MoveType.AfterHandUse, new AfterHandUsedMove.Serializer() },
         { MoveType.StartRound, new StartRoundMove.Serializer() },
         { MoveType.Reseed, new ReseedMove.Serializer() },
+        { MoveType.DrawSpecificHand, new DrawSpecificHandMove.Serializer() },
+        { MoveType.SetRemainingHandsAndDiscards, new SetRemainingHandsAndDiscardsMove.Serializer() },
         { MoveType.AnnotatingData, new AnnotatingDataMove.Serializer() },
     };
 }
 
+// VERY IMPORTANT. THIS IS SERIALIZED AS AN INT.
+// ADDING NEW VALUES THAT ARE NOT AT THE END WILL BREAK SERIALIZATION.
 public enum MoveType : byte
 {
     None,
@@ -93,6 +97,8 @@ public enum MoveType : byte
     Reseed,
     Shuffle,
     AnnotatingData,
+    DrawSpecificHand,
+    SetRemainingHandsAndDiscards,
 }
 
 public interface IMoveSerializer

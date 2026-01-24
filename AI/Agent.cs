@@ -108,6 +108,20 @@ public class RamenAgent
     }
 
     /// <summary>
+    /// Returns the policy model's probability distribution for the current game state.
+    /// </summary>
+    public float[] GetPolicyProbDistManaged(float temp)
+    {
+        using var scope = NewDisposeScope();
+        using var noGrad = no_grad();
+
+        UseHandTensors moveTensors;
+        Tensor probs;
+        (moveTensors, probs) = GetPolicyProbDist(temp);
+        return probs.data<float>().ToArray();
+    }
+
+    /// <summary>
     /// Returns the policy model's predicted probability distribution for the best next move.
     /// Returned probs is a 1xN tensor where N is the number of moves.
     /// </summary>
@@ -128,16 +142,23 @@ public class RamenAgent
     /// </summary>
     internal (UseHandTensors useHandTensors, int moveCount) CreateUseHandTensors()
     {
-        int useHandCount = Combinatorics.CalculateCombinationCount(GameState.HandState.HandCardCount, 5, 1);
+        int useHandCount = Combinatorics.CalculateCombinationCount(
+            setSize: GameState.HandState.HandCardCount,
+            minSubsetSize: 1,
+            maxSubsetSize: 5);
         float[] scores = new float[useHandCount];
 
         HandState handState = GameState.HandState;
         int move = 0;
-        foreach (int[] cardIndices in Combinatorics.GetCombinations(handState.HandCardCount, 5))
+        int[][] cardIndicesEnumerator = Combinatorics.GetCombinations(
+            setSize: handState.HandCardCount,
+            minSubsetSize: 1,
+            maxSubsetSize: 5);
+        foreach (int[] cardIndices in cardIndicesEnumerator)
         {
             UseHandMove useHandMove = new(false, cardIndices);
             useHandMove.Apply(GameState);           
-            scores[move] = (float)GameState.ScoringState.CurrentRoundTotalChips / 300f;
+            scores[move++] = (float)GameState.ScoringState.CurrentRoundTotalChips / 300f;
             useHandMove.Revert(GameState);
         }
         UseHandTensors useHandTensors = new UseHandTensors

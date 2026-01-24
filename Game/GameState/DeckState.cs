@@ -101,6 +101,29 @@ public sealed class DeckState
         GameState.MoveState.ScheduleCallback(OnRemainingDeckChanged);
     }
 
+    internal int RemoveCardFromRemainingDeck(Card card)
+    {
+        int index = Array.IndexOf(_deckBuffer, card, 0, RemainingDeckCardCount);
+        if (index < 0)
+            throw new ArgumentException($"Card {card} not found in remaining deck.");
+        RemainingDeckCardCount--;
+        for (int i = index; i < RemainingDeckCardCount; ++i)
+            _deckBuffer[i] = _deckBuffer[i + 1];
+        GameState.MoveState.ScheduleCallback(OnRemainingDeckChanged);
+        return index;
+    }
+
+    internal void InsertCardIntoRemainingDeck(Card card, int index)
+    {
+        if (index < 0 || index > RemainingDeckCardCount)
+            throw new ArgumentOutOfRangeException(nameof(index), index, "Index is outside of the remaining deck range.");
+        for (int i = RemainingDeckCardCount; i > index; --i)
+            _deckBuffer[i] = _deckBuffer[i - 1];
+        _deckBuffer[index] = card;
+        RemainingDeckCardCount++;
+        GameState.MoveState.ScheduleCallback(OnRemainingDeckChanged);
+    }
+
     // these functions don't call events, so must be private.
 
     Card Draw()
