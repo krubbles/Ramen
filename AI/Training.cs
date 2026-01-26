@@ -65,17 +65,7 @@ public static class Training
                 {
                     int end = Math.Min(i + tp.batchSize, samples);
                     PolicyTrainingSample inputs = stacked.GetBatch(i, end);
-                    Tensor mask = inputs.Mask, target = inputs.Target, samplingProb = inputs.SamplingProb;
-
-                    Tensor logits = model.GetPolicyLogits(inputs.StateTensors, inputs.UseHandTensors);
-                    Tensor logQ = log(samplingProb + 1e-9);
-                    Tensor logitsAdjusted = logits - logQ;
-
-                    Tensor logProbs = functional.log_softmax(logitsAdjusted, dim: 1);
-                    Tensor ceLoss = -(target * logProbs);
-
-                    Tensor weighted = ceLoss * mask / mask.sum().max(1e-9f);      
-                    Tensor loss = weighted.sum();
+                    Tensor loss = CalculateSupervisedLoss(model, inputs);
                     loss.backward();
 
                     valLossAvg += loss.item<float>();
@@ -94,17 +84,7 @@ public static class Training
 
                 int end = Math.Min(i + tp.batchSize, samples);
                 PolicyTrainingSample inputs = stacked.GetBatch(i, end);
-                Tensor mask = inputs.Mask, target = inputs.Target, samplingProb = inputs.SamplingProb;
-
-                Tensor logits = model.GetPolicyLogits(inputs.StateTensors, inputs.UseHandTensors);
-                Tensor logQ = log(samplingProb + 1e-9);
-                Tensor logitsAdjusted = logits - logQ - (1 - mask) * 1e5f;
-
-                Tensor logProbs = functional.log_softmax(logitsAdjusted, dim: 1);
-                Tensor ceLoss = -(target * logProbs);
-                
-                Tensor weighted = ceLoss * mask / mask.sum().max(1e-9f);      
-                Tensor loss = weighted.sum();
+                Tensor loss = CalculateSupervisedLoss(model, inputs);
                 loss.backward();
                 Optimizer.step();
 
@@ -124,6 +104,18 @@ public static class Training
         }
 
         stacked.Dispose();
+    }
+
+    static Tensor CalculateSupervisedLoss(PolicyModel model, PolicyTrainingSample sample)
+    {
+        Tensor logits = model.GetPolicyLogits(sample.StateTensors, sample.UseHandTensors, sample.MoveIndices);
+        Tensor logQ = log(sample.SamplingProb + 1e-9);
+        Tensor logitsAdjusted = logits - logQ;
+
+        Tensor logProbs = functional.log_softmax(logitsAdjusted, dim: 1);
+        Tensor ceLoss = -(sample.Target * logProbs);
+        Tensor loss = ceLoss.mean();
+        return loss;
     }
 
     static Tensor CalculatePPOLoss(Tensor logits, Tensor oldProbs, Tensor advantage, float ec, float kc, bool useIndex0, ref float kldAccumulate, Tensor moveIndex = null)

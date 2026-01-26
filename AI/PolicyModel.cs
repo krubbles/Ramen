@@ -5,6 +5,7 @@ using TorchSharp.Modules;
 using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
 
+// note: batch dimension is always included for all tensors passed to/from this model
 
 /// <summary>
 /// The policy network used for move evaluation.
@@ -154,6 +155,61 @@ public class PolicyModel : Module
         return result;
     }
 
+    Tensor FullHandToUsedHands(Tensor fullHand, Tensor handIndices)
+    {
+        Tensor fullHandRanks = _rankEmbedding.forward(fullHand.select(2, 0)); // BatchSize x CardCount x RankEmbedWidth
+        Tensor fullHandSuits = functional.one_hot(fullHand.select(2, 1), SuitCount + 1).to_type(ScalarType.Float32); // BatchSize x CardCount x SuitCount (including null)
+
+        int batchSize = (int)fullHand.size(0);
+        Tensor handIndexTensor = handIndices.to_type(ScalarType.Int64);
+        int moveCount;
+        if (handIndexTensor.Dimensions == 1)
+        {
+            if (batchSize != 1)
+            {
+                throw new ArgumentException("handIndices batch size must match fullHand batch size.", nameof(handIndices));
+            }
+            moveCount = (int)handIndexTensor.numel();
+            handIndexTensor = handIndexTensor.view(1, moveCount);
+        }
+        else if (handIndexTensor.Dimensions == 2)
+        {
+            if (handIndexTensor.size(0) != batchSize)
+            {
+                throw new ArgumentException("handIndices batch size must match fullHand batch size.", nameof(handIndices));
+            }
+            moveCount = (int)handIndexTensor.size(1);
+        }
+        else
+        {
+            throw new ArgumentException("handIndices must be 1D or 2D.", nameof(handIndices));
+        }
+
+        Tensor flatHandIndices = handIndexTensor.view(-1);
+        Tensor embeddedFullHand = fullHandRanks.sum(dim: 1); // BatchSize x RankEmbedWidth
+        Tensor embeddedFullHandExpanded = embeddedFullHand.unsqueeze(1).expand(embeddedFullHand.size(0), moveCount, embeddedFullHand.size(1)); // BatchSize x MoveCount x RankEmbedWidth
+
+        Tensor perSuitEmbeds = einsum("bce, bcs -> bcse", fullHandRanks, fullHandSuits); // BatchSize x CardCount x SuitCount (including null) x RankEmbedWidth
+        Tensor perSuitEmbedsFlattened = perSuitEmbeds.view([perSuitEmbeds.size(0), perSuitEmbeds.size(1) * perSuitEmbeds.size(2), -1]); // BatchSize x CardCount x SuitCount (including null) * RankEmbedWidth
+        Tensor[] perSuitDataArray = new Tensor[4]; // BatchSize x MoveCount x SuitProcessOutputWidth
+        for (Suit suit = Suit.Diamond; suit <= Suit.Spade; ++suit)
+        {
+            Tensor[] perCardInPlayedHandInputData = new Tensor[5]; // SuitCount + 1 (null)
+            for (int cardIndex = 0; cardIndex < perCardInPlayedHandInputData.Length; ++cardIndex)
+            {
+                Tensor selectionIndices = _playedHandSelectionIndices[(suit, cardIndex)].index_select(0, flatHandIndices).to_type(ScalarType.Int64);
+                Tensor gatheredIndices = selectionIndices.view(batchSize, moveCount);
+                Tensor gatherIndexExpanded = gatheredIndices.unsqueeze(-1).expand(batchSize, moveCount, perSuitEmbedsFlattened.size(2));
+                perCardInPlayedHandInputData[cardIndex] = perSuitEmbedsFlattened.gather(1, gatherIndexExpanded); // BatchSize x MoveCount x RankEmbedWidth
+            }
+            Tensor usedHandSuitData = stack(perCardInPlayedHandInputData, dim: 2).sum(dim: 2); // BatchSize x MoveCount x RankEmbedWidth
+            Tensor cardSetSuitInput = concat([embeddedFullHandExpanded, usedHandSuitData], dim: -1); // BatchSize x MoveCount x (RankEmbedWidth * 2)
+            perSuitDataArray[(int)suit - 1] = _useHandCardSetProcessor.forward(cardSetSuitInput); // BatchSize x MoveCount x SuitProcessOutputWidth
+        }
+        Tensor result = stack(perSuitDataArray, dim: 2).sum(dim: 2); // BatchSize x MoveCount x RankEmbedWidth
+        return result;
+    }
+
     Tensor ProcessCardSet(Tensor cardSet, Sequential processor)
     {
         int cardDim = (int)cardSet.Dimensions - 2;
@@ -224,21 +280,6 @@ public class PolicyModel : Module
 
     public Tensor GetPolicyLogits(GameStateTensors gameStateTensors, UseHandTensors useHandTensors, int[] handIndices, int[] actionIndices)
     {
-        if (handIndices is null)
-        {
-            throw new ArgumentNullException(nameof(handIndices));
-        }
-
-        if (actionIndices is null)
-        {
-            throw new ArgumentNullException(nameof(actionIndices));
-        }
-
-        if (handIndices.Length != actionIndices.Length)
-        {
-            throw new ArgumentException("handIndices and actionIndices must be same length.", nameof(actionIndices));
-        }
-
         int moveCount = handIndices.Length;
         Tensor processedUseHandTensors = FullHandToUsedHands(gameStateTensors.FullHand, handIndices);
         Tensor processedState = ProcessState(gameStateTensors);
@@ -253,6 +294,34 @@ public class PolicyModel : Module
         actionIndexTensor = actionIndexTensor.expand(processedState.size(0), moveCount, 1);
         Tensor selectedMoveLogits = moveLogits.gather(2, actionIndexTensor).squeeze(2);
         return selectedMoveLogits;
+    }
+
+    public Tensor GetPolicyLogits(GameStateTensors gameStateTensors, UseHandTensors useHandTensors, Tensor handIndices, Tensor actionIndices)
+    {
+        Tensor handIndexTensor = handIndices.to_type(ScalarType.Int64);
+        Tensor actionIndexTensorInput = actionIndices.to_type(ScalarType.Int64);
+        int moveCount = (int)handIndexTensor.size(1);
+
+        Tensor processedUseHandTensors = FullHandToUsedHands(gameStateTensors.FullHand, handIndexTensor);
+        Tensor processedState = ProcessState(gameStateTensors);
+
+        Tensor selectedUseHandScores = useHandTensors.Score.gather(1, handIndexTensor).unsqueeze(2);
+
+        Tensor processedStateExpanded = processedState.unsqueeze(1).expand(processedState.size(0), moveCount, processedState.size(1));
+        Tensor useHandInputs = cat([processedStateExpanded, processedUseHandTensors, selectedUseHandScores], dim: -1);
+        Tensor moveLogits = _useHandProcessor.forward(useHandInputs);
+
+        Tensor actionIndexTensor = actionIndexTensorInput.unsqueeze(-1);
+        Tensor selectedMoveLogits = moveLogits.gather(2, actionIndexTensor).squeeze(2);
+        return selectedMoveLogits;
+    }
+
+    public Tensor GetPolicyLogits(GameStateTensors gameStateTensors, UseHandTensors useHandTensors, Tensor moveIndices)
+    {
+        Tensor indexTensor = moveIndices.to_type(ScalarType.Int64);
+        Tensor handIndices = indexTensor.div(2);
+        Tensor actionIndices = indexTensor.remainder(2);
+        return GetPolicyLogits(gameStateTensors, useHandTensors, handIndices, actionIndices);
     }
 }
 

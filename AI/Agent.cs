@@ -140,7 +140,7 @@ public class RamenAgent
     /// <summary>
     /// Embeds a list of moves into tensors.
     /// </summary>
-    internal (UseHandTensors useHandTensors, int moveCount) CreateUseHandTensors()
+    public (UseHandTensors useHandTensors, int moveCount) CreateUseHandTensors()
     {
         int useHandCount = Combinatorics.CalculateCombinationCount(
             setSize: GameState.HandState.HandCardCount,

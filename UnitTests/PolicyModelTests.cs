@@ -21,7 +21,7 @@ public class PolicyModelTests
         RamenAgent agent = new(gameState, model);
 
         GameStateTensors stateTensors = agent.GameStateTensors;
-        UseHandTensors useHandTensors = CreateUseHandTensors(gameState);
+        UseHandTensors useHandTensors = agent.CreateUseHandTensors().useHandTensors;
 
         int useHandCount = Combinatorics.CalculateCombinationCount(
             setSize: gameState.HandState.HandCardCount,
@@ -50,31 +50,4 @@ public class PolicyModelTests
         }
     }
 
-    static UseHandTensors CreateUseHandTensors(GameState gameState)
-    {
-        int useHandCount = Combinatorics.CalculateCombinationCount(
-            setSize: gameState.HandState.HandCardCount,
-            minSubsetSize: 1,
-            maxSubsetSize: 5);
-        float[] scores = new float[useHandCount];
-
-        int move = 0;
-        int[][] cardIndicesEnumerator = Combinatorics.GetCombinations(
-            setSize: gameState.HandState.HandCardCount,
-            minSubsetSize: 1,
-            maxSubsetSize: 5);
-        foreach (int[] cardIndices in cardIndicesEnumerator)
-        {
-            UseHandMove useHandMove = new(false, cardIndices);
-            useHandMove.Apply(gameState);
-            scores[move++] = (float)gameState.ScoringState.CurrentRoundTotalChips / 300f;
-            useHandMove.Revert(gameState);
-        }
-
-        UseHandTensors useHandTensors = new()
-        {
-            Score = tensor(scores).view([1, -1]),
-        };
-        return useHandTensors;
-    }
 }

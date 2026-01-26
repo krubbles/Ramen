@@ -113,7 +113,7 @@ public static class AgentTrainingExtensions
     /// <summary>
     /// Creates a policy training sample from move tensors and probability distribution.
     /// </summary>
-    public static PolicyTrainingSample CreatePolicyTrainingSample(this RamenAgent agent, UseHandTensors useHandTensors, Tensor probs, Tensor target, Tensor mask)
+    public static PolicyTrainingSample CreatePolicyTrainingSample(this RamenAgent agent, UseHandTensors useHandTensors, Tensor probs, Tensor target, Tensor moveIndices)
     {
         PolicyTrainingSample sample = new()
         {
@@ -121,7 +121,7 @@ public static class AgentTrainingExtensions
             StateTensors = agent.GameStateTensors.Clone().DetachFromDisposeScope(),
             UseHandTensors = useHandTensors.DetachFromDisposeScope(),
             Target = target.DetachFromDisposeScope(),
-            Mask = mask.DetachFromDisposeScope(),
+            MoveIndices = moveIndices.DetachFromDisposeScope(),
         };
         return sample;
     }
@@ -134,16 +134,18 @@ public static class AgentTrainingExtensions
         if (!agent.GameState.IsPlayerChoice)
                 throw new ArgumentException("Cannot create a training sample because gamestate is not at a player choice.");
         (UseHandTensors useHandTensors, int moveCount) = agent.CreateUseHandTensors();
-        Tensor target = zeros(1, moveCount);
-        target[0, moveIndices[0].MoveIndex] = 1f;
-        Tensor mask = zeros(1, moveCount);
-        Tensor probs = ones(1, moveCount);
+        int[] indices = new int[moveIndices.Length];
+        float[] probs = new float[moveIndices.Length];
         for (int i = 0; i < moveIndices.Length; ++i)
         {
-            mask[0, moveIndices[i].MoveIndex] = 1f;
-            probs[0, moveIndices[i].MoveIndex] = (float)Math.Exp(-moveIndices[i].NLProbTimes1K / 1000.0);
+            indices[i] = moveIndices[i].MoveIndex;
+            probs[i] = (float)Math.Exp(-moveIndices[i].NLProbTimes1K / 1000.0);
         }
-        return agent.CreatePolicyTrainingSample(useHandTensors, probs, target, mask);
+        Tensor moveIndexTensor = tensor(indices, ScalarType.Int64).unsqueeze(0);
+        Tensor probsTensor = tensor(probs).unsqueeze(0);
+        Tensor target = zeros(1, moveIndices.Length);
+        target[0, 0] = 1f;
+        return agent.CreatePolicyTrainingSample(useHandTensors, probsTensor, target, moveIndexTensor);
     }
 
     /// <summary>

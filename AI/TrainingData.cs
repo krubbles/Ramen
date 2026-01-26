@@ -239,7 +239,7 @@ public class PolicyTrainingSample : ITensorGroup
 {
     public GameStateTensors StateTensors;
     public UseHandTensors UseHandTensors;
-    public Tensor Mask;
+    public Tensor MoveIndices;
     public Tensor Target;
     public Tensor SamplingProb;
 
@@ -247,7 +247,7 @@ public class PolicyTrainingSample : ITensorGroup
     /// The negative natural log probability of the chosen move.
     /// </summary>
     public float ChosenMoveNLProb;
-        public Tensor Advantage;
+    public Tensor Advantage;
 
 }
 
