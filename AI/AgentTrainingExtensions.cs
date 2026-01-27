@@ -1,5 +1,6 @@
 namespace Ramen.AI;
 
+using System;
 using Ramen.Game;
 using static TorchSharp.torch;
 
@@ -10,10 +11,9 @@ public static class AgentTrainingExtensions
 {
     /// <summary>
     /// Makes a move based on the policy model's predicted probability distribution.
-    /// Also generates a training sample with the chosen move and <paramref name="sampleCount"/> other moves.
-    /// Intended to create PPO/GRPO training data.
+    /// Also generates a GRPO training sample with <paramref name="sampleCount"/> sampled moves.
     /// </summary>
-    public static PolicyTrainingSample MakeMoveAndTrainingSample(this RamenAgent agent, float temp)
+    public static PolicyTrainingSample MakeMoveAndTrainingSample(this RamenAgent agent, int sampleCount)
     {
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
@@ -23,9 +23,32 @@ public static class AgentTrainingExtensions
         if (agent.GameIsDone())
             return null;
 
-        (UseHandTensors moveTensors, Tensor probs) = agent.GetPolicyProbDist(temp);
-        
-        return null; // not currently in use
+        (UseHandTensors moveTensors, Tensor probs) = agent.GetPolicyProbDist(temp: 1f);
+        int moveCount = (int)probs.size(1);
+        int clampedSampleCount = Math.Clamp(sampleCount, 1, moveCount);
+
+        Tensor indices = multinomial(probs.view([-1]), clampedSampleCount, replacement: false);
+        long[] indicesArray = indices.data<long>().ToArray();
+        int chosenIndex = (int)indicesArray[0];
+
+        Tensor sampledProbs = probs.index_select(dim: 1, indices);
+
+        PolicyTrainingSample sample = new()
+        {
+            SamplingProb = sampledProbs.DetachFromDisposeScope(),
+            StateTensors = agent.GameStateTensors.Clone().DetachFromDisposeScope(),
+            UseHandTensors = moveTensors.DetachFromDisposeScope(),
+            MoveIndices = indices.unsqueeze(0).DetachFromDisposeScope(),
+            ChosenMoveNLProb = -MathF.Log(probs[0, chosenIndex].item<float>() + 1e-9f),
+        };
+
+        if (sample.Advantage is null)
+            sample.Advantage = tensor(0f).unsqueeze(0).DetachFromDisposeScope();
+
+        UseHandMove move = agent.MoveForIndex(chosenIndex);
+        move.Apply(agent.GameState);
+
+        return sample;
     }
 
     /// <summary>
