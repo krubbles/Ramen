@@ -46,6 +46,9 @@ void ExecuteCommand(string command, bool isFromRepeat)
         case "train":
             EnqueueWork(() => TrainSupervised(context));
             break;
+        case "grpotrain":
+            EnqueueWork(() => TrainGRPO(context));
+            break;
         case "play":
             EnqueueWork(() => Play(context));
             break;
@@ -198,6 +201,13 @@ void TrainSupervised(ConsoleCommandContext context)
     trainingParams.epochs = epochs;
     Training.TrainPolicyModelSupervised(model, trainingParams, cancel.Token);
 
+}
+
+void TrainGRPO(ConsoleCommandContext context)
+{
+    int epochs = context.GetIntArg(0, "epochs");
+    trainingParams.epochs = epochs;
+    Training.TrainPolicyModelGRPO(model, trainingParams, cancel.Token);
 }
 
 void Set(ConsoleCommandContext context)

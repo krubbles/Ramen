@@ -67,6 +67,7 @@ public class PolicyModel : Module
 
     static PolicyModel()
     {
+        using var scope = NewDisposeScope();
         // Input: A (batch x cardCount x 1) rank index vector and a (batch x cardCount x 10) suit vector
         // - Suit vector format is (0, isDiamond, isClub, isHeart, isSpade)
         // Output: A batch x playedHandCount x rankEmbedWidth tensor for each suit. 
@@ -93,6 +94,7 @@ public class PolicyModel : Module
                 for (int i = 0; i < 5; ++i)
                     indices[i] = i + (int)suit * 5;
                 Tensor tensorIndices = tensor(indices, ScalarType.Int32);
+                tensorIndices.DetachFromDisposeScope();
                 _playedHandSelectionIndices.Add((suit, usedCardIndex), tensorIndices);
             }
         }
@@ -162,28 +164,7 @@ public class PolicyModel : Module
 
         int batchSize = (int)fullHand.size(0);
         Tensor handIndexTensor = handIndices.to_type(ScalarType.Int64);
-        int moveCount;
-        if (handIndexTensor.Dimensions == 1)
-        {
-            if (batchSize != 1)
-            {
-                throw new ArgumentException("handIndices batch size must match fullHand batch size.", nameof(handIndices));
-            }
-            moveCount = (int)handIndexTensor.numel();
-            handIndexTensor = handIndexTensor.view(1, moveCount);
-        }
-        else if (handIndexTensor.Dimensions == 2)
-        {
-            if (handIndexTensor.size(0) != batchSize)
-            {
-                throw new ArgumentException("handIndices batch size must match fullHand batch size.", nameof(handIndices));
-            }
-            moveCount = (int)handIndexTensor.size(1);
-        }
-        else
-        {
-            throw new ArgumentException("handIndices must be 1D or 2D.", nameof(handIndices));
-        }
+        int  moveCount = (int)handIndexTensor.size(1);
 
         Tensor flatHandIndices = handIndexTensor.view(-1);
         Tensor embeddedFullHand = fullHandRanks.sum(dim: 1); // BatchSize x RankEmbedWidth
