@@ -46,6 +46,9 @@ void ExecuteCommand(string command, bool isFromRepeat)
         case "train":
             EnqueueWork(() => TrainSupervised(context));
             break;
+        case "grpotrain":
+            EnqueueWork(() => TrainGRPO(context));
+            break;
         case "play":
             EnqueueWork(() => Play(context));
             break;
@@ -60,6 +63,9 @@ void ExecuteCommand(string command, bool isFromRepeat)
             break;
         case "generate":
             EnqueueWork(() => GenerateGames(context));
+            break;
+        case "grpogen":
+            EnqueueWork(() => GenerateGRPOTrainingData(context));
             break;
         case "stats":
             EnqueueWork(() => Stats(context));
@@ -197,6 +203,13 @@ void TrainSupervised(ConsoleCommandContext context)
 
 }
 
+void TrainGRPO(ConsoleCommandContext context)
+{
+    int epochs = context.GetIntArg(0, "epochs");
+    trainingParams.epochs = epochs;
+    Training.TrainPolicyModelGRPO(model, trainingParams, cancel.Token);
+}
+
 void Set(ConsoleCommandContext context)
 {
     string trainingParam = context.GetTextArg(0, "param name");
@@ -255,6 +268,22 @@ void GenerateGames(ConsoleCommandContext context)
 
     Console.WriteLine();
     Console.WriteLine($"Successfully generated {games} games in database '{dbName}'");
+}
+
+void GenerateGRPOTrainingData(ConsoleCommandContext context)
+{
+    int games = context.GetIntArg(0, "games");
+    int sampleCount = context.GetIntArg(1, "sample count");
+    int groupSize = context.GetIntArg("group", 128);
+    Stopwatch stopwatch = Stopwatch.StartNew();
+    TrainingDataStats stats = GRPOTrainingData.GenerateTrainingData(model, games, sampleCount, groupSize);
+    stopwatch.Stop();
+
+    Console.WriteLine("Done generating GRPO training data.");
+    Console.WriteLine($"Games: {stats.GamesCount}");
+    Console.WriteLine($"Samples: {TrainingData.PolicyData.Count}");
+    Console.WriteLine($"Average reward: {stats.MeanReward:F4}");
+    Console.WriteLine($"Generation time: {stopwatch.Elapsed.TotalSeconds:F2}s");
 }
 
 void Stats(ConsoleCommandContext context)

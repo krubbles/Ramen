@@ -68,7 +68,7 @@ public static class TrainingData
                 while (!agent.GameIsDone())
                 {
                     gameState.AdvanceToNextPlayerChoice();
-                    PolicyTrainingSample sample = agent.MakeMoveAndTrainingSample(temp: 1f);
+                    PolicyTrainingSample sample = agent.MakeMoveAndTrainingSample(sampleCount: 32);
                     // gameSamples.Add(new() { Sample = sample, N = 1, Move = gameState.MoveState.MoveHistory[^1], NLProb = sample.ChosenMoveNLProb });
                 }
                 groupRewards[group] = agent.GetCurrentReward();

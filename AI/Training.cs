@@ -106,6 +106,59 @@ public static class Training
         stacked.Dispose();
     }
 
+    public static void TrainPolicyModelGRPO(PolicyModel model, TrainingParams tp, CancellationToken cancel, bool validate = false)
+    {
+        Console.WriteLine($"Training GRPO model for {tp.epochs} epochs, batch size {tp.batchSize}");
+        _ = validate; // GRPO uses a surrogate objective, so validation loss is not meaningful.
+
+        PolicyTrainingSample stacked;
+        lock (TrainingData.PolicyData)
+        {
+            stacked = TensorGroupExtentions.Stack(TrainingData.PolicyData, false, true);
+        }
+
+        stacked = stacked.IndexSelect(0, randperm(stacked.SamplingProb.size(0)));
+
+        SetModelAndOptimizer(model, tp);
+
+        int samples = TrainingData.PolicyData.Count;
+
+        int trainCount = samples;
+
+        for (int epoch = 0; epoch < tp.epochs; ++epoch)
+        {
+            float trainLossAvg = 0f;
+            int trainBatchCount = 0;
+            float kldTotal = 0f;
+
+            for (int i = 0; i < trainCount; i += tp.batchSize)
+            {
+                Optimizer.zero_grad();
+
+                int end = Math.Min(i + tp.batchSize, samples);
+                PolicyTrainingSample inputs = stacked.GetBatch(i, end);
+                Tensor logits = model.GetPolicyLogits(inputs.StateTensors, inputs.UseHandTensors, inputs.MoveIndices);
+                Tensor loss = CalculatePPOLoss(logits, inputs.SamplingProb, inputs.Advantage, tp.entropyCoeff, tp.kldCoeff, useIndex0: true, ref kldTotal);
+                loss.backward();
+                Optimizer.step();
+
+                trainLossAvg += loss.item<float>();
+                trainBatchCount++;
+
+                if (cancel.IsCancellationRequested)
+                {
+                    stacked.Dispose();
+                    return;
+                }
+            }
+
+            trainLossAvg /= Math.Max(1, trainBatchCount);
+            Console.WriteLine($"GRPO Epoch {epoch} | Train Loss = {trainLossAvg} | KLD = {kldTotal / Math.Max(1, trainBatchCount)}");
+        }
+
+        stacked.Dispose();
+    }
+
     static Tensor CalculateSupervisedLoss(PolicyModel model, PolicyTrainingSample sample)
     {
         Tensor logits = model.GetPolicyLogits(sample.StateTensors, sample.UseHandTensors, sample.MoveIndices);
@@ -120,7 +173,8 @@ public static class Training
 
     static Tensor CalculatePPOLoss(Tensor logits, Tensor oldProbs, Tensor advantage, float ec, float kc, bool useIndex0, ref float kldAccumulate, Tensor moveIndex = null)
     {
-        var logProbsOld = log(oldProbs.clamp_min(0f) + 1e-9);
+        oldProbs /= oldProbs.sum(dim: 1, keepdim: true).max(1e-9f);
+        var logProbsOld = log(oldProbs.clamp_min(0f) + 1e-9f);
         var logProbs = functional.log_softmax(logits, dim: 1);
 
         var logPiNew = useIndex0 ?
