@@ -1,5 +1,7 @@
 ﻿namespace Ramen.Game;
 
+// Note: implementations of move should go in MoveImplementations.cs
+
 /// <summary>
 /// A class that represents a state transition for a <see cref="gameState"/>. All state changes are handled by moves.
 /// </summary>
