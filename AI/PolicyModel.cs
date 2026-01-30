@@ -12,6 +12,8 @@ using static TorchSharp.torch.nn;
 /// </summary>
 public class PolicyModel : Module
 {
+    public static readonly Device EvalDevice = mps_is_available() ? new Device(TorchSharp.DeviceType.MPS) : new Device(TorchSharp.DeviceType.CPU);
+    
     public const int
         RankCount = 13,
         SuitCount = 4;

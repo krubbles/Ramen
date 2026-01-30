@@ -4,12 +4,13 @@ using Ramen.ConsoleApp;
 using System.Runtime.InteropServices;
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using TorchSharp;
 
 // needed for cursor
 // ExternalConsole.Initialize();
 
 Console.WriteLine("=== WELCOME! ===");
-
+Console.WriteLine("MPS available: " + TorchSharp.torch.mps_is_available());
 
 PolicyModel model = new();
 
@@ -18,7 +19,7 @@ cancel.TryReset();
 ConcurrentQueue<Task> work = new();
 TrainingParams trainingParams = new(5);
 List<string> CommandHistory = new();
-const int MaxCommandHistory = 100;
+const int MaxCommandHistory = 100; 
 
 while (true)
 {

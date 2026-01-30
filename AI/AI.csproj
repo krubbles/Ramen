@@ -5,11 +5,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>disable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="TorchSharp" Version="0.105.2" />
     <PackageReference Include="TorchSharp-cpu" Version="0.105.2" />
+    <PackageReference Include="libtorch-cpu-osx-arm64" Version="2.7.1" />
   </ItemGroup>
 
   <ItemGroup>
