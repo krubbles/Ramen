@@ -1,7 +1,8 @@
-﻿#define STACKLESS
-namespace Ramen.AI;
+#define STACKLESS
+namespace Ramen.Training;
 
 using System.Linq;
+using Ramen.AI;
 using TorchSharp.Modules;
 using static TorchSharp.torch;
 using static TorchSharp.torch.nn;

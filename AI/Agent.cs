@@ -125,7 +125,7 @@ public class RamenAgent
     /// Returns the policy model's predicted probability distribution for the best next move.
     /// Returned probs is a 1xN tensor where N is the number of moves.
     /// </summary>
-    internal (UseHandTensors moveTensors, Tensor probs) GetPolicyProbDist(float temp)
+    public (UseHandTensors moveTensors, Tensor probs) GetPolicyProbDist(float temp)
     {
         (UseHandTensors useHandTensors, _) = CreateUseHandTensors();
         Tensor logits = Model.GetPolicyLogits(GameStateTensors, useHandTensors);

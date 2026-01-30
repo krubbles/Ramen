@@ -3,6 +3,7 @@ namespace Ramen.UnitTests;
 using System.Threading;
 using NUnit.Framework;
 using Ramen.AI;
+using Ramen.Training;
 using static TorchSharp.torch;
 
 public class GRPOTrainingTests

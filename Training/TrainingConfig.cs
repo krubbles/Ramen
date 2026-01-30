@@ -1,4 +1,4 @@
-﻿namespace Ramen.AI;
+namespace Ramen.Training;
 
 public static class TrainingConfig
 {

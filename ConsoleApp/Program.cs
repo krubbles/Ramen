@@ -1,6 +1,7 @@
 using Ramen.AI;
 using Ramen.Game;
 using Ramen.ConsoleApp;
+using Ramen.Training;
 using System.Runtime.InteropServices;
 using System.Collections.Concurrent;
 using System.Diagnostics;

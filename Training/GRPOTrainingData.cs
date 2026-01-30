@@ -1,7 +1,8 @@
-namespace Ramen.AI;
+namespace Ramen.Training;
 
 using System;
 using System.Collections.Generic;
+using Ramen.AI;
 using Ramen.Game;
 using static TorchSharp.torch;
 
