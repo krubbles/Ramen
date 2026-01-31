@@ -37,7 +37,14 @@ public sealed class GameState
     /// </summary>
     public readonly MoveState MoveState;
 
+    /// <summary>
+    /// The random number generator for this game state.
+    /// </summary>
     public readonly FastRandom Random;
+
+    /// <summary>
+    /// The current stage of the game. (ex: in store; in round)
+    /// </summary>
     public StageOfGame Stage { get; internal set; }
 
     readonly List<Move> _currentLegalMovesBuffer = new();
