@@ -19,8 +19,10 @@ public static class TrainingRunAnalysis
         string baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Ramen", "Weights", runName);
         if (!Directory.Exists(baseDir))
             return output;
+        // The loaded directory contains snapshots of model weights taken during training.
+        // 
 
-        // Get the files for each 
+        // Load all the model weight snapshots in the folder.
         string[] files = Directory.GetFiles(baseDir, "*.bin");
         List<(int step, string filePath)> stepFiles = [];
         for (int i = 0; i < files.Length; i++)
