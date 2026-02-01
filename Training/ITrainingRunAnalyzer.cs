@@ -20,6 +20,7 @@ public static class TrainingRunAnalysis
         if (!Directory.Exists(baseDir))
             return output;
 
+        // Get the files for each 
         string[] files = Directory.GetFiles(baseDir, "*.bin");
         List<(int step, string filePath)> stepFiles = [];
         for (int i = 0; i < files.Length; i++)

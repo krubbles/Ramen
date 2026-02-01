@@ -1,11 +1,16 @@
-# Commands
-- Don't use && when running commands.
+# Platform
+- This is a Mac
 
 # Git
 - Use short commit messages.
 
 # Unit Tests
 - Use Assert.That()
+
+# Commenting
+- Add short summary blocks to all public functions and properties of public classes/structs. 
+- Summary blocks should explain what the function does, not how it is implemented.
+- For longer functions, break them up into sections with short comments explaining what each section does. 
 
 # Code Guidelines
 - Use file-scoped namespace declarations.
@@ -18,7 +23,6 @@
 - Seperate functions with line-breaks
 - Constructor syntax priority: [], then new(), then new Foo()
 - Use [a, b] instead of new Foo[] { a, b }
-- Function summary blocks should NOT describe implementation details or obvious facts.
 - When calling a function, arguments should be named if their meaning cannot be implied from the calling code. 
 - Game project does not include TorchSharp and should not have AI related code.
 - Don't use argument validation on non-user facing functions.
