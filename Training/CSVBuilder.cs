@@ -2,6 +2,7 @@ namespace Ramen.Training;
 
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 
 /// <summary>
@@ -41,13 +42,31 @@ public sealed class CSVBuilder
                 _rows[i] = row;
             }
             if (_currentRow != null)
-                Array.Resize(ref _currentRow, _columns.Count);
+                _currentRow = _rows[^1];
         }
 
         if (_currentRow == null)
             NextRow();
 
-        _currentRow[columnIndex] = value == null ? string.Empty : value.ToString();
+        if (value == null)
+        {
+            _currentRow[columnIndex] = string.Empty;
+            return this;
+        }
+
+        if (value is float floatValue)
+        {
+            _currentRow[columnIndex] = floatValue.ToString("F4", CultureInfo.InvariantCulture);
+            return this;
+        }
+
+        if (value is double doubleValue)
+        {
+            _currentRow[columnIndex] = doubleValue.ToString("F4", CultureInfo.InvariantCulture);
+            return this;
+        }
+
+        _currentRow[columnIndex] = value.ToString();
         return this;
     }
 

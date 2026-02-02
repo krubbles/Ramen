@@ -51,6 +51,9 @@ void ExecuteCommand(string command, bool isFromRepeat)
         case "grpotrain":
             EnqueueWork(() => TrainGRPO(context));
             break;
+        case "grporun":
+            EnqueueWork(() => RunGRPOTrainingRun(context));
+            break;
         case "play":
             EnqueueWork(() => Play(context));
             break;
@@ -71,6 +74,9 @@ void ExecuteCommand(string command, bool isFromRepeat)
             break;
         case "stats":
             EnqueueWork(() => Stats(context));
+            break;
+        case "analyze":
+            EnqueueWork(() => AnalyzeTrainingRun(context));
             break;
         case "todata":
             EnqueueWork(() => ToData(context));
@@ -212,6 +218,26 @@ void TrainGRPO(ConsoleCommandContext context)
     Training.TrainPolicyModelGRPO(model, trainingParams, cancel.Token);
 }
 
+void RunGRPOTrainingRun(ConsoleCommandContext context)
+{
+    // Parse optional run settings.
+    int steps = context.GetIntArg("steps", 1);
+    int samplingFrequency = context.GetIntArg("sample", 0);
+    string runName = context.GetTextArg("name", "grpo");
+
+    // Configure the GRPO training run settings.
+    BasicGRPOTrainingRun trainingRun = new()
+    {
+        RolloutSize = context.GetIntArg("rollout", 1000),
+        Epochs = context.GetIntArg("epochs", 3),
+        LearningRate = context.GetFloatArg("lr", 3e-4f),
+        Entropy = context.GetFloatArg("ent", 0f),
+    };
+
+    // Execute the training steps and snapshot as requested.
+    _ = ITrainingRun.Run(trainingRun, runName, steps, samplingFrequency, cancel);
+}
+
 void Set(ConsoleCommandContext context)
 {
     string trainingParam = context.GetTextArg(0, "param name");
@@ -300,6 +326,22 @@ void Stats(ConsoleCommandContext context)
     Console.WriteLine($"Played full house: {stats.PlayedFullHousePercent:P2}");
     Console.WriteLine($"Discard same suit: {stats.DiscardSameSuitPercent:P2}");
     Console.WriteLine($"Discard rank range <= 4: {stats.DiscardRankRangePercent:P2}");
+}
+
+void AnalyzeTrainingRun(ConsoleCommandContext context)
+{
+    string runName = context.GetTextArg(0, "run name");
+    string baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Ramen", "Weights", runName);
+    if (!Directory.Exists(baseDir))
+    {
+        Console.WriteLine($"Training run '{runName}' does not exist.");
+        return;
+    }
+
+    CSVBuilder output = TrainingRunAnalysis.Analyze(runName, new RewardStatsTrainingRunAnalyzer());
+    string analysisPath = Path.Combine(baseDir, "analysis.csv");
+    File.WriteAllText(analysisPath, output.ToString());
+    Console.WriteLine($"Saved analysis to '{analysisPath}'.");
 }
 
 void Cancel()
