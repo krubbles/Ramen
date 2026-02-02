@@ -168,6 +168,25 @@ public static class TrainingData
         Console.WriteLine();
     }
 
+
+    /// <summary>
+    /// Encodes a probability as a ushort representing the negative natural log probability times 3000.
+    /// </summary>
+    public static ushort EncodeProb(float prob)
+    {
+        float nlProb = -MathF.Log(MathF.Max(prob, 1e-9f));
+        return (ushort)(nlProb * 3000f + 0.5f);
+    }
+
+    /// <summary>
+    /// Decodes a probability from a ushort representing the negative natural log probability times 3000.
+    /// </summary>
+    public static float DecodeProb(ushort encodedProb)
+    {
+        float nlProb = encodedProb / 3000f;
+        return MathF.Exp(-nlProb);
+    }
+
     static unsafe MoveSampleAnnotationData[] GetBranchMoveIndices(AnnotatingDataMove annotation)
     {
         byte[] bytes = annotation.Data;
