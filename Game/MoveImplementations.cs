@@ -424,10 +424,10 @@ public sealed class AnnotatingDataMove : Move
         Data = data ?? [];
     }
 
-    public static AnnotatingDataMove FromArray<T>(T[] array) where T : unmanaged
+    public static AnnotatingDataMove FromArray<T>(ReadOnlySpan<T> array) where T : unmanaged
     {
         // Handle empty input
-        if (array == null || array.Length == 0)
+        if (array.Length == 0)
             return new AnnotatingDataMove([]);
 
         // Interpret the T[] as bytes and copy into a new byte[] for storage
@@ -483,5 +483,23 @@ public sealed class AnnotatingDataMove : Move
             byte[] data = serializer.Stream.ReadArrayUshortSize<byte>();
             return new AnnotatingDataMove(data);
         }
+    }
+
+        /// <summary>
+    /// Encodes a probability as a ushort representing the negative natural log probability times 3000.
+    /// </summary>
+    public static ushort EncodeProb(float prob)
+    {
+        float nlProb = -MathF.Log(MathF.Max(prob, 1e-9f));
+        return (ushort)(nlProb * 3000f + 0.5f);
+    }
+
+    /// <summary>
+    /// Decodes a probability from a ushort representing the negative natural log probability times 3000.
+    /// </summary>
+    public static float DecodeProb(ushort encodedProb)
+    {
+        float nlProb = encodedProb / 3000f;
+        return MathF.Exp(-nlProb);
     }
 }
