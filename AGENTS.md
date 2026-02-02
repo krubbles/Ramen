@@ -8,8 +8,6 @@
 - Use Assert.That()
 
 # Commenting
-- Add short summary blocks to all public functions and properties of public classes/structs. 
-- Summary blocks should explain what the function does, not how it is implemented.
 - For longer functions, break them up into sections with short comments explaining what each section does. 
 
 # Code Guidelines
