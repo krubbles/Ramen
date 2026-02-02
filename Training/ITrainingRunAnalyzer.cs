@@ -59,17 +59,15 @@ public static class TrainingRunAnalysis
 
     static List<GameState> PlayGameBatch(PolicyModel model)
     {
-        int batchSize = TrainingConfig.BatchSize;
-        float temp = TrainingConfig.GoodPlayTemp;
         List<GameState> games = new();
-        for (int i = 0; i < batchSize; i++)
+        for (int i = 0; i < 256; i++)
         {
             GameState gameState = new(GameData.Default);
             RamenAgent agent = new(gameState, model);
             while (!agent.GameIsDone())
             {
                 gameState.AdvanceToNextPlayerChoice();
-                agent.MakeMove(temp);
+                agent.MakeMove(1f);
             }
             games.Add(gameState);
         }
