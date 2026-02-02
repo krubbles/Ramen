@@ -18,9 +18,6 @@ public static class TrainingRunAnalysis
     /// loads each snapshot in order, plays a batch of games with the model at that snapshot,
     /// and uses all provided analyzers to analyze the played games.
     /// </summary>
-    /// <param name="runName">The name of the training run, used to locate the model weight snapshot files.</param>
-    /// <param name="analyzers">All the analyzers to apply to the training run data.</param>
-    /// <returns>A serializable <see cref="CSVBuilder"> containing the analysis results.</returns>
     public static CSVBuilder Analyze(string runName, params ITrainingRunAnalyzer[] analyzers)
     {
         // Find the directory containing the model weight snapshots.

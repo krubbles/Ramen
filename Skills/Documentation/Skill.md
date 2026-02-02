@@ -13,18 +13,22 @@ description: Documents CSharp code, without editing its functionality. Use when 
 - Slightly prefer shorter descriptions, but don't sacrifice important information for brevity. 
 ## Bad Example
 ~~~
-Runs a training loop, optionally saving model snapshots at a fixed frequency.*
+Runs a training loop, optionally saving model snapshots at a fixed frequency.
 ~~~
 Problem: vague. What does it mean to run a training loop? Fixed frequency relative to what?
 ## Good Example 
-~~~Repeatedly calls <see cref="Step">
+~~~c#
+/// <summary>
+/// Repeatedly calls <see cref="Step"> <see paramref="steps">
+/// </summary>
+public static Task Run(ITrainingRun trainingRun, string runName, int steps, int samplingFrequency, CancellationTokenSource cancellationTokenSource)
 ~~~
 
 # Inline Comments
 - Comments can be placed at the end of lines when there is something deeply unintuitive about the line without additional context
 - For longer functions, break them up into sections and start each section with a single-line comment describing what the code does. Seperate sections with an empty line. 
 
-# Example
+# Good Example
 
 ~~~c#
 /// <summary>
