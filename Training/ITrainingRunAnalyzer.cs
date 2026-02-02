@@ -67,7 +67,7 @@ public static class TrainingRunAnalysis
             while (!agent.GameIsDone())
             {
                 gameState.AdvanceToNextPlayerChoice();
-                agent.MakeMove(1f);
+                agent.MakeMove(1f, annotatePolicy: true); // adds an annotation move to this history saving the policy prob dist for the made move.
             }
             games.Add(gameState);
         }

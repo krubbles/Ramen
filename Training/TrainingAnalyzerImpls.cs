@@ -45,3 +45,52 @@ public sealed class RewardStatsTrainingRunAnalyzer : ITrainingRunAnalyzer
         output.SetCell("reward_stddev", stdDev);
     }
 }
+
+/// <summary>
+/// Calculates the average policy entropy across all annotated moves.
+/// </summary>
+public sealed class PolicyEntropyTrainingRunAnalyzer : ITrainingRunAnalyzer
+{
+    public void Analyze(PolicyModel model, IEnumerable<GameState> games, CSVBuilder output)
+    {
+        double totalEntropy = 0;
+        int distributionCount = 0;
+
+        // Gather entropy from each annotated policy distribution.
+        foreach (GameState game in games)
+        {
+            List<Move> moveHistory = game.MoveState.MoveHistory;
+            for (int moveIndex = 0; moveIndex < moveHistory.Count; moveIndex++)
+            {
+                Move move = moveHistory[moveIndex];
+                if (move is not AnnotatingDataMove annotation)
+                    continue;
+
+                ushort[] encodedProbs = annotation.ToArray<ushort>();
+                if (encodedProbs.Length == 0)
+                    continue;
+
+                double entropy = 0;
+                for (int i = 0; i < encodedProbs.Length; i++)
+                {
+                    float nlProb = encodedProbs[i] / 3000f;
+                    float prob = MathF.Exp(-nlProb);
+                    entropy += prob * nlProb;
+                }
+
+                totalEntropy += entropy;
+                distributionCount++;
+            }
+        }
+
+        // Emit the mean entropy across all distributions (or 0 if none were found).
+        if (distributionCount == 0)
+        {
+            output.SetCell("policy_entropy_mean", 0f);
+            return;
+        }
+
+        double meanEntropy = totalEntropy / distributionCount;
+        output.SetCell("policy_entropy_mean", meanEntropy);
+    }
+}
