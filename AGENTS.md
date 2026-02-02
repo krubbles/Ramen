@@ -24,6 +24,7 @@
 - When calling a function, arguments should be named if their meaning cannot be implied from the calling code. 
 - Game project does not include TorchSharp and should not have AI related code.
 - Don't use argument validation on non-user facing functions.
+- Always use float, never double. 
 
 # Ordering Code Inside A Class
 1. Fields
