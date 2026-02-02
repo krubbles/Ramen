@@ -421,7 +421,36 @@ public sealed class AnnotatingDataMove : Move
 
     public AnnotatingDataMove(byte[] data)
     {
-        Data = data ?? Array.Empty<byte>();
+        Data = data ?? [];
+    }
+
+    public static AnnotatingDataMove FromArray<T>(T[] array) where T : unmanaged
+    {
+        // Handle empty input
+        if (array == null || array.Length == 0)
+            return new AnnotatingDataMove([]);
+
+        // Interpret the T[] as bytes and copy into a new byte[] for storage
+        ReadOnlySpan<T> tSpan = array;
+        ReadOnlySpan<byte> bytes = System.Runtime.InteropServices.MemoryMarshal.AsBytes(tSpan);
+        byte[] data = new byte[bytes.Length];
+        bytes.CopyTo(data);
+
+        return new AnnotatingDataMove(data);
+    }
+
+    public T[] ToArray<T>() where T : unmanaged
+    {
+        // Handle empty Data
+        if (Data == null || Data.Length == 0)
+            return [];
+
+        // Cast the byte[] back to a T span and copy into a new T[]
+        ReadOnlySpan<byte> bytes = Data;
+        ReadOnlySpan<T> tSpan = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, T>(bytes);
+        T[] result = new T[tSpan.Length];
+        tSpan.CopyTo(result);
+        return result;
     }
 
     public override MoveType GetMoveType() => MoveType.AnnotatingData;
