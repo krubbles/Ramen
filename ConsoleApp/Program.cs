@@ -303,6 +303,7 @@ void GenerateGRPOTrainingData(ConsoleCommandContext context)
     int games = context.GetIntArg(0, "games");
     int sampleCount = context.GetIntArg(1, "sample count");
     int groupSize = context.GetIntArg("group", 128);
+    float gamma = context.GetFloatArg("gamma", 1f);
     Stopwatch stopwatch = Stopwatch.StartNew();
     TrainingDataStats stats = GRPOTrainingData.GenerateTrainingData(model, games, sampleCount, groupSize);
     stopwatch.Stop();
@@ -338,7 +339,23 @@ void AnalyzeTrainingRun(ConsoleCommandContext context)
         return;
     }
 
-    CSVBuilder output = TrainingRunAnalysis.Analyze(runName, new RewardStatsTrainingRunAnalyzer(), new PolicyEntropyTrainingRunAnalyzer());
+    bool IsFirstPlayerMove(GameState game, Move move)
+    {
+        List<Move> moveHistory = game.MoveState.MoveHistory;
+        for (int i = 0; i < moveHistory.Count; i++)
+        {
+            if (moveHistory[i] is UseHandMove)
+                return false;
+        }
+        return true;
+    }
+
+    CSVBuilder output = TrainingRunAnalysis.Analyze(
+        runName,
+        new RewardStatsTrainingRunAnalyzer(),
+        new PolicyEntropyTrainingRunAnalyzer(
+            ("policy_entropy_mean", (_, _) => true),
+            ("policy_entropy_first_move_mean", IsFirstPlayerMove)));
     string analysisPath = Path.Combine(baseDir, "analysis.csv");
     File.WriteAllText(analysisPath, output.ToString());
     Console.WriteLine($"Saved analysis to '{analysisPath}'.");

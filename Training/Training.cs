@@ -139,7 +139,7 @@ public static class Training
                 int end = Math.Min(i + tp.batchSize, samples);
                 PolicyTrainingSample inputs = stacked.GetBatch(i, end);
                 Tensor logits = model.GetPolicyLogits(inputs.StateTensors, inputs.UseHandTensors, inputs.MoveIndices);
-                Tensor loss = CalculatePPOLoss(logits, inputs.SamplingProb, inputs.Advantage, tp.entropyCoeff, tp.kldCoeff, useIndex0: true, ref kldTotal);
+                Tensor loss = CalculatePPOLoss(logits, inputs.SamplingProb, inputs.Advantage, inputs.EntropyScalar, tp.entropyCoeff, tp.kldCoeff, useIndex0: true, ref kldTotal);
                 loss.backward();
                 Optimizer.step();
 
@@ -172,7 +172,7 @@ public static class Training
         return loss;
     }
 
-    static Tensor CalculatePPOLoss(Tensor logits, Tensor oldProbs, Tensor advantage, float ec, float kc, bool useIndex0, ref float kldAccumulate, Tensor moveIndex = null)
+    static Tensor CalculatePPOLoss(Tensor logits, Tensor oldProbs, Tensor advantage, Tensor entScalar, float ec, float kc, bool useIndex0, ref float kldAccumulate, Tensor moveIndex = null)
     {
         oldProbs /= oldProbs.sum(dim: 1, keepdim: true).max(1e-9f);
         var logProbsOld = log(oldProbs.clamp_min(0f) + 1e-9f);
@@ -183,7 +183,7 @@ public static class Training
             logProbs.gather(1, moveIndex);
 
         var probs = exp(logProbs);
-        var entropy = -(probs * logProbs).sum(1).mean();
+        var entropy = (-(probs * logProbs).sum(1) * entScalar).mean();
 
         var logPiOld = useIndex0 ?
             logProbsOld.select(1, 0) :

@@ -249,7 +249,7 @@ public class PolicyTrainingSample : ITensorGroup
     /// </summary>
     public float ChosenMoveNLProb;
     public Tensor Advantage;
-
+    public Tensor EntropyScalar;
 }
 
 public struct MoveSampleAnnotationData

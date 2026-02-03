@@ -47,17 +47,22 @@ public sealed class RewardStatsTrainingRunAnalyzer : ITrainingRunAnalyzer
 }
 
 /// <summary>
-/// Calculates the average policy entropy across all annotated moves.
+/// Calculates the models average policy entropy. Supports multiple columns, each of which has a filter that determines which GameStates to average over.
+/// 
 /// </summary>
 public sealed class PolicyEntropyTrainingRunAnalyzer : ITrainingRunAnalyzer
 {
-    readonly (string colName, Predicate<GameState> filter)[] _filters;
+    readonly (string colName, Func<GameState, Move, bool> filter)[] _filters;
 
-    public PolicyEntropyTrainingRunAnalyzer() : this(( "policy_entropy_mean", _ => true ))
+    /// <summary>
+    /// Initializes a new instance of the <see cref="PolicyEntropyTrainingRunAnalyzer"/> class with a default filter that includes all GameStates.
+    /// This means it calculates the mean policy entropy across all moves.
+    /// </summary>
+    public PolicyEntropyTrainingRunAnalyzer() : this(( "policy_entropy_mean", (_, _) => true ))
     {
     }
 
-    public PolicyEntropyTrainingRunAnalyzer(params (string colName, Predicate<GameState> filter)[] filters)
+    public PolicyEntropyTrainingRunAnalyzer(params (string colName, Func<GameState, Move, bool> filter)[] filters)
     {
         _filters = filters ?? [];
     }
@@ -87,9 +92,10 @@ public sealed class PolicyEntropyTrainingRunAnalyzer : ITrainingRunAnalyzer
 
                 // revert annotation, then revert the move to get the state before the move was applied.
                 annotation.Revert(game); // removes this move and all subsequent moves from the history
+                moveIndex--;
                 if (game.MoveState.MoveHistory.Count == 0)
                     break;
-                game.MoveState.RevertLastMove();
+                game.MoveState.MoveHistory[moveIndex].Revert(game);
 
                 // calculate the entropy for this move's policy distribution 
                 float entropy = 0;
@@ -103,7 +109,7 @@ public sealed class PolicyEntropyTrainingRunAnalyzer : ITrainingRunAnalyzer
                 // add the entropy to the appropriate filtered entropy columns
                 for (int filterIndex = 0; filterIndex < _filters.Length; filterIndex++)
                 {
-                    if (!_filters[filterIndex].filter(game))
+                    if (!_filters[filterIndex].filter(game, move))
                         continue;
 
                     totalEntropy[filterIndex] += entropy;
