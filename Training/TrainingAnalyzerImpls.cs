@@ -51,16 +51,31 @@ public sealed class RewardStatsTrainingRunAnalyzer : ITrainingRunAnalyzer
 /// </summary>
 public sealed class PolicyEntropyTrainingRunAnalyzer : ITrainingRunAnalyzer
 {
+    readonly (string colName, Predicate<GameState> filter)[] _filters;
+
+    public PolicyEntropyTrainingRunAnalyzer() : this(( "policy_entropy_mean", _ => true ))
+    {
+    }
+
+    public PolicyEntropyTrainingRunAnalyzer(params (string colName, Predicate<GameState> filter)[] filters)
+    {
+        _filters = filters ?? [];
+    }
+
     public void Analyze(PolicyModel model, IEnumerable<GameState> games, CSVBuilder output)
     {
-        double totalEntropy = 0;
-        int distributionCount = 0;
+        if (_filters.Length == 0)
+            return;
 
-        // Gather entropy from each annotated policy distribution.
+        float[] totalEntropy = new float[_filters.Length];
+        int[] distributionCount = new int[_filters.Length];
+
+        // gather entropy from each annotated policy distribution.
         foreach (GameState game in games)
         {
+            // iterate through move history in reverse
             List<Move> moveHistory = game.MoveState.MoveHistory;
-            for (int moveIndex = 0; moveIndex < moveHistory.Count; moveIndex++)
+            for (int moveIndex = moveHistory.Count - 1; moveIndex >= 0; moveIndex--)
             {
                 Move move = moveHistory[moveIndex];
                 if (move is not AnnotatingDataMove annotation)
@@ -70,27 +85,44 @@ public sealed class PolicyEntropyTrainingRunAnalyzer : ITrainingRunAnalyzer
                 if (encodedProbs.Length == 0)
                     continue;
 
-                double entropy = 0;
+                // revert annotation, then revert the move to get the state before the move was applied.
+                annotation.Revert(game); // removes this move and all subsequent moves from the history
+                if (game.MoveState.MoveHistory.Count == 0)
+                    break;
+                game.MoveState.RevertLastMove();
+
+                // calculate the entropy for this move's policy distribution 
+                float entropy = 0;
                 for (int i = 0; i < encodedProbs.Length; i++)
                 {
-                    float nlProb = encodedProbs[i] / 3000f;
-                    float prob = MathF.Exp(-nlProb);
+                    float prob = AnnotatingDataMove.DecodeProb(encodedProbs[i]);
+                    float nlProb = -MathF.Log(MathF.Max(prob, 1e-9f));
                     entropy += prob * nlProb;
                 }
 
-                totalEntropy += entropy;
-                distributionCount++;
+                // add the entropy to the appropriate filtered entropy columns
+                for (int filterIndex = 0; filterIndex < _filters.Length; filterIndex++)
+                {
+                    if (!_filters[filterIndex].filter(game))
+                        continue;
+
+                    totalEntropy[filterIndex] += entropy;
+                    distributionCount[filterIndex] += 1;
+                }
             }
         }
 
-        // Emit the mean entropy across all distributions (or 0 if none were found).
-        if (distributionCount == 0)
+        for (int filterIndex = 0; filterIndex < _filters.Length; filterIndex++)
         {
-            output.SetCell("policy_entropy_mean", 0f);
-            return;
-        }
+            string colName = _filters[filterIndex].colName;
+            if (distributionCount[filterIndex] == 0)
+            {
+                output.SetCell(colName, 0f);
+                continue;
+            }
 
-        double meanEntropy = totalEntropy / distributionCount;
-        output.SetCell("policy_entropy_mean", meanEntropy);
+            double meanEntropy = totalEntropy[filterIndex] / distributionCount[filterIndex];
+            output.SetCell(colName, meanEntropy);
+        }
     }
 }
