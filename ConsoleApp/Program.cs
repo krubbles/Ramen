@@ -332,6 +332,7 @@ void Stats(ConsoleCommandContext context)
 void AnalyzeTrainingRun(ConsoleCommandContext context)
 {
     string runName = context.GetTextArg(0, "run name");
+    int sampleSize = context.GetIntArg("samples", 256);
     string baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Ramen", "Weights", runName);
     if (!Directory.Exists(baseDir))
     {
@@ -352,6 +353,7 @@ void AnalyzeTrainingRun(ConsoleCommandContext context)
 
     CSVBuilder output = TrainingRunAnalysis.Analyze(
         runName,
+        sampleSize,
         new RewardStatsTrainingRunAnalyzer(),
         new PolicyEntropyTrainingRunAnalyzer(
             ("policy_entropy_mean", (_, _) => true),

@@ -5,6 +5,83 @@ using System.Collections.Generic;
 using Ramen.AI;
 using Ramen.Game;
 
+public static class TrainingRunAnalyzerUtils
+{
+    public readonly struct MoveContext
+    {
+        public MoveContext(GameState gameState, AnnotatingDataMove annotation, int moveIndex)
+        {
+            GameState = gameState;
+            Annotation = annotation;
+            MoveIndex = moveIndex;
+        }
+
+        public readonly GameState GameState;
+
+        public readonly AnnotatingDataMove Annotation;
+
+        public readonly int MoveIndex;
+    }
+
+
+    public static void ForeachMove(this GameState gameState, Action<MoveContext> action, bool preState)
+    {
+        // Save move buffer.
+        Move[] moveBuffer = gameState.MoveState.MoveHistory.ToArray();
+
+        // Roll back to the beginning.
+        gameState.MoveState.RevertToStep(0);
+
+        try
+        {
+            // Replay moves and invoke action on each player move.
+            int playerMoveIndex = 0;
+            for (int moveIndex = 0; moveIndex < moveBuffer.Length; moveIndex++)
+            {
+                Move move = moveBuffer[moveIndex];
+                if (move is AnnotatingDataMove)
+                {
+                    move.Apply(gameState);
+                    continue;
+                }
+
+                AnnotatingDataMove annotation = null;
+
+                if (moveIndex + 1 < moveBuffer.Length && moveBuffer[moveIndex + 1] is AnnotatingDataMove nextAnnotation)
+                    annotation = nextAnnotation;
+
+                if (annotation == null)
+                {
+                    move.Apply(gameState);
+                    continue;
+                }
+
+                if (preState)
+                    action(new MoveContext(gameState, annotation, playerMoveIndex));
+
+                move.Apply(gameState);
+                annotation.Apply(gameState);
+                moveIndex++;
+
+                if (!preState)
+                    action(new MoveContext(gameState, annotation, playerMoveIndex));
+
+                playerMoveIndex++;
+            }
+        }
+        finally
+        {
+            // Restore if the replay did not complete.
+            if (gameState.MoveState.MoveHistory.Count != moveBuffer.Length)
+            {
+                gameState.MoveState.RevertToStep(0);
+                for (int moveIndex = 0; moveIndex < moveBuffer.Length; moveIndex++)
+                    moveBuffer[moveIndex].Apply(gameState);
+            }
+        }
+    }
+}
+
 /// <summary>
 /// Calculates mean reward and reward standard deviation.
 /// </summary>

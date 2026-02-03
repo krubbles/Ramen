@@ -16,7 +16,7 @@ public class GRPOTrainingTests
         PolicyModel model = new();
         TrainingData.PolicyData.Clear();
 
-        TrainingDataStats stats = GRPOTrainingData.GenerateTrainingData(model, games: 1, sampleCount: 4, gamma: 1f, groupSize: 1);
+        TrainingDataStats stats = GRPOTrainingData.GenerateTrainingData(model, games: 1, sampleCount: 4, groupSize: 1);
         Assert.That(stats.GamesCount, Is.EqualTo(1));
         Assert.That(TrainingData.PolicyData.Count, Is.GreaterThan(0));
 

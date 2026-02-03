@@ -18,7 +18,7 @@ public static class TrainingRunAnalysis
     /// loads each snapshot in order, plays a batch of games with the model at that snapshot,
     /// and uses all provided analyzers to analyze the played games.
     /// </summary>
-    public static CSVBuilder Analyze(string runName, params ITrainingRunAnalyzer[] analyzers)
+    public static CSVBuilder Analyze(string runName, int sampleSize = 256, params ITrainingRunAnalyzer[] analyzers)
     {
         // Find the directory containing the model weight snapshots.
         CSVBuilder output = new();
@@ -44,7 +44,7 @@ public static class TrainingRunAnalysis
             (int step, string filePath) = stepFiles[i];
             PolicyModel model = new();
             model.load(filePath);
-            List<GameState> games = PlayGameBatch(model);
+            List<GameState> games = PlayGameBatch(model, sampleSize);
 
             output.NextRow().SetCell("step", step);
             for (int analyzerIndex = 0; analyzerIndex < analyzers.Length; analyzerIndex++)
@@ -57,10 +57,11 @@ public static class TrainingRunAnalysis
         return output;
     }
 
-    static List<GameState> PlayGameBatch(PolicyModel model)
+    static List<GameState> PlayGameBatch(PolicyModel model, int sampleSize)
     {
         List<GameState> games = new();
-        for (int i = 0; i < 256; i++)
+        int gameCount = Math.Max(0, sampleSize);
+        for (int i = 0; i < gameCount; i++)
         {
             GameState gameState = new(GameData.Default);
             RamenAgent agent = new(gameState, model);

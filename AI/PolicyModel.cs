@@ -57,9 +57,9 @@ public class PolicyModel : Module, IPolicyModel
             Linear(UseHandProcessorInputWidth, UseHandProcessorHiddenWidth),
             new Residual(Sequential(
                 LayerNorm(128),
-                Linear(UseHandProcessorHiddenWidth, UseHandProcessorHiddenWidth),
+                Linear(UseHandProcessorHiddenWidth, UseHandProcessorHiddenWidth * 2),
                 GELU(),
-                Linear(UseHandProcessorHiddenWidth, UseHandProcessorHiddenWidth)
+                Linear(UseHandProcessorHiddenWidth * 2, UseHandProcessorHiddenWidth)
             )),
             GELU(),
             Linear(UseHandProcessorHiddenWidth, 2)
