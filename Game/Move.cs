@@ -12,9 +12,13 @@ public abstract class Move
     ulong _rngState;
     int _moveStep = -1;
 
+    /// <summary>
+    /// Applies this move to the given <paramref name="gameState"/>. Throws if the move has already been applied. 
+    /// The move gets added to the <see cref="GameState.MoveState.MoveHistory"/> of the given <paramref name="gameState"/>.
+    /// </summary>
     public void Apply(GameState gameState)
     {
-        if (_moveStep != -1)
+        if (IsApplied)
             throw new InvalidOperationException("Trying to apply move that has already been applied.");
 
         this.gameState = gameState;
@@ -26,9 +30,13 @@ public abstract class Move
         gameState.MoveState.RunActivatedCallbacks();
     }
 
+    /// <summary>
+    /// Restores the gameState to before the move was made. Throws if this move isn't in <paramref name="gameState"/>'s move history, or if the move hasn't been applied.
+    /// Will revert all moves applied after this move before reverting this move. 
+    /// </summary>
     public void Revert(GameState gameState)
     {
-        if (this.gameState == null)
+        if (!IsApplied)
             throw new InvalidOperationException("Cannot revert a move that hasn't been applied.");
         if (this.gameState != gameState)
             throw new InvalidOperationException("Cannot revert move on a different game state than it was applied to.");
@@ -55,8 +63,14 @@ public abstract class Move
 
     protected abstract void Revert();
 
+    /// <summary>
+    /// Returns an enum value unique to the implementing type of <see cref="Move"/>. Primarily used in serialization.
+    /// </summary>
     public abstract MoveType GetMoveType();
 
+    /// <summary>
+    /// Serializes the move. State used to revert the move is not serialized.
+    /// </summary>
     internal static void Serialize(GameStateSerializer gsSerializer, Move move)
     {
         MoveType moveType = move.GetMoveType();
@@ -66,6 +80,9 @@ public abstract class Move
         moveSerializer.Serialize(gsSerializer, move);
     }
 
+    /// <summary>
+    /// Deserializes the move. State used to revert the move is not deserialized.
+    /// </summary>
     internal static Move Deserialize(GameStateSerializer serializer)
     {
         MoveType moveType = serializer.Stream.ReadStruct<MoveType>();
@@ -76,6 +93,10 @@ public abstract class Move
         return move;
     }
 
+    /// <summary>
+    /// A dictionary mapping each <see cref="MoveType"/> to its corresponding <see cref="IMoveSerializer"/>.
+    /// All move implementations must have a corresponding serializer in this dictionary.
+    /// </summary>
     public static readonly Dictionary<MoveType, IMoveSerializer> MoveSerializers = new()
     {
         { MoveType.UseHand, new UseHandMove.Serializer() },
@@ -88,8 +109,7 @@ public abstract class Move
     };
 }
 
-// VERY IMPORTANT. THIS IS SERIALIZED AS AN INT.
-// ADDING NEW VALUES THAT ARE NOT AT THE END WILL BREAK SERIALIZATION.
+// Serialized as an byte. New values must be added to the end to avoid breaking deserialization.
 public enum MoveType : byte
 {
     None,
@@ -103,6 +123,11 @@ public enum MoveType : byte
     SetRemainingHandsAndDiscards,
 }
 
+/// <summary>
+/// An interface for writing classes that serialize and deserialize a specific implementation of <see cref="Move"/>.
+/// Each implementation should have a singular corresponding <see cref="IMoveSerializer"/>.
+/// The serializer should NOT serialize data used to revert the move. 
+/// </summary>
 public interface IMoveSerializer
 {
     public MoveType MoveType { get; }
