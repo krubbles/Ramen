@@ -338,7 +338,7 @@ void AnalyzeTrainingRun(ConsoleCommandContext context)
         return;
     }
 
-    CSVBuilder output = TrainingRunAnalysis.Analyze(runName, new RewardStatsTrainingRunAnalyzer());
+    CSVBuilder output = TrainingRunAnalysis.Analyze(runName, new RewardStatsTrainingRunAnalyzer(), new PolicyEntropyTrainingRunAnalyzer());
     string analysisPath = Path.Combine(baseDir, "analysis.csv");
     File.WriteAllText(analysisPath, output.ToString());
     Console.WriteLine($"Saved analysis to '{analysisPath}'.");
