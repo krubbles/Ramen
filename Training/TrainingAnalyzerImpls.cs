@@ -26,7 +26,6 @@ public static class TrainingRunAnalyzerUtils
         public readonly int MoveIndex;
     }
 
-
     public static void ForeachMove(this GameState gameState, Action<MoveContext> action, bool preState)
     {
         // Save move buffer.
@@ -198,5 +197,104 @@ public sealed class PolicyEntropyTrainingRunAnalyzer : ITrainingRunAnalyzer
             double meanEntropy = totalEntropy[filterIndex] / distributionCount[filterIndex];
             output.SetCell(colName, meanEntropy);
         }
+    }
+}
+
+/// <summary>
+/// Calculates the fraction of games that played a flush, full house, or straight.
+/// </summary>
+public sealed class HandTypePresenceTrainingRunAnalyzer : ITrainingRunAnalyzer
+{
+    public void Analyze(PolicyModel model, IEnumerable<GameState> games, CSVBuilder output)
+    {
+        // Initialize counts.
+        int gameCount = 0;
+        int flushCount = 0;
+        int fullHouseCount = 0;
+        int straightCount = 0;
+
+        // Scan each game for played hand types.
+        foreach (GameState game in games)
+        {
+            gameCount++;
+            bool sawFlush = false;
+            bool sawFullHouse = false;
+            bool sawStraight = false;
+
+            game.ForeachMove(context =>
+            {
+                Move move = context.Move;
+                if (move is not UseHandMove useHandMove || useHandMove.IsDiscard)
+                    return;
+
+                HandPatterns patterns = context.GameState.HandState.ActiveHandPatterns;
+                if (patterns.ContainsFlush)
+                    sawFlush = true;
+                if (patterns.HandType == HandType.FullHouse || patterns.HandType == HandType.FlushHouse)
+                    sawFullHouse = true;
+                if (patterns.ContainsStraight)
+                    sawStraight = true;
+            }, preState: false);
+
+            if (sawFlush)
+                flushCount++;
+            if (sawFullHouse)
+                fullHouseCount++;
+            if (sawStraight)
+                straightCount++;
+        }
+
+        // Write results.
+        float totalGames = Math.Max(gameCount, 1);
+        output.SetCell("played_flush_frac", flushCount / totalGames);
+        output.SetCell("played_full_house_frac", fullHouseCount / totalGames);
+        output.SetCell("played_straight_frac", straightCount / totalGames);
+    }
+}
+
+/// <summary>
+/// Calculates the fraction of games that lose, or win with specific remaining hands.
+/// </summary>
+public sealed class EndStateHandCountTrainingRunAnalyzer : ITrainingRunAnalyzer
+{
+    public void Analyze(PolicyModel model, IEnumerable<GameState> games, CSVBuilder output)
+    {
+        // Initialize counts.
+        int gameCount = 0;
+        int loseCount = 0;
+        int winHands0 = 0;
+        int winHands1 = 0;
+        int winHands2 = 0;
+        int winHands3 = 0;
+
+        // Classify each game's end state.
+        foreach (GameState game in games)
+        {
+            gameCount++;
+
+            if (game.ScoringState.CurrentRoundTotalChips < 300)
+            {
+                loseCount++;
+                continue;
+            }
+
+            int remainingHands = game.HandState.RemainingHands;
+            if (remainingHands == 0)
+                winHands0++;
+            else if (remainingHands == 1)
+                winHands1++;
+            else if (remainingHands == 2)
+                winHands2++;
+            else if (remainingHands == 3)
+                winHands3++;
+        }
+
+        // Write results.
+        float totalGames = Math.Max(gameCount, 1);
+        output.SetCell("loss_frac", loseCount / totalGames);
+        output.SetCell("win_hands_0_frac", winHands0 / totalGames);
+        output.SetCell("win_hands_1_frac", winHands1 / totalGames);
+        output.SetCell("win_hands_2_frac", winHands2 / totalGames);
+        output.SetCell("win_hands_3_frac", winHands3 / totalGames);
     }
 }
