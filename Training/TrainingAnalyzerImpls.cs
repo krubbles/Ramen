@@ -9,14 +9,17 @@ public static class TrainingRunAnalyzerUtils
 {
     public readonly struct MoveContext
     {
-        public MoveContext(GameState gameState, AnnotatingDataMove annotation, int moveIndex)
+        public MoveContext(GameState gameState, Move move, AnnotatingDataMove annotation, int moveIndex)
         {
             GameState = gameState;
+            Move = move;
             Annotation = annotation;
             MoveIndex = moveIndex;
         }
 
         public readonly GameState GameState;
+
+        public readonly Move Move;
 
         public readonly AnnotatingDataMove Annotation;
 
@@ -57,14 +60,14 @@ public static class TrainingRunAnalyzerUtils
                 }
 
                 if (preState)
-                    action(new MoveContext(gameState, annotation, playerMoveIndex));
+                    action(new MoveContext(gameState, move, annotation, playerMoveIndex));
 
                 move.Apply(gameState);
                 annotation.Apply(gameState);
                 moveIndex++;
 
                 if (!preState)
-                    action(new MoveContext(gameState, annotation, playerMoveIndex));
+                    action(new MoveContext(gameState, move, annotation, playerMoveIndex));
 
                 playerMoveIndex++;
             }
@@ -155,26 +158,15 @@ public sealed class PolicyEntropyTrainingRunAnalyzer : ITrainingRunAnalyzer
         // gather entropy from each annotated policy distribution.
         foreach (GameState game in games)
         {
-            // iterate through move history in reverse
-            List<Move> moveHistory = game.MoveState.MoveHistory;
-            for (int moveIndex = moveHistory.Count - 1; moveIndex >= 0; moveIndex--)
+            game.ForeachMove(context =>
             {
-                Move move = moveHistory[moveIndex];
-                if (move is not AnnotatingDataMove annotation)
-                    continue;
-
+                AnnotatingDataMove annotation = context.Annotation;
                 ushort[] encodedProbs = annotation.ToArray<ushort>();
                 if (encodedProbs.Length == 0)
-                    continue;
+                    return;
 
-                // revert annotation, then revert the move to get the state before the move was applied.
-                annotation.Revert(game); // removes this move and all subsequent moves from the history
-                moveIndex--;
-                if (game.MoveState.MoveHistory.Count == 0)
-                    break;
-                game.MoveState.MoveHistory[moveIndex].Revert(game);
+                Move move = context.Move;
 
-                // calculate the entropy for this move's policy distribution 
                 float entropy = 0;
                 for (int i = 0; i < encodedProbs.Length; i++)
                 {
@@ -183,7 +175,6 @@ public sealed class PolicyEntropyTrainingRunAnalyzer : ITrainingRunAnalyzer
                     entropy += prob * nlProb;
                 }
 
-                // add the entropy to the appropriate filtered entropy columns
                 for (int filterIndex = 0; filterIndex < _filters.Length; filterIndex++)
                 {
                     if (!_filters[filterIndex].filter(game, move))
@@ -192,7 +183,7 @@ public sealed class PolicyEntropyTrainingRunAnalyzer : ITrainingRunAnalyzer
                     totalEntropy[filterIndex] += entropy;
                     distributionCount[filterIndex] += 1;
                 }
-            }
+            }, preState: true);
         }
 
         for (int filterIndex = 0; filterIndex < _filters.Length; filterIndex++)
