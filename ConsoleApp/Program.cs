@@ -371,7 +371,6 @@ void GenerateGRPOTrainingData(ConsoleCommandContext context)
     int games = context.GetIntArg(0, "games");
     int sampleCount = context.GetIntArg(1, "sample count");
     int groupSize = context.GetIntArg("group", 128);
-    float gamma = context.GetFloatArg("gamma", 1f);
     Stopwatch stopwatch = Stopwatch.StartNew();
     TrainingDataStats stats = GRPOTrainingData.GenerateTrainingData(model, games, sampleCount, groupSize);
     stopwatch.Stop();
