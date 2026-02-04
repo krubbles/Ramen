@@ -37,9 +37,9 @@
 Note: private functions with exactly 1 caller should be placed directly after their calling function.
 
 # Torch Sharp Guidelines
-- Inlude `using static TorchSharp.torch` in all files that use TorchSharp.
+- Include `using static TorchSharp.torch` in all files that use TorchSharp.
 - If you need to access most of the data in a tensor, use `.data<T>().ToArray()` instead of using `.item<T>()` multiple times. 
 - Don't use using statements on individual tensors, instead, add `using var scope = NewDisposeScope()` to the top of the function.
-- Call `.MoveToOuterDisposeScope()` on tensors created in functions who's ownership should be transfered to their calling context. 
+- Call `.MoveToOuterDisposeScope()` on tensors created in functions whose ownership should be transferred to their calling context. 
 - Call `.DetachFromDisposeScope()` on long-life tensors.
 - The first argument of `amax()` is a dim array. 
