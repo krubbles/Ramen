@@ -23,7 +23,7 @@
             "type": "dotnet",
             "request": "launch",
             "preLaunchTask": "buildrelease",
-            "projectPath": "${workspaceFolder}/ConsoleApp/ConsoleApp.csproj",
+            "projectPath": "${workspaceFolder}/ConsoleApp/ConsoleApp.csproj"
         }       
     ]
 }
