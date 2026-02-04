@@ -224,6 +224,7 @@ void RunGRPOTrainingRun(ConsoleCommandContext context)
     int steps = context.GetIntArg("steps", 1);
     int samplingFrequency = context.GetIntArg("sample", 0);
     string runName = context.GetTextArg("name", "grpo");
+    bool resume = context.GetBoolArg("resume", false);
 
     // Configure the GRPO training run settings.
     BasicGRPOTrainingRun trainingRun = new()
@@ -235,7 +236,74 @@ void RunGRPOTrainingRun(ConsoleCommandContext context)
     };
 
     // Execute the training steps and snapshot as requested.
-    _ = ITrainingRun.Run(trainingRun, runName, steps, samplingFrequency, cancel);
+    if (resume)
+        _ = RunTrainingRunWithResume(trainingRun, runName, steps, samplingFrequency, cancel);
+    else
+        _ = ITrainingRun.Run(trainingRun, runName, steps, samplingFrequency, cancel);
+}
+
+Task RunTrainingRunWithResume(ITrainingRun trainingRun, string runName, int steps, int samplingFrequency, CancellationTokenSource cancellationTokenSource)
+{
+    return Task.Run(() =>
+    {
+        // Resolve run directory and model checkpoint.
+        string baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Ramen", "Weights", runName);
+        Directory.CreateDirectory(baseDir);
+        PolicyModel model = new();
+
+        int startingStep = 0;
+        if (TryGetLatestSnapshot(baseDir, out int lastStep, out string lastFilePath))
+        {
+            model.load(lastFilePath);
+            startingStep = lastStep;
+            Console.WriteLine($"Resuming run '{runName}' from step {startingStep}.");
+        }
+        else
+            Console.WriteLine($"No snapshots found for run '{runName}'. Starting from scratch.");
+
+        // Execute training steps, saving snapshots when requested.
+        int finalStep = startingStep + steps;
+        for (int step = startingStep + 1; step <= finalStep; ++step)
+        {
+            if (cancellationTokenSource.IsCancellationRequested)
+                break;
+
+            trainingRun.Step(model);
+
+            if (samplingFrequency > 0 && step % samplingFrequency == 0)
+            {
+                string filePath = Path.Combine(baseDir, $"{step}.bin");
+                model.save(filePath);
+            }
+        }
+    }, cancellationTokenSource.Token);
+}
+
+bool TryGetLatestSnapshot(string baseDir, out int step, out string filePath)
+{
+    step = 0;
+    filePath = "";
+    if (!Directory.Exists(baseDir))
+        return false;
+
+    string[] files = Directory.GetFiles(baseDir, "*.bin");
+    bool found = false;
+    for (int i = 0; i < files.Length; i++)
+    {
+        string candidatePath = files[i];
+        string candidateName = Path.GetFileNameWithoutExtension(candidatePath);
+        if (!int.TryParse(candidateName, out int candidateStep))
+            continue;
+
+        if (!found || candidateStep > step)
+        {
+            step = candidateStep;
+            filePath = candidatePath;
+            found = true;
+        }
+    }
+
+    return found;
 }
 
 void Set(ConsoleCommandContext context)
@@ -355,6 +423,8 @@ void AnalyzeTrainingRun(ConsoleCommandContext context)
         runName,
         sampleSize,
         new RewardStatsTrainingRunAnalyzer(),
+        new HandTypePresenceTrainingRunAnalyzer(),
+        new EndStateHandCountTrainingRunAnalyzer(),
         new PolicyEntropyTrainingRunAnalyzer(
             ("policy_entropy_mean", (_, _) => true),
             ("policy_entropy_first_move_mean", IsFirstPlayerMove)));
