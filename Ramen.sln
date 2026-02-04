@@ -11,6 +11,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UnitTests", "UnitTests\Unit
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ConsoleApp", "ConsoleApp\ConsoleApp.csproj", "{97A67FAF-6D79-4992-BA73-33F5E23DF9C5}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Training", "Training\Training.csproj", "{3E1C52A6-7D4F-4E0F-8D3B-0B27A6B54F5A}"
+EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{A66046A7-89B8-4B45-B376-3ABD37028DCB}"
 	ProjectSection(SolutionItems) = preProject
 		AGENTS.md = AGENTS.md 
@@ -38,6 +40,10 @@ Global
 		{97A67FAF-6D79-4992-BA73-33F5E23DF9C5}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{97A67FAF-6D79-4992-BA73-33F5E23DF9C5}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{97A67FAF-6D79-4992-BA73-33F5E23DF9C5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3E1C52A6-7D4F-4E0F-8D3B-0B27A6B54F5A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3E1C52A6-7D4F-4E0F-8D3B-0B27A6B54F5A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3E1C52A6-7D4F-4E0F-8D3B-0B27A6B54F5A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3E1C52A6-7D4F-4E0F-8D3B-0B27A6B54F5A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

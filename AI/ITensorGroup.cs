@@ -1,6 +1,7 @@
 namespace Ramen.AI;
 
 using System.Reflection;
+using TorchSharp;
 using static TorchSharp.torch;
 
 public interface ITensorGroup
@@ -173,5 +174,26 @@ public static class TensorGroupExtentions
         return tensors;
     }
 
+    public static ITensorGroup ToDevice(this ITensorGroup me, Device device, bool nonBlocking = false)
+    {
+        foreach (FieldInfo field in GetTensorFields(me.GetType()))
+        {
+            object value = field.GetValue(me);
+            if (value is Tensor tensor)
+            {
+                Tensor moved = tensor.to(device, nonBlocking);
+                moved.MoveToOuterDisposeScope();
+                field.SetValue(me, moved);
+            }
+            else if (value is ITensorGroup group)
+            {
+                field.SetValue(me, group.ToDevice(device, nonBlocking));
+            }
+        }
+        return me;
+    }
+
+    public static T ToDevice<T>(this T me, Device device, bool nonBlocking = false) where T : ITensorGroup => (T)ToDevice((ITensorGroup)me, device, nonBlocking);
+    
     static readonly Dictionary<Type, FieldInfo[]> _tensorFieldsByType = [];
 }

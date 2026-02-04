@@ -5,11 +5,13 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>disable</Nullable>
+    <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>
   </PropertyGroup>
 
-<ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="..\AI\AI.csproj" />
     <ProjectReference Include="..\Game\Game.csproj" />
+    <ProjectReference Include="..\Training\Training.csproj" />
   </ItemGroup>
 
 </Project>

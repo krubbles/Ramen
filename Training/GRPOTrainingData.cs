@@ -1,7 +1,8 @@
-namespace Ramen.AI;
+namespace Ramen.Training;
 
 using System;
 using System.Collections.Generic;
+using Ramen.AI;
 using Ramen.Game;
 using static TorchSharp.torch;
 
@@ -15,8 +16,10 @@ public static class GRPOTrainingData
 
         using var scope = NewDisposeScope();
 
+        // Generate grouped rollouts.
         while (stats.GamesCount < games)
         {
+            // Prepare batch containers.
             int batchSize = Math.Min(groupSize, games - stats.GamesCount);
             List<PolicyTrainingSample>[] groupSamples = new List<PolicyTrainingSample>[batchSize];
             float[] groupRewards = new float[batchSize];
@@ -24,6 +27,7 @@ public static class GRPOTrainingData
             int startingMoveCount = gameState.MoveState.MoveHistory.Count;
             using (no_grad())
             {
+                // Play each game in the batch.
                 for (int group = 0; group < batchSize; ++group)
                 {
                     gameState.Reseed();
@@ -38,16 +42,30 @@ public static class GRPOTrainingData
                     }
 
                     groupRewards[group] = agent.GetCurrentReward();
+                    FillEntropyScalars(gameSamples);
 
                     while (gameState.MoveState.MoveHistory.Count > startingMoveCount)
                         gameState.MoveState.RevertLastMove();
                 }
             }
 
+            // Aggregate stats and add samples to the training buffer.
             ApplyGroupStatsAndSamples(stats, groupRewards, groupSamples);
         }
 
         return stats;
+    }
+
+    static void FillEntropyScalars(List<PolicyTrainingSample> samples)
+    {
+        float totalNlProbAfterwards = 0f;
+        for (int i = samples.Count - 1; i >= 0; i--)
+        {
+            PolicyTrainingSample sample = samples[i];
+            float entropyScalar = totalNlProbAfterwards;
+            sample.EntropyScalar = tensor(entropyScalar).unsqueeze(0).DetachFromDisposeScope();
+            totalNlProbAfterwards += sample.ChosenMoveNLProb;
+        }
     }
 
     static void ApplyGroupStatsAndSamples(TrainingDataStats stats, float[] groupRewards, List<PolicyTrainingSample>[] groupSamples)

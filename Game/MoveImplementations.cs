@@ -421,7 +421,36 @@ public sealed class AnnotatingDataMove : Move
 
     public AnnotatingDataMove(byte[] data)
     {
-        Data = data ?? Array.Empty<byte>();
+        Data = data ?? [];
+    }
+
+    public static AnnotatingDataMove FromArray<T>(ReadOnlySpan<T> array) where T : unmanaged
+    {
+        // Handle empty input
+        if (array.Length == 0)
+            return new AnnotatingDataMove([]);
+
+        // Interpret the T[] as bytes and copy into a new byte[] for storage
+        ReadOnlySpan<T> tSpan = array;
+        ReadOnlySpan<byte> bytes = System.Runtime.InteropServices.MemoryMarshal.AsBytes(tSpan);
+        byte[] data = new byte[bytes.Length];
+        bytes.CopyTo(data);
+
+        return new AnnotatingDataMove(data);
+    }
+
+    public T[] ToArray<T>() where T : unmanaged
+    {
+        // Handle empty Data
+        if (Data == null || Data.Length == 0)
+            return [];
+
+        // Cast the byte[] back to a T span and copy into a new T[]
+        ReadOnlySpan<byte> bytes = Data;
+        ReadOnlySpan<T> tSpan = System.Runtime.InteropServices.MemoryMarshal.Cast<byte, T>(bytes);
+        T[] result = new T[tSpan.Length];
+        tSpan.CopyTo(result);
+        return result;
     }
 
     public override MoveType GetMoveType() => MoveType.AnnotatingData;
@@ -454,5 +483,23 @@ public sealed class AnnotatingDataMove : Move
             byte[] data = serializer.Stream.ReadArrayUshortSize<byte>();
             return new AnnotatingDataMove(data);
         }
+    }
+
+        /// <summary>
+    /// Encodes a probability as a ushort representing the negative natural log probability times 3000.
+    /// </summary>
+    public static ushort EncodeProb(float prob)
+    {
+        float nlProb = -MathF.Log(MathF.Max(prob, 1e-9f));
+        return (ushort)(nlProb * 3000f + 0.5f);
+    }
+
+    /// <summary>
+    /// Decodes a probability from a ushort representing the negative natural log probability times 3000.
+    /// </summary>
+    public static float DecodeProb(ushort encodedProb)
+    {
+        float nlProb = encodedProb / 3000f;
+        return MathF.Exp(-nlProb);
     }
 }

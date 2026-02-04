@@ -17,6 +17,13 @@
             "type": "dotnet",
             "request": "launch",
             "projectPath": "${workspaceFolder}/ConsoleApp/ConsoleApp.csproj"
+        },
+        {
+            "name": "C#: ConsoleApp Release",
+            "type": "dotnet",
+            "request": "launch",
+            "preLaunchTask": "buildrelease",
+            "projectPath": "${workspaceFolder}/ConsoleApp/ConsoleApp.csproj"
         }       
     ]
 }

@@ -79,8 +79,9 @@ public class RamenAgent
 
     /// <summary>
     /// Makes a move based on the policy model's predicted probability distribution.
+    /// If <paramref name="annotatePolicy"/> is true, the policy distribution used to make the move is saved to the move history using <see cref="AnnotatingDataMove"/>.
     /// </summary>
-    public void MakeMove(float temp)
+    public void MakeMove(float temp, bool annotatePolicy = false)
     {
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
@@ -92,10 +93,22 @@ public class RamenAgent
 
         (UseHandTensors moveTensors, Tensor probs) = GetPolicyProbDist(temp);
 
+        // sample and make a move
         Tensor indexTensor = multinomial(probs, num_samples: 1);
         long index = indexTensor.item<long>();
         UseHandMove move = MoveForIndex((int)index);
         move.Apply(GameState);
+
+        // add an annotation of the policy distribution to the move history if requested
+        if (annotatePolicy)   
+        {
+            float[] probDist = probs.data<float>().ToArray();
+            ushort[] encodedProbs = new ushort[probDist.Length];
+            for (int i = 0; i < probDist.Length; i++)
+                encodedProbs[i] = AnnotatingDataMove.EncodeProb(probDist[i]);
+            AnnotatingDataMove annotation = AnnotatingDataMove.FromArray(encodedProbs);           
+            annotation.Apply(GameState);
+        }
     }
 
     public UseHandMove MoveForIndex(int index)
@@ -125,7 +138,7 @@ public class RamenAgent
     /// Returns the policy model's predicted probability distribution for the best next move.
     /// Returned probs is a 1xN tensor where N is the number of moves.
     /// </summary>
-    internal (UseHandTensors moveTensors, Tensor probs) GetPolicyProbDist(float temp)
+    public (UseHandTensors moveTensors, Tensor probs) GetPolicyProbDist(float temp)
     {
         (UseHandTensors useHandTensors, _) = CreateUseHandTensors();
         Tensor logits = Model.GetPolicyLogits(GameStateTensors, useHandTensors);

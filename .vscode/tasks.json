@@ -13,6 +13,18 @@
             "problemMatcher": "$msCompile"
         },
         {
+            "label": "buildrelease",
+            "command": "dotnet",
+            "type": "process",
+            "args": [
+                "build",
+                "-c", "Release",
+                "/property:GenerateFullPaths=true",
+                "/consoleloggerparameters:NoSummary;ForceNoAlign"
+            ],
+            "problemMatcher": "$msCompile"
+        },
+        {
             "label": "publish",
             "command": "dotnet",
             "type": "process",

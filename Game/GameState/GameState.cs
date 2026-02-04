@@ -1,19 +1,50 @@
-using System.IO.Compression;
-
 namespace Ramen.Game;
 
+/// <summary>
+/// Represents the state of a game of Balatro. Can also represent a played game, since the move history is serialized. 
+/// </summary>
 public sealed class GameState
 {
     public readonly GameData GameData;
 
+    /// <summary>
+    /// All the state involved in scoring. Includes chips and mult of currently scored hand, current round total chips, and some other data.s
+    /// </summary>
     public readonly ScoringState ScoringState;
+
+    /// <summary>
+    /// The player's full deck and their remaining deck for the round. 
+    /// </summary>
     public readonly DeckState DeckState;
+
+    /// <summary>
+    /// The player's hand, remaining hands, and remaining discards, and other hand-related state. Also contains <see cref="HandPatterns"/> for the active (currently scoring) hand. 
+    /// </summary>
     public readonly HandState HandState;
+
+    /// <summary>
+    /// The jokers the player owns and any assosiated state.
+    /// </summary>
     public readonly JokerState JokerState;
+
+    /// <summary>
+    /// State used for matching patterns. Not a lot of state, but some flags for things like 4-card straights are stored here to be modified by jokers.
+    /// </summary>
     public readonly PatternMatchingState PatternMatchingState;
+
+    /// <summary>
+    /// The history of <see cref="Move"/> objects applied to this GameState. Moves support rollback and serialization.
+    /// </summary>
     public readonly MoveState MoveState;
 
+    /// <summary>
+    /// The random number generator for this game state.
+    /// </summary>
     public readonly FastRandom Random;
+
+    /// <summary>
+    /// The current stage of the game. (ex: in store; in round)
+    /// </summary>
     public StageOfGame Stage { get; internal set; }
 
     readonly List<Move> _currentLegalMovesBuffer = new();

@@ -10,13 +10,15 @@ using static TorchSharp.torch.nn;
 /// <summary>
 /// The policy network used for move evaluation.
 /// </summary>
-public class PolicyModel : Module
+public class PolicyModel : Module, IPolicyModel
 {
+    public static readonly Device EvalDevice = mps_is_available() ? new Device(TorchSharp.DeviceType.MPS) : new Device(TorchSharp.DeviceType.CPU);
+    
     public const int
         RankCount = 13,
         SuitCount = 4;
     
-    const int RankEmbedWidth = 64;
+    const int RankEmbedWidth = 128;
     readonly Embedding _rankEmbedding = Embedding(RankCount, RankEmbedWidth);
 
     const int UseHandCardSetOutputWidth = 64;
@@ -53,7 +55,13 @@ public class PolicyModel : Module
     readonly Sequential _useHandProcessor = 
         Sequential(
             Linear(UseHandProcessorInputWidth, UseHandProcessorHiddenWidth),
-            ReLU(),
+            new Residual(Sequential(
+                LayerNorm(128),
+                Linear(UseHandProcessorHiddenWidth, UseHandProcessorHiddenWidth * 2),
+                GELU(),
+                Linear(UseHandProcessorHiddenWidth * 2, UseHandProcessorHiddenWidth)
+            )),
+            GELU(),
             Linear(UseHandProcessorHiddenWidth, 2)
         );
 
@@ -257,24 +265,6 @@ public class PolicyModel : Module
         Tensor useHandInputs = cat([processedStateExpanded, processedUseHandTensors, useHandTensors.Score.unsqueeze(2)], dim: -1);
         Tensor moveLogits = _useHandProcessor.forward(useHandInputs).view([processedState.size(0), -1]);
         return moveLogits;
-    }
-
-    public Tensor GetPolicyLogits(GameStateTensors gameStateTensors, UseHandTensors useHandTensors, int[] handIndices, int[] actionIndices)
-    {
-        int moveCount = handIndices.Length;
-        Tensor processedUseHandTensors = FullHandToUsedHands(gameStateTensors.FullHand, handIndices);
-        Tensor processedState = ProcessState(gameStateTensors);
-
-        Tensor selectedUseHandScores = useHandTensors.Score.index_select(1, tensor(handIndices, ScalarType.Int64)).unsqueeze(2);
-
-        Tensor processedStateExpanded = processedState.unsqueeze(1).expand(processedState.size(0), moveCount, processedState.size(1));
-        Tensor useHandInputs = cat([processedStateExpanded, processedUseHandTensors, selectedUseHandScores], dim: -1);
-        Tensor moveLogits = _useHandProcessor.forward(useHandInputs);
-
-        Tensor actionIndexTensor = tensor(actionIndices, ScalarType.Int64).unsqueeze(0).unsqueeze(-1);
-        actionIndexTensor = actionIndexTensor.expand(processedState.size(0), moveCount, 1);
-        Tensor selectedMoveLogits = moveLogits.gather(2, actionIndexTensor).squeeze(2);
-        return selectedMoveLogits;
     }
 
     public Tensor GetPolicyLogits(GameStateTensors gameStateTensors, UseHandTensors useHandTensors, Tensor handIndices, Tensor actionIndices)
