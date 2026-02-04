@@ -18,7 +18,7 @@
 - Tuple fields: camelCase
 - Never use the private keyword.
 - Never use the var keyword (except dispose scopes)
-- Seperate functions with line-breaks
+- Separate functions with line-breaks
 - Use `new()` instead of `new Foo()`
 - Use `[]` instead of `Array.Empty<T>()`
 - Use `[a, b]` instead of `new Foo[] { a, b }`
