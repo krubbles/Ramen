@@ -294,6 +294,9 @@ public class PolicyModel : Module, IPolicyModel
         Tensor actionIndices = indexTensor.remainder(2);
         return GetPolicyLogits(gameStateTensors, useHandTensors, handIndices, actionIndices);
     }
+
+    public void Save(string filePath) => save(filePath);
+    public void Load(string filePath) => load(filePath);
 }
 
 class Bias : Module<Tensor, Tensor>

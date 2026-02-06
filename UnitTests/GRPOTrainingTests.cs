@@ -13,7 +13,7 @@ public class GRPOTrainingTests
     {
         using var scope = NewDisposeScope();
 
-        PolicyModel model = new();
+        IPolicyModel model = new PolicyModel();
         TrainingData.PolicyData.Clear();
 
         TrainingDataStats stats = GRPOTrainingData.GenerateTrainingData(model, games: 1, sampleCount: 4, groupSize: 1);

@@ -120,7 +120,7 @@ public static class Testing
         return (moves[0], probs[0]);
     }
 
-    public static float GetAverageScore(PolicyModel model, int samples = 1000, float temp = 0.0001f, bool log = false)
+    public static float GetAverageScore(IPolicyModel model, int samples = 1000, float temp = 0.0001f, bool log = false)
     {
         float totalReward = 0;
         for (int i = 0; i < samples; ++i)
@@ -142,7 +142,7 @@ public static class Testing
         return totalReward / samples;
     }
 
-    public static (float mean, double ciLower, double ciUpper, double stdError) GetScoreStatistics(PolicyModel model, int samples = 1000, float temp = 0.0001f, bool log = false)
+    public static (float mean, double ciLower, double ciUpper, double stdError) GetScoreStatistics(IPolicyModel model, int samples = 1000, float temp = 0.0001f, bool log = false)
     {
         List<float> scores = new();
         float totalReward = 0;

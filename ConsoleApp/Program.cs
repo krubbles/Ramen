@@ -13,7 +13,7 @@ using TorchSharp;
 Console.WriteLine("=== WELCOME! ===");
 Console.WriteLine("MPS available: " + TorchSharp.torch.mps_is_available());
 
-PolicyModel model = new();
+IPolicyModel model = new PolicyModel();
 
 CancellationTokenSource cancel = new();
 cancel.TryReset();
@@ -249,12 +249,12 @@ Task RunTrainingRunWithResume(ITrainingRun trainingRun, string runName, int step
         // Resolve run directory and model checkpoint.
         string baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Ramen", "Weights", runName);
         Directory.CreateDirectory(baseDir);
-        PolicyModel model = new();
+        IPolicyModel model = new PolicyModel();
 
         int startingStep = 0;
         if (TryGetLatestSnapshot(baseDir, out int lastStep, out string lastFilePath))
         {
-            model.load(lastFilePath);
+            model.Load(lastFilePath);
             startingStep = lastStep;
             Console.WriteLine($"Resuming run '{runName}' from step {startingStep}.");
         }
@@ -273,7 +273,7 @@ Task RunTrainingRunWithResume(ITrainingRun trainingRun, string runName, int step
             if (samplingFrequency > 0 && step % samplingFrequency == 0)
             {
                 string filePath = Path.Combine(baseDir, $"{step}.bin");
-                model.save(filePath);
+                model.Save(filePath);
             }
         }
     }, cancellationTokenSource.Token);

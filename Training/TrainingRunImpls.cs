@@ -16,7 +16,7 @@ public class BasicGRPOTrainingRun : ITrainingRun
     /// <summary>
     /// Clears prior policy samples, generates a GRPO rollout, then trains the model on that rollout.
     /// </summary>
-    public void Step(PolicyModel model)
+    public void Step(IPolicyModel model)
     {
         // Reset any previously accumulated policy training samples.
         TrainingData.PolicyData.Clear();

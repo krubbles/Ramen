@@ -8,7 +8,7 @@ using static TorchSharp.torch;
 
 public static class GRPOTrainingData
 {
-    public static TrainingDataStats GenerateTrainingData(PolicyModel model, int games, int sampleCount, int groupSize = 128)
+    public static TrainingDataStats GenerateTrainingData(IPolicyModel model, int games, int sampleCount, int groupSize = 128)
     {
         TrainingDataStats stats = new();
         GameState gameState = new(new());

@@ -39,13 +39,13 @@ public static class TrainingData
     }
 
 
-    static void RunGroup(PolicyModel model, TrainingDataStats stats, int groupSize = 512)
+    static void RunGroup(IPolicyModel model, TrainingDataStats stats, int groupSize = 512)
     {
         GameState gameState = new(new());
         GenerateGRPOTrainingDataGroup(model, gameState, stats, groupSize);
     }
 
-    static void GenerateGRPOTrainingDataGroup(PolicyModel model, GameState gameState, TrainingDataStats stats, int groupSize = 128)
+    static void GenerateGRPOTrainingDataGroup(IPolicyModel model, GameState gameState, TrainingDataStats stats, int groupSize = 128)
     {
         RamenAgent agent = new(gameState, model);
         FastRandom random = FastRandom.SeededByClock();
@@ -117,7 +117,7 @@ public static class TrainingData
             }
         }
     }
-    public static TrainingDataStats GenerateGRPO(PolicyModel model, int samples)
+    public static TrainingDataStats GenerateGRPO(IPolicyModel model, int samples)
     {
         Console.WriteLine();
         TrainingDataStats stats = new();
@@ -129,7 +129,7 @@ public static class TrainingData
         return stats;
     }
 
-    public static void GenerateTrainingDataFromGames(PolicyModel model, GameDatabase database)
+    public static void GenerateTrainingDataFromGames(IPolicyModel model, GameDatabase database)
     {
         int totalGames = 0;
         foreach (GameState game in database)
@@ -193,7 +193,7 @@ public static class TrainingData
     }
 
 
-    public static GameState PlayGame(PolicyModel model, float temp, CancellationToken cancel = default)
+    public static GameState PlayGame(IPolicyModel model, float temp, CancellationToken cancel = default)
     {
         GameState gameState = new(GameData.Default);
         RamenAgent agent = new(gameState, model);
@@ -206,7 +206,7 @@ public static class TrainingData
         return gameState;
     }
 
-    public static GameState PlayGameMonteCarlo(PolicyModel model, int branches, int continuations, bool log, float temp, CancellationToken cancel = default)
+    public static GameState PlayGameMonteCarlo(IPolicyModel model, int branches, int continuations, bool log, float temp, CancellationToken cancel = default)
     {
         GameState gameState = new(GameData.Default);
         RamenAgent agent = new(gameState, model);

@@ -14,7 +14,7 @@ public interface ITrainingRun
     /// <summary>
     /// Performs a single training step on the provided model.
     /// </summary>
-    public void Step(PolicyModel model);
+    public void Step(IPolicyModel model);
 
     /// <summary>
     /// Repeatedly calls <see cref="Step"> <paramref name="steps"> times. Saves model weight snapshots into [EnvironmentAppData]/Ramen/Weights/[<paramref name="runName">]/[step].bin every <paramref name="samplingFrequency"> steps.
@@ -24,7 +24,7 @@ public interface ITrainingRun
         return Task.Run(() =>
         {
             // Create the model and ensure the output directory exists.
-            PolicyModel model = new();
+            IPolicyModel model = new PolicyModel();
             string baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Ramen", "Weights", runName);
             Directory.CreateDirectory(baseDir);
 
@@ -39,7 +39,7 @@ public interface ITrainingRun
                 if (samplingFrequency > 0 && step % samplingFrequency == 0)
                 {
                     string filePath = Path.Combine(baseDir, $"{step}.bin");
-                    model.save(filePath);
+                    model.Save(filePath);
                 }
             }
         }, cancellationTokenSource.Token);

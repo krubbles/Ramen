@@ -23,4 +23,7 @@ public interface IPolicyModel
     /// tensor of shape (batch, moveCount).
     /// </summary>
     Tensor GetPolicyLogits(GameStateTensors gameStateTensors, UseHandTensors useHandTensors, Tensor moveIndices);
+
+    public void Save(string filePath);
+    public void Load(string filePath);
 }

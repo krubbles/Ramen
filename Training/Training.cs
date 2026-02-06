@@ -20,14 +20,15 @@ public static class Training
 {
     public const float epsilonLow = 0.2f, epsilonHigh = 0.2f;
     public static AdamW Optimizer;
-    static PolicyModel _model;
+    static IPolicyModel _model;
 
-    static void SetModelAndOptimizer(PolicyModel model, TrainingParams tp)
+    static void SetModelAndOptimizer(IPolicyModel model, TrainingParams tp)
     {
+        Module modelModule = model as Module;
         if (_model == model)
             return;
         _model = model;
-        Optimizer = optim.AdamW(model.parameters(),
+        Optimizer = optim.AdamW(modelModule.parameters(),
             lr: tp.learningRate,
             weight_decay: 0.01f,
             beta1: 0.9f,
@@ -36,7 +37,7 @@ public static class Training
         Optimizer.zero_grad();
     }
 
-    public static void TrainPolicyModelSupervised(PolicyModel model, TrainingParams tp, CancellationToken cancel, bool validate = false)
+    public static void TrainPolicyModelSupervised(IPolicyModel model, TrainingParams tp, CancellationToken cancel, bool validate = false)
     {
         Console.WriteLine($"Training evaluation model for {tp.epochs} epochs, batch size {tp.batchSize}");
 
@@ -107,7 +108,7 @@ public static class Training
         stacked.Dispose();
     }
 
-    public static void TrainPolicyModelGRPO(PolicyModel model, TrainingParams tp, CancellationToken cancel, bool validate = false)
+    public static void TrainPolicyModelGRPO(IPolicyModel model, TrainingParams tp, CancellationToken cancel, bool validate = false)
     {
         Console.WriteLine($"Training GRPO model for {tp.epochs} epochs, batch size {tp.batchSize}");
         _ = validate; // GRPO uses a surrogate objective, so validation loss is not meaningful.
@@ -160,7 +161,7 @@ public static class Training
         stacked.Dispose();
     }
 
-    static Tensor CalculateSupervisedLoss(PolicyModel model, PolicyTrainingSample sample)
+    static Tensor CalculateSupervisedLoss(IPolicyModel model, PolicyTrainingSample sample)
     {
         Tensor logits = model.GetPolicyLogits(sample.StateTensors, sample.UseHandTensors, sample.MoveIndices);
         Tensor logQ = log(sample.SamplingProb + 1e-9);

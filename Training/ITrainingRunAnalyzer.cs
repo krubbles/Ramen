@@ -8,7 +8,7 @@ using Ramen.Game;
 
 public interface ITrainingRunAnalyzer
 {
-    public void Analyze(PolicyModel model, IEnumerable<GameState> games, CSVBuilder output);
+    public void Analyze(IPolicyModel model, IEnumerable<GameState> games, CSVBuilder output);
 }
 
 public static class TrainingRunAnalysis
@@ -42,8 +42,8 @@ public static class TrainingRunAnalysis
         for (int i = 0; i < stepFiles.Count; i++)
         {
             (int step, string filePath) = stepFiles[i];
-            PolicyModel model = new();
-            model.load(filePath);
+            IPolicyModel model = new PolicyModel();
+            model.Load(filePath);
             List<GameState> games = PlayGameBatch(model, sampleSize);
 
             output.NextRow().SetCell("step", step);
@@ -57,7 +57,7 @@ public static class TrainingRunAnalysis
         return output;
     }
 
-    static List<GameState> PlayGameBatch(PolicyModel model, int sampleSize)
+    static List<GameState> PlayGameBatch(IPolicyModel model, int sampleSize)
     {
         List<GameState> games = new();
         int gameCount = Math.Max(0, sampleSize);
