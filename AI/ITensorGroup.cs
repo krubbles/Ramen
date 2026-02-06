@@ -138,6 +138,21 @@ public static class TensorGroupExtentions
 
     public static T DetachFromDisposeScope<T>(this T me) where T : ITensorGroup => (T)DetachFromDisposeScope((ITensorGroup)me);
 
+    public static ITensorGroup MoveToOuterDisposeScope(this ITensorGroup me)
+    {
+        foreach (FieldInfo field in GetTensorFields(me.GetType()))
+        {
+            object value = field.GetValue(me);
+            if (value is Tensor tensor)
+                tensor.MoveToOuterDisposeScope();
+            else if (value is ITensorGroup group)
+                group.MoveToOuterDisposeScope();
+        }
+        return me;
+    }
+
+    public static T MoveToOuterDisposeScope<T>(this T me) where T : ITensorGroup => (T)MoveToOuterDisposeScope((ITensorGroup)me);
+
     public static void Dispose(this ITensorGroup me)
     {
         foreach (FieldInfo field in GetTensorFields(me.GetType()))

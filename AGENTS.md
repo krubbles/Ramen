@@ -41,5 +41,6 @@ Note: private functions with exactly 1 caller should be placed directly after th
 - If you need to access most of the data in a tensor, use `.data<T>().ToArray()` instead of using `.item<T>()` multiple times. 
 - Don't use using statements on individual tensors, instead, add `using var scope = NewDisposeScope()` to the top of the function.
 - Call `.MoveToOuterDisposeScope()` on tensors created in functions whose ownership should be transferred to their calling context. 
+- Never call `.MoveToOuterDisposeScope()` in functions that don't have a dispose scope. They are already in the outer dispose scope.
 - Call `.DetachFromDisposeScope()` on long-life tensors.
 - The first argument of `amax()` is a dim array. 
