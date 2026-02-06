@@ -27,8 +27,8 @@ public class NewAgentTests
             oldProbs[i] = oldAgents[i].GetPolicyProbDistManaged(temp: 1f);
 
         // Act: compute new agent probability distributions (batched).
-        NewAgent newAgent = new(gameStates, model);
-        float[][] newProbs = newAgent.GetPolicyProbDistManaged(temp: 1f);
+        PolicyOnlyAgent newAgent = new(model);
+        float[][] newProbs = newAgent.GetPolicy(temp: 1f, gameStates);
 
         // Assert: probabilities match within tolerance.
         Assert.That(newProbs, Has.Length.EqualTo(oldProbs.Length));

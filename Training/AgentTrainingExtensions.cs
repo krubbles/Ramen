@@ -24,7 +24,7 @@ public static class AgentTrainingExtensions
         if (agent.GameIsDone())
             return null;
 
-        (UseHandTensors moveTensors, Tensor probs) = agent.GetPolicyProbDist(temp: 1f);
+        (UseHandTensors useHandTensors, Tensor probs) = agent.GetPolicyProbDist(temp: 1f);
         int moveCount = (int)probs.size(1);
         int clampedSampleCount = Math.Clamp(sampleCount, 1, moveCount);
 
@@ -38,7 +38,7 @@ public static class AgentTrainingExtensions
         {
             SamplingProb = sampledProbs.DetachFromDisposeScope(),
             StateTensors = agent.GameStateTensors.Clone().DetachFromDisposeScope(),
-            UseHandTensors = moveTensors.DetachFromDisposeScope(),
+            UseHandTensors = useHandTensors.DetachFromDisposeScope(),
             MoveIndices = indices.unsqueeze(0).DetachFromDisposeScope(),
             ChosenMoveNLProb = -MathF.Log(probs[0, chosenIndex].item<float>() + 1e-9f),
         };

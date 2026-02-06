@@ -8,13 +8,8 @@ using static TorchSharp.torch;
 /// <summary>
 /// Batch-first AI agent that plays Balatro across multiple game states.
 /// </summary>
-public class NewAgent
+public class PolicyOnlyAgent : IAgent
 {
-    /// <summary>
-    /// The Balatro game states this AI agent is attached to.
-    /// </summary>
-    public readonly GameState[] GameStates;
-
     /// <summary>
     /// A reference to the policy network used by this agent.
     /// </summary>
@@ -25,57 +20,29 @@ public class NewAgent
     /// </summary>
     public readonly FastRandom Random;
 
-    public NewAgent(GameState[] gameStates, IPolicyModel model)
+    public PolicyOnlyAgent(IPolicyModel model)
     {
-        GameStates = gameStates;
         Model = model;
         Random = FastRandom.SeededByClock();
     }
 
-    /// <summary>
-    /// Returns whether or not the game is complete from the agent's perspective.
-    /// </summary>
-    public bool[] GameIsDone()
-    {
-        bool[] results = new bool[GameStates.Length];
-        for (int i = 0; i < GameStates.Length; ++i)
-            results[i] = IsGameDone(GameStates[i]);
-        return results;
-    }
-
-    /// <summary>
-    /// Returns the agent's reward at the current game states.
-    /// </summary>
-    public float[] GetCurrentReward()
-    {
-        float[] results = new float[GameStates.Length];
-        for (int i = 0; i < GameStates.Length; ++i)
-            results[i] = GetReward(GameStates[i]);
-        return results;
-    }
-
-    static float GetReward(GameState gameState)
-    {
-        if (gameState.ScoringState.CurrentRoundTotalChips >= 300)
-            return 1f + gameState.HandState.RemainingHands * 0.2f;
-        return (float)gameState.ScoringState.CurrentRoundTotalChips / 1000f;
-    }
+    public bool IsGameDone(GameState gameState) => gameState.GameIsDone;
 
     /// <summary>
     /// Makes a move based on the policy model's predicted probability distribution.
     /// If <paramref name="annotatePolicy"/> is true, the policy distribution used to make the move
     /// is saved to the move history using <see cref="AnnotatingDataMove"/>.
     /// </summary>
-    public void MakeMove(float temp, bool annotatePolicy = false)
+    public void MakeMove(float temp, bool annotatePolicy, params ReadOnlySpan<GameState> states)
     {
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
 
         // Advance all states to the next player choice and collect active indices.
         List<int> activeIndices = new();
-        for (int i = 0; i < GameStates.Length; ++i)
+        for (int i = 0; i < states.Length; ++i)
         {
-            GameState gameState = GameStates[i];
+            GameState gameState = states[i];
             gameState.AdvanceToNextPlayerChoice();
             if (!IsGameDone(gameState))
                 activeIndices.Add(i);
@@ -87,7 +54,7 @@ public class NewAgent
         // Build the active state batch.
         GameState[] activeStates = new GameState[activeIndices.Count];
         for (int i = 0; i < activeStates.Length; ++i)
-            activeStates[i] = GameStates[activeIndices[i]];
+            activeStates[i] = states[activeIndices[i]];
 
         // Evaluate the policy in a single batch.
         (UseHandTensors moveTensors, Tensor probs) = GetPolicyProbDist(temp, activeStates);
@@ -101,36 +68,23 @@ public class NewAgent
             int gameStateIndex = activeIndices[i];
             int chosenIndex = (int)indices[i];
 
-            UseHandMove move = MoveForIndex(gameStateIndex, chosenIndex);
-            move.Apply(GameStates[gameStateIndex]);
+            UseHandMove move = MoveForIndex(chosenIndex);
+            move.Apply(states[gameStateIndex]);
 
             if (annotatePolicy)
-                AnnotatePolicy(GameStates[gameStateIndex], probs, i);
+                AnnotatePolicy(states[gameStateIndex], probs, i);
         }
-    }
-
-    /// <summary>
-    /// Returns the move for the given move index in a specific game state.
-    /// </summary>
-    public UseHandMove MoveForIndex(int gameStateIndex, int index)
-    {
-        GameState gameState = GameStates[gameStateIndex];
-        int[][] useHandOptions = Combinatorics.GetCombinations(
-            setSize: gameState.HandState.HandCardCount,
-            minSubsetSize: 1,
-            maxSubsetSize: 5);
-        return new UseHandMove(index % 2 == 1, useHandOptions[index / 2]);
     }
 
     /// <summary>
     /// Returns the policy model's probability distributions for all game states.
     /// </summary>
-    public float[][] GetPolicyProbDistManaged(float temp)
+    public float[][] GetPolicy(float temp, params ReadOnlySpan<GameState> states)
     {
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
 
-        (UseHandTensors moveTensors, Tensor probs) = GetPolicyProbDist(temp, GameStates);
+        (UseHandTensors moveTensors, Tensor probs) = GetPolicyProbDist(temp, states);
 
         int batchSize = (int)probs.size(0);
         int moveCount = (int)probs.size(1);
@@ -139,6 +93,8 @@ public class NewAgent
         float[][] results = new float[batchSize][];
         for (int b = 0; b < batchSize; ++b)
         {
+            if (IsGameDone(states[b]))
+                continue;
             float[] row = new float[moveCount];
             Array.Copy(flat, b * moveCount, row, 0, moveCount);
             results[b] = row;
@@ -146,24 +102,7 @@ public class NewAgent
         return results;
     }
 
-    /// <summary>
-    /// Returns the policy model's predicted probability distribution for the best next move.
-    /// Returned probs is a batch x N tensor where N is the number of moves.
-    /// </summary>
-    public (UseHandTensors moveTensors, Tensor probs) GetPolicyProbDist(float temp)
-    {
-        return GetPolicyProbDist(temp, GameStates);
-    }
-
-    /// <summary>
-    /// Embeds a list of moves into tensors for all game states.
-    /// </summary>
-    public (UseHandTensors useHandTensors, int moveCount) CreateUseHandTensors()
-    {
-        return CreateUseHandTensors(GameStates);
-    }
-
-    (UseHandTensors useHandTensors, int moveCount) CreateUseHandTensors(GameState[] gameStates)
+    (UseHandTensors useHandTensors, int moveCount) CreateUseHandTensors(ReadOnlySpan<GameState> gameStates)
     {
         // Precompute combination count (assumes hand size is consistent across the batch).
         int useHandCount = Combinatorics.CalculateCombinationCount(
@@ -201,7 +140,7 @@ public class NewAgent
         return (useHandTensors, useHandCount * 2);
     }
 
-    (UseHandTensors moveTensors, Tensor probs) GetPolicyProbDist(float temp, GameState[] gameStates)
+    (UseHandTensors moveTensors, Tensor probs) GetPolicyProbDist(float temp, params ReadOnlySpan<GameState> gameStates)
     {
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
@@ -220,7 +159,8 @@ public class NewAgent
         return (useHandTensors, probs);
     }
 
-    static GameStateTensors CreateGameStateTensors(GameState[] gameStates)
+
+    static GameStateTensors CreateGameStateTensors(ReadOnlySpan<GameState> gameStates)
     {
         // Build the full 3D card tensors in single allocations.
         Tensor fullHand = TensorizeHandBatch(gameStates, cardCount: GameData.HandSize);
@@ -241,7 +181,19 @@ public class NewAgent
         return gameStateTensors;
     }
 
-    static Tensor TensorizeHandBatch(GameState[] gameStates, int cardCount)
+    /// <summary>
+    /// Returns the move for the given move index in a specific game state.
+    /// </summary>
+    public static UseHandMove MoveForIndex(int index)
+    {
+        int[][] useHandOptions = Combinatorics.GetCombinations(
+            setSize: GameData.HandSize,
+            minSubsetSize: 1,
+            maxSubsetSize: 5);
+        return new UseHandMove(index % 2 == 1, useHandOptions[index / 2]);
+    }
+
+    static Tensor TensorizeHandBatch(ReadOnlySpan<GameState> gameStates, int cardCount)
     {
         long[,,] cards = new long[gameStates.Length, cardCount, 2];
         for (int stateIndex = 0; stateIndex < gameStates.Length; ++stateIndex)
@@ -261,7 +213,7 @@ public class NewAgent
         return tensor(cards);
     }
 
-    static Tensor TensorizeRemainingDeckBatch(GameState[] gameStates, int cardCount)
+    static Tensor TensorizeRemainingDeckBatch(ReadOnlySpan<GameState> gameStates, int cardCount)
     {
         long[,,] cards = new long[gameStates.Length, cardCount, 2];
         for (int stateIndex = 0; stateIndex < gameStates.Length; ++stateIndex)
@@ -281,7 +233,7 @@ public class NewAgent
         return tensor(cards);
     }
 
-    static Tensor TensorizeScalarBatch(GameState[] gameStates, Func<GameState, float> selector, int width)
+    static Tensor TensorizeScalarBatch(ReadOnlySpan<GameState> gameStates, Func<GameState, float> selector, int width)
     {
         float[,] values = new float[gameStates.Length, width];
         for (int stateIndex = 0; stateIndex < gameStates.Length; ++stateIndex)
@@ -289,7 +241,7 @@ public class NewAgent
         return tensor(values);
     }
 
-    static Tensor TensorizeHandsAndDiscardsBatch(GameState[] gameStates)
+    static Tensor TensorizeHandsAndDiscardsBatch(ReadOnlySpan<GameState> gameStates)
     {
         long[] values = new long[gameStates.Length];
         for (int stateIndex = 0; stateIndex < gameStates.Length; ++stateIndex)
@@ -297,7 +249,7 @@ public class NewAgent
         return tensor(values, ScalarType.Int64);
     }
 
-    static Tensor BuildDiscardMask(GameState[] gameStates, int moveCount, Device device)
+    static Tensor BuildDiscardMask(ReadOnlySpan<GameState> gameStates, int moveCount, Device device)
     {
         float[,] mask = new float[gameStates.Length, moveCount];
         int useHandCount = moveCount / 2;
@@ -321,11 +273,6 @@ public class NewAgent
     static float GetScoreValue(GameState gameState)
     {
         return (float)gameState.ScoringState.CurrentRoundTotalChips;
-    }
-
-    static bool IsGameDone(GameState gameState)
-    {
-        return gameState.GameIsDone;
     }
 
     static void AnnotatePolicy(GameState gameState, Tensor probs, int batchIndex)
