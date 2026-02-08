@@ -53,6 +53,23 @@ public static class AgentTrainingExtensions
     }
 
     /// <summary>
+    /// Creates a policy training sample from move tensors and probability distribution.
+    /// </summary>
+    public static PolicyTrainingSample CreatePolicyTrainingSample(this RamenAgent agent, UseHandTensors useHandTensors, Tensor probs, Tensor target, Tensor moveIndices)
+    {
+        PolicyTrainingSample sample = new()
+        {
+            SamplingProb = probs.DetachFromDisposeScope(),
+            StateTensors = agent.GameStateTensors.Clone().DetachFromDisposeScope(),
+            UseHandTensors = useHandTensors.DetachFromDisposeScope(),
+            Target = target.DetachFromDisposeScope(),
+            MoveIndices = moveIndices.DetachFromDisposeScope(),
+        };
+        return sample;
+    }
+
+    #region NotInUse
+    /// <summary>
     /// Samples <paramref name="sampleCount"/> moves based on the policy model's prediction,
     /// then plays <paramref name="continuationCount"/> continuations after each move.
     /// Calculates the average reward for all continuations from each move, and makes the move with the best average.
@@ -133,23 +150,6 @@ public static class AgentTrainingExtensions
         }
         return annotationData;
     }
-
-    /// <summary>
-    /// Creates a policy training sample from move tensors and probability distribution.
-    /// </summary>
-    public static PolicyTrainingSample CreatePolicyTrainingSample(this RamenAgent agent, UseHandTensors useHandTensors, Tensor probs, Tensor target, Tensor moveIndices)
-    {
-        PolicyTrainingSample sample = new()
-        {
-            SamplingProb = probs.DetachFromDisposeScope(),
-            StateTensors = agent.GameStateTensors.Clone().DetachFromDisposeScope(),
-            UseHandTensors = useHandTensors.DetachFromDisposeScope(),
-            Target = target.DetachFromDisposeScope(),
-            MoveIndices = moveIndices.DetachFromDisposeScope(),
-        };
-        return sample;
-    }
-
     /// <summary>
     /// Creates a Monte Carlo training sample for the given move indices.
     /// </summary>
@@ -171,23 +171,6 @@ public static class AgentTrainingExtensions
         target[0, 0] = 1f;
         return agent.CreatePolicyTrainingSample(useHandTensors, probsTensor, target, moveIndexTensor);
     }
+    #endregion
 
-    /// <summary>
-    /// Samples moves based on the policy model's prediction for training data generation.
-    /// </summary>
-    private static (Move[] sampledMoves, UseHandTensors sampledMoveTensors, Tensor sampledProbs) SampleMoves(this RamenAgent agent, Move[] moves, UseHandTensors moveTensors, Tensor probs, int sampleCount)
-    {
-        Tensor indices = multinomial(probs.view([-1]), sampleCount, replacement: false);
-        Tensor sampledProbs = probs.index_select(dim: 1, indices);
-        UseHandTensors sampledMoveTensors = moveTensors.IndexSelect(dim: 1, indices);
-
-        long[] indicesArray = indices.data<long>().ToArray();
-        Move[] sampledMoves = new Move[sampleCount];
-        for (int i = 0; i < sampledMoves.Length; ++i)
-            sampledMoves[i] = moves[indicesArray[i]];
-
-        indices.Dispose();
-
-        return (sampledMoves, sampledMoveTensors, sampledProbs);
-    }
 }
