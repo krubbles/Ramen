@@ -30,7 +30,7 @@ public static class AgentTrainingExtensions
         int clampedSampleCount = Math.Clamp(sampleCount, 1, moveCount);
 
         Tensor indices = multinomial(probs.view([-1]), clampedSampleCount, replacement: false);
-        long[] indicesArray = indices.data<long>().ToArray();
+        long[] indicesArray = [.. indices.data<long>()];
         int chosenIndex = (int)indicesArray[0];
 
         Tensor sampledProbs = probs.index_select(dim: 1, indices);
@@ -41,7 +41,7 @@ public static class AgentTrainingExtensions
             StateTensors = agent.GameStateTensors.Clone().DetachFromDisposeScope(),
             UseHandTensors = useHandTensors.DetachFromDisposeScope(),
             MoveIndices = indices.unsqueeze(0).DetachFromDisposeScope(),
-            ChosenMoveNLProb = -MathF.Log(probs[0, chosenIndex].item<float>() + 1e-9f),            
+            ChosenMoveNLProb = -MathF.Log(probs[0, chosenIndex].item<float>() + 1e-9f),
         };
 
         UseHandMove move = agent.MoveForIndex(chosenIndex);
@@ -78,31 +78,38 @@ public static class AgentTrainingExtensions
         for (int i = 0; i < activeStates.Length; ++i)
             activeStates[i] = gameStates[activeIndices[i]];
 
-        (UseHandTensors useHandTensors, Tensor probs) = agent.GetPolicyProbDist(temp: 1f, activeStates);
+        (GameStateTensors gameStateTensors, UseHandTensors useHandTensors, Tensor probs) = agent.GetPolicyProbDist(temp: 1f, activeStates); // returned tensors are on the gpu.
+
+
         int moveCount = (int)probs.size(1);
         int clampedSampleCount = Math.Clamp(sampleCount, 1, moveCount);
+
+        Tensor indices = multinomial(probs, clampedSampleCount, replacement: false);
+
+        Tensor choices = indices.index_select(dim: 1, tensor(0L).expand([indices.size(0)]));
+        Tensor sampledProbs = probs.gather(dim: 1, indices);
+        Tensor chosenProbs = probs.index_select(dim: 1, tensor(0L).expand([probs.size(0)]));
+
+        long[] choicesManaged = [.. choices.to(CPU).data<long>()];
+        float[] chosenProbsManaged = [.. chosenProbs.to(CPU).data<float>()];
 
         // Sample and apply one move per active state while creating one sample per state.
         for (int activeIndex = 0; activeIndex < activeStates.Length; ++activeIndex)
         {
             Tensor row = probs[activeIndex].unsqueeze(0);
-            Tensor indices = multinomial(row.view([-1]), clampedSampleCount, replacement: false);
-            long[] indicesArray = indices.data<long>().ToArray();
-            int chosenIndex = (int)indicesArray[0];
+            long[] indicesArray = [.. indices.data<long>()];
 
-            Tensor sampledProbs = row.index_select(dim: 1, indices);
             PolicyTrainingSample sample = new()
             {
-                SamplingProb = sampledProbs,
-                StateTensors = CreateGameStateTensors(activeStates[activeIndex]),
+                SamplingProb = sampledProbs[activeIndex..(activeIndex + 1)],
+                StateTensors = gameStateTensors.GetBatch(activeIndex, activeIndex + 1),
                 UseHandTensors = useHandTensors.GetBatch(activeIndex, activeIndex + 1),
-                MoveIndices = indices.unsqueeze(0),
-                ChosenMoveNLProb = -MathF.Log(row[0, chosenIndex].item<float>() + 1e-9f),
-                Advantage = tensor(0f).unsqueeze(0),
+                MoveIndices = indices[activeIndex..(activeIndex + 1)],
+                ChosenMoveNLProb = -MathF.Log(chosenProbsManaged[activeIndex] + 1e-9f),
             };
             sample.DetachFromDisposeScope();
 
-            UseHandMove move = PolicyOnlyAgent.MoveForIndex(chosenIndex);
+            UseHandMove move = PolicyOnlyAgent.MoveForIndex((int)choicesManaged[activeIndex]);
             move.Apply(activeStates[activeIndex]);
 
             samples[activeIndices[activeIndex]] = sample;

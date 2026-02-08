@@ -1,6 +1,7 @@
 namespace Ramen.AI;
 
 using Ramen.Game;
+using TorchSharp;
 using TorchSharp.Modules;
 using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
@@ -12,40 +13,40 @@ using static TorchSharp.torch.nn;
 /// </summary>
 public class PolicyModel : Module, IPolicyModel
 {
-    public static readonly Device EvalDevice = mps_is_available() ? new Device(TorchSharp.DeviceType.MPS) : new Device(TorchSharp.DeviceType.CPU);
+    public static readonly Device EvalDevice = mps_is_available() ? MPS : CPU;
     
     public const int
         RankCount = 13,
         SuitCount = 4;
     
     const int RankEmbedWidth = 128;
-    readonly Embedding _rankEmbedding = Embedding(RankCount, RankEmbedWidth);
+    readonly Embedding _rankEmbedding = Embedding(RankCount, RankEmbedWidth, device: EvalDevice);
 
     const int UseHandCardSetOutputWidth = 64;
     readonly Sequential _useHandCardSetProcessor = 
         Sequential(
-            new Bias(RankEmbedWidth * 2),
+            new Bias(RankEmbedWidth * 2, device: EvalDevice),
             ReLU(),
-            Linear(RankEmbedWidth * 2, UseHandCardSetOutputWidth)
+            Linear(RankEmbedWidth * 2, UseHandCardSetOutputWidth, device: EvalDevice)
         );
 
     const int RemainingDeckCardSetWidth = 0;
     readonly Sequential _remainingDeckCardSetProcessor = 
         Sequential(
-            new Bias(RankEmbedWidth * 2),
+            new Bias(RankEmbedWidth * 2, device: EvalDevice),
             ReLU(),
-            Linear(RankEmbedWidth * 2, RemainingDeckCardSetWidth)
+            Linear(RankEmbedWidth * 2, RemainingDeckCardSetWidth, device: EvalDevice)
         );
 
     public const int HandsAndDiscardsEmbedWidth = 25;
-    readonly Embedding _embedHandsAndDiscards = Embedding(25, HandsAndDiscardsEmbedWidth);
+    readonly Embedding _embedHandsAndDiscards = Embedding(25, HandsAndDiscardsEmbedWidth, device: EvalDevice);
 
     public const int StateScoreEmbedWidth = 1;
     public const int StateProcessorInputWidth = RemainingDeckCardSetWidth + HandsAndDiscardsEmbedWidth + 1;
     public const int StateProcessorOutputWidth = 64;
     readonly Sequential _stateProcessor = 
         Sequential(
-            Linear(StateProcessorInputWidth, StateProcessorOutputWidth),
+            Linear(StateProcessorInputWidth, StateProcessorOutputWidth, device: EvalDevice),
             ReLU()
         );
 
@@ -54,15 +55,15 @@ public class PolicyModel : Module, IPolicyModel
     public const int UseHandProcessorHiddenWidth = 128;
     readonly Sequential _useHandProcessor = 
         Sequential(
-            Linear(UseHandProcessorInputWidth, UseHandProcessorHiddenWidth),
+            Linear(UseHandProcessorInputWidth, UseHandProcessorHiddenWidth, device: EvalDevice),
             new Residual(Sequential(
                 LayerNorm(128),
-                Linear(UseHandProcessorHiddenWidth, UseHandProcessorHiddenWidth * 2),
+                Linear(UseHandProcessorHiddenWidth, UseHandProcessorHiddenWidth * 2, device: EvalDevice),
                 GELU(),
-                Linear(UseHandProcessorHiddenWidth * 2, UseHandProcessorHiddenWidth)
+                Linear(UseHandProcessorHiddenWidth * 2, UseHandProcessorHiddenWidth, device: EvalDevice)
             )),
             GELU(),
-            Linear(UseHandProcessorHiddenWidth, 2)
+            Linear(UseHandProcessorHiddenWidth, 2, device: EvalDevice)
         );
 
     public PolicyModel() : base(nameof(PolicyModel))
@@ -303,9 +304,9 @@ class Bias : Module<Tensor, Tensor>
 {
     Parameter _bias;
 
-    public Bias(int size) : base("Bias")
+    public Bias(int size, Device device) : base("Bias")
     {
-        _bias = Parameter(zeros(size));
+        _bias = Parameter(zeros(size, device: device));
         RegisterComponents();
     }
 

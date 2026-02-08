@@ -47,6 +47,10 @@ public static class Training
             stacked = TensorGroupExtentions.Stack(TrainingData.PolicyData, false, true);
         }
 
+        PolicyTrainingSample stackedGPU = stacked.ToDevice(MPS);
+        stacked.Dispose();
+        stacked = stackedGPU;
+
         stacked = stacked.IndexSelect(0, randperm(stacked.SamplingProb.size(0)));
 
         SetModelAndOptimizer(model, tp);
@@ -118,6 +122,11 @@ public static class Training
         {
             stacked = TensorGroupExtentions.Stack(TrainingData.PolicyData, false, true);
         }
+
+
+        Tensor advantageGPU = stacked.Advantage.to(MPS);
+        stacked.Advantage.Dispose();
+        stacked.Advantage = advantageGPU;
 
         stacked = stacked.IndexSelect(0, randperm(stacked.SamplingProb.size(0)));
 

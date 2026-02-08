@@ -60,7 +60,7 @@ public class PolicyOnlyAgent : IAgent
             activeStates[i] = states[activeIndices[i]];
 
         // Evaluate the policy in a single batch.
-        (UseHandTensors moveTensors, Tensor probs) = GetPolicyProbDist(temp, activeStates);
+        (GameStateTensors _, UseHandTensors _, Tensor probs) = GetPolicyProbDist(temp, activeStates);
 
         // Sample and apply one move per active state.
         Tensor indexTensor = multinomial(probs, num_samples: 1);
@@ -87,8 +87,10 @@ public class PolicyOnlyAgent : IAgent
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
 
-        (UseHandTensors moveTensors, Tensor probs) = GetPolicyProbDist(temp, states);
+        (GameStateTensors _, UseHandTensors _, Tensor probs) = GetPolicyProbDist(temp, states);
 
+        probs = probs.to(CPU);
+        
         int batchSize = (int)probs.size(0);
         int moveCount = (int)probs.size(1);
         float[] flat = probs.data<float>().ToArray();
@@ -143,7 +145,11 @@ public class PolicyOnlyAgent : IAgent
         return (useHandTensors, useHandCount * 2);
     }
 
-    public (UseHandTensors moveTensors, Tensor probs) GetPolicyProbDist(float temp, params ReadOnlySpan<GameState> gameStates)
+    /// <summary>
+    /// Returns the policy model's probability distributions for all game states and the generated use-hand tensors. 
+    /// Returned tensors are on the GPU. 
+    /// </summary>
+    public (GameStateTensors gameStateTensors, UseHandTensors moveTensors, Tensor probs) GetPolicyProbDist(float temp, params ReadOnlySpan<GameState> gameStates)
     {
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
@@ -151,17 +157,17 @@ public class PolicyOnlyAgent : IAgent
         GameStateTensors gameStateTensors = CreateGameStateTensors(gameStates);
         (UseHandTensors useHandTensors, int moveCount) = CreateUseHandTensors(gameStates);
 
-        useHandTensors.MoveToOuterDisposeScope();
-
         Tensor logits = Model.GetPolicyLogits(gameStateTensors, useHandTensors);
 
-        Tensor discardMask = BuildDiscardMask(gameStates, moveCount, logits.device);
+        Tensor discardMask = BuildDiscardMask(gameStates, moveCount);
         logits += discardMask;
 
         Tensor probs = (logits / MathF.Max(temp, 0.0001f)).softmax(1).MoveToOuterDisposeScope();
-        return (useHandTensors, probs);
-    }
 
+        useHandTensors.MoveToOuterDisposeScope();
+        gameStateTensors.MoveToOuterDisposeScope();
+        return (gameStateTensors, useHandTensors, probs);
+    }
 
     static GameStateTensors CreateGameStateTensors(ReadOnlySpan<GameState> gameStates)
     {
@@ -252,7 +258,7 @@ public class PolicyOnlyAgent : IAgent
         return tensor(values, ScalarType.Int64);
     }
 
-    static Tensor BuildDiscardMask(ReadOnlySpan<GameState> gameStates, int moveCount, Device device)
+    static Tensor BuildDiscardMask(ReadOnlySpan<GameState> gameStates, int moveCount)
     {
         float[,] mask = new float[gameStates.Length, moveCount];
         int useHandCount = moveCount / 2;
@@ -265,7 +271,7 @@ public class PolicyOnlyAgent : IAgent
                 mask[stateIndex, handIndex * 2 + 1] = -1e8f;
         }
 
-        return tensor(mask).to(device);
+        return tensor(mask);
     }
 
     static int GetHandsAndDiscardsValue(GameState gameState)

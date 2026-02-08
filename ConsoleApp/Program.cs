@@ -7,11 +7,12 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using TorchSharp;
 
+torch.set_default_device(torch.MPS);
 // needed for cursor
 // ExternalConsole.Initialize();
 
 Console.WriteLine("=== WELCOME! ===");
-Console.WriteLine("MPS available: " + TorchSharp.torch.mps_is_available());
+Console.WriteLine("MPS available: " + torch.mps_is_available());
 
 IPolicyModel model = new PolicyModel();
 
