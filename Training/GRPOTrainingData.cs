@@ -48,9 +48,6 @@ public static class GRPOTrainingData
                         gameState.MoveState.RevertLastMove();
                 }
             }
-
-            // Aggregate stats and add samples to the training buffer.
-            ApplyGroupStatsAndSamples(stats, groupRewards, groupSamples);
         }
 
         return stats;
@@ -65,53 +62,6 @@ public static class GRPOTrainingData
             float entropyScalar = totalNlProbAfterwards;
             sample.EntropyScalar = tensor(entropyScalar).unsqueeze(0).DetachFromDisposeScope();
             totalNlProbAfterwards += sample.ChosenMoveNLProb;
-        }
-    }
-
-    static void ApplyGroupStatsAndSamples(TrainingDataStats stats, float[] groupRewards, List<PolicyTrainingSample>[] groupSamples)
-    {
-        float sum = 0f;
-        float sqSum = 0f;
-
-        for (int group = 0; group < groupRewards.Length; ++group)
-        {
-            sum += groupRewards[group];
-            sqSum += groupRewards[group] * groupRewards[group];
-        }
-
-        stats.TotalReward += sum;
-        stats.TotalSquaredReward += sqSum;
-        stats.GamesCount += groupRewards.Length;
-
-        float mean = sum / groupRewards.Length;
-        float ss = sqSum - sum * mean;
-        float stdDev = MathF.Sqrt(ss / Math.Max(1, groupRewards.Length - 1));
-
-        Array.Sort(groupRewards, groupSamples);
-
-        lock (TrainingData.PolicyData)
-        {
-            for (int group = 0; group < groupSamples.Length; ++group)
-            {
-                float advantage = (groupRewards[group] - mean) / MathF.Max(stdDev, 1e-8f);
-                if (float.IsNaN(advantage) || float.IsInfinity(advantage))
-                    advantage = 0f;
-
-                List<PolicyTrainingSample> nodes = groupSamples[group];
-                for (int depth = 0; depth < nodes.Count; ++depth)
-                {
-                    PolicyTrainingSample node = nodes[depth];
-                    stats.NodesCount++;
-                    node.Advantage = tensor(advantage).unsqueeze(0).DetachFromDisposeScope();
-                    TrainingData.PolicyData.Add(node);
-
-                    if (depth < TrainingDataStats.MaxDepth)
-                    {
-                        stats.TotalNLProbByDepth[depth] += node.ChosenMoveNLProb;
-                        stats.CountByDepth[depth] += 1;
-                    }
-                }
-            }
         }
     }
 }
