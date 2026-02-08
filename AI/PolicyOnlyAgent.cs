@@ -26,6 +26,9 @@ public class PolicyOnlyAgent : IAgent
         Random = FastRandom.SeededByClock();
     }
 
+    /// <summary>
+    /// Returns true if the game is done from the perspective of this agent. Is sometimes but not always equivalent to <see cref="GameState.GameIsDone"/>.
+    /// </summary>
     public bool IsGameDone(GameState gameState) => gameState.GameIsDone;
 
     /// <summary>
@@ -140,7 +143,7 @@ public class PolicyOnlyAgent : IAgent
         return (useHandTensors, useHandCount * 2);
     }
 
-    (UseHandTensors moveTensors, Tensor probs) GetPolicyProbDist(float temp, params ReadOnlySpan<GameState> gameStates)
+    public (UseHandTensors moveTensors, Tensor probs) GetPolicyProbDist(float temp, params ReadOnlySpan<GameState> gameStates)
     {
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
