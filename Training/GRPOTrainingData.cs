@@ -23,6 +23,9 @@ public static class GRPOTrainingData
 
         int gamesStarted = 0;
         int gamesFinished = 0;
+        Dictionary<PolicyTrainingSample, float> rewardBySample = new();
+        float totalReward = 0f;
+        float totalSquaredReward = 0f;
 
         // Seed the initial active slots. 
         // active slots are used to track which slots aren't in use after all games have been started but only some are completed. 
@@ -65,10 +68,18 @@ public static class GRPOTrainingData
                     if (!agent.IsGameDone(activeStates[slot]))
                         continue;
 
-                    FillEntropyScalars(activeSamples[slot]);
+                    List<PolicyTrainingSample> samples = activeSamples[slot];
+                    FillEntropyScalars(samples);
+
+                    float reward = GetReward(activeStates[slot]);
+                    totalReward += reward;
+                    totalSquaredReward += reward * reward;
+                    for (int sampleIndex = 0; sampleIndex < samples.Count; ++sampleIndex)
+                        rewardBySample[samples[sampleIndex]] = reward;
+
                     lock (TrainingData.PolicyData)
                     {
-                        TrainingData.PolicyData.AddRange(activeSamples[slot]);
+                        TrainingData.PolicyData.AddRange(samples);
                     }
 
                     gamesFinished++;
@@ -87,6 +98,22 @@ public static class GRPOTrainingData
                 }
             }
         }
+
+        // Normalize rewards into advantages after all rollouts are complete.
+        float meanReward = totalReward / Math.Max(1, gamesFinished);
+        float centeredSquares = totalSquaredReward - totalReward * meanReward;
+        float stdDev = MathF.Sqrt(MathF.Max(0f, centeredSquares / Math.Max(1, gamesFinished - 1)));
+
+        foreach (KeyValuePair<PolicyTrainingSample, float> pair in rewardBySample)
+        {
+            PolicyTrainingSample sample = pair.Key;
+            float advantage = (pair.Value - meanReward) / MathF.Max(stdDev, 1e-8f);
+            sample.Advantage?.Dispose();
+            sample.Advantage = tensor(advantage).unsqueeze(0).DetachFromDisposeScope();
+        }
+
+        stats.TotalReward = totalReward;
+        stats.TotalSquaredReward = totalSquaredReward;
 
         return stats;
     }
@@ -108,5 +135,13 @@ public static class GRPOTrainingData
     static GameState CreateGameState()
     {
         return new(GameData.Default);
+    }
+
+
+    static float GetReward(GameState gameState)
+    {
+        if (gameState.ScoringState.CurrentRoundTotalChips >= 300)
+            return 1f + gameState.HandState.RemainingHands * 0.2f;
+        return (float)gameState.ScoringState.CurrentRoundTotalChips / 1000f;
     }
 }

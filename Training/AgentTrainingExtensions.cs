@@ -41,11 +41,8 @@ public static class AgentTrainingExtensions
             StateTensors = agent.GameStateTensors.Clone().DetachFromDisposeScope(),
             UseHandTensors = useHandTensors.DetachFromDisposeScope(),
             MoveIndices = indices.unsqueeze(0).DetachFromDisposeScope(),
-            ChosenMoveNLProb = -MathF.Log(probs[0, chosenIndex].item<float>() + 1e-9f),
+            ChosenMoveNLProb = -MathF.Log(probs[0, chosenIndex].item<float>() + 1e-9f),            
         };
-
-        if (sample.Advantage is null)
-            sample.Advantage = tensor(0f).unsqueeze(0).DetachFromDisposeScope();
 
         UseHandMove move = agent.MoveForIndex(chosenIndex);
         move.Apply(agent.GameState);
@@ -96,13 +93,14 @@ public static class AgentTrainingExtensions
             Tensor sampledProbs = row.index_select(dim: 1, indices);
             PolicyTrainingSample sample = new()
             {
-                SamplingProb = sampledProbs.DetachFromDisposeScope(),
-                StateTensors = CreateGameStateTensors(activeStates[activeIndex]).DetachFromDisposeScope(),
-                UseHandTensors = useHandTensors.GetBatch(activeIndex, activeIndex + 1).DetachFromDisposeScope(),
-                MoveIndices = indices.unsqueeze(0).DetachFromDisposeScope(),
+                SamplingProb = sampledProbs,
+                StateTensors = CreateGameStateTensors(activeStates[activeIndex]),
+                UseHandTensors = useHandTensors.GetBatch(activeIndex, activeIndex + 1),
+                MoveIndices = indices.unsqueeze(0),
                 ChosenMoveNLProb = -MathF.Log(row[0, chosenIndex].item<float>() + 1e-9f),
-                Advantage = tensor(0f).unsqueeze(0).DetachFromDisposeScope(),
+                Advantage = tensor(0f).unsqueeze(0),
             };
+            sample.DetachFromDisposeScope();
 
             UseHandMove move = PolicyOnlyAgent.MoveForIndex(chosenIndex);
             move.Apply(activeStates[activeIndex]);
