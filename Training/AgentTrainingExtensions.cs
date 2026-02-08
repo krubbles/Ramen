@@ -1,6 +1,7 @@
 namespace Ramen.Training;
 
 using System;
+using System.Collections.Generic;
 using Ramen.AI;
 using Ramen.Game;
 using static TorchSharp.torch;
@@ -50,6 +51,66 @@ public static class AgentTrainingExtensions
         move.Apply(agent.GameState);
 
         return sample;
+    }
+
+    /// <summary>
+    /// Makes moves based on the policy model's predicted probability distribution for a batch of game states.
+    /// Also generates a GRPO training sample with <paramref name="sampleCount"/> sampled moves.
+    /// </summary>
+    public static PolicyTrainingSample[] MakeMoveTrainingSample(this PolicyOnlyAgent agent, GameState[] gameStates, int sampleCount)
+    {
+        using var scope = NewDisposeScope();
+        using var noGrad = no_grad();
+
+        // Advance all states and keep only active states for the policy forward pass.
+        PolicyTrainingSample[] samples = new PolicyTrainingSample[gameStates.Length];
+        List<int> activeIndices = new();
+        for (int i = 0; i < gameStates.Length; ++i)
+        {
+            GameState gameState = gameStates[i];
+            gameState.AdvanceToNextPlayerChoice();
+            if (!agent.IsGameDone(gameState))
+                activeIndices.Add(i);
+        }
+
+        if (activeIndices.Count == 0)
+            return samples;
+
+        // Build active state batch and evaluate policy once.
+        GameState[] activeStates = new GameState[activeIndices.Count];
+        for (int i = 0; i < activeStates.Length; ++i)
+            activeStates[i] = gameStates[activeIndices[i]];
+
+        (UseHandTensors useHandTensors, Tensor probs) = agent.GetPolicyProbDist(temp: 1f, activeStates);
+        int moveCount = (int)probs.size(1);
+        int clampedSampleCount = Math.Clamp(sampleCount, 1, moveCount);
+
+        // Sample and apply one move per active state while creating one sample per state.
+        for (int activeIndex = 0; activeIndex < activeStates.Length; ++activeIndex)
+        {
+            Tensor row = probs[activeIndex].unsqueeze(0);
+            Tensor indices = multinomial(row.view([-1]), clampedSampleCount, replacement: false);
+            long[] indicesArray = indices.data<long>().ToArray();
+            int chosenIndex = (int)indicesArray[0];
+
+            Tensor sampledProbs = row.index_select(dim: 1, indices);
+            PolicyTrainingSample sample = new()
+            {
+                SamplingProb = sampledProbs.DetachFromDisposeScope(),
+                StateTensors = CreateGameStateTensors(activeStates[activeIndex]).DetachFromDisposeScope(),
+                UseHandTensors = useHandTensors.GetBatch(activeIndex, activeIndex + 1).DetachFromDisposeScope(),
+                MoveIndices = indices.unsqueeze(0).DetachFromDisposeScope(),
+                ChosenMoveNLProb = -MathF.Log(row[0, chosenIndex].item<float>() + 1e-9f),
+                Advantage = tensor(0f).unsqueeze(0).DetachFromDisposeScope(),
+            };
+
+            UseHandMove move = PolicyOnlyAgent.MoveForIndex(chosenIndex);
+            move.Apply(activeStates[activeIndex]);
+
+            samples[activeIndices[activeIndex]] = sample;
+        }
+
+        return samples;
     }
 
     /// <summary>
@@ -172,5 +233,67 @@ public static class AgentTrainingExtensions
         return agent.CreatePolicyTrainingSample(useHandTensors, probsTensor, target, moveIndexTensor);
     }
     #endregion
+
+    static GameStateTensors CreateGameStateTensors(GameState gameState)
+    {
+        GameStateTensors gameStateTensors = new()
+        {
+            FullHand = TensorizeHand(gameState, cardCount: GameData.HandSize),
+            RemainingDeck = TensorizeRemainingDeck(gameState, cardCount: 52),
+            HandsAndDiscards = TensorizeHandsAndDiscards(gameState),
+            Score = TensorizeScore(gameState),
+        };
+
+        return gameStateTensors;
+    }
+
+    static Tensor TensorizeHand(GameState gameState, int cardCount)
+    {
+        long[,,] cards = new long[1, cardCount, 2];
+        ReadOnlySpan<Card> hand = gameState.HandState.Hand;
+        for (int i = 0; i < cardCount; ++i)
+        {
+            if (i < hand.Length)
+            {
+                Card card = hand[i];
+                cards[0, i, 0] = card.Rank - 2;
+                cards[0, i, 1] = (int)card.Suit;
+            }
+        }
+
+        return tensor(cards);
+    }
+
+    static Tensor TensorizeRemainingDeck(GameState gameState, int cardCount)
+    {
+        long[,,] cards = new long[1, cardCount, 2];
+        ReadOnlySpan<Card> deck = gameState.DeckState.RemainingDeck;
+        for (int i = 0; i < cardCount; ++i)
+        {
+            if (i < deck.Length)
+            {
+                Card card = deck[i];
+                cards[0, i, 0] = card.Rank - 2;
+                cards[0, i, 1] = (int)card.Suit;
+            }
+        }
+
+        return tensor(cards);
+    }
+
+    static Tensor TensorizeHandsAndDiscards(GameState gameState)
+    {
+        int handsAndDiscards = gameState.HandState.RemainingHands * 5 + gameState.HandState.RemainingDiscards;
+        long[] values = [handsAndDiscards];
+        return tensor(values, ScalarType.Int64);
+    }
+
+    static Tensor TensorizeScore(GameState gameState)
+    {
+        float score = (float)gameState.ScoringState.CurrentRoundTotalChips;
+        float[,] values = new float[1, 1];
+        values[0, 0] = score;
+        return tensor(values);
+    }
 
 }
