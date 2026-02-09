@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using Ramen.AI;
 using Ramen.Game;
+using Tensorboard;
 using static TorchSharp.torch;
 
 /// <summary>
@@ -58,6 +59,7 @@ public static class AgentTrainingExtensions
     {
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
+        using var p_funcScope = ProfileScope.New(nameof(MakeMoveTrainingSample));
 
         // Advance all states and keep only active states for the policy forward pass.
         PolicyTrainingSample[] samples = new PolicyTrainingSample[gameStates.Length];
@@ -78,6 +80,7 @@ public static class AgentTrainingExtensions
         for (int i = 0; i < activeStates.Length; ++i)
             activeStates[i] = gameStates[activeIndices[i]];
 
+
         (GameStateTensors gameStateTensors, UseHandTensors useHandTensors, Tensor probs) = agent.GetPolicyProbDist(temp: 1f, activeStates); // returned tensors are on the gpu.
 
 
@@ -86,13 +89,19 @@ public static class AgentTrainingExtensions
 
         Tensor indices = multinomial(probs, clampedSampleCount, replacement: false);
 
-        Tensor choices = indices.index_select(dim: 1, tensor(0L).expand([indices.size(0)]));
+        Tensor choices = indices.select(dim: 1, index: 0);
         Tensor sampledProbs = probs.gather(dim: 1, indices);
-        Tensor chosenProbs = probs.index_select(dim: 1, tensor(0L).expand([probs.size(0)]));
+        Tensor chosenProbs = sampledProbs.select(dim: 1, index: 0);
 
-        long[] choicesManaged = [.. choices.to(CPU).data<long>()];
-        float[] chosenProbsManaged = [.. chosenProbs.to(CPU).data<float>()];
+        long[] choicesManaged; 
+        float[] chosenProbsManaged;
 
+        Profiling.Enter("ChosenMoveReadback");
+        choicesManaged = [.. choices.to(CPU).data<long>()];
+        chosenProbsManaged = [.. chosenProbs.to(CPU).data<float>()];
+        Profiling.Exit("ChosenMoveReadback");
+        
+        Profiling.Enter("BuildSamples");
         // Sample and apply one move per active state while creating one sample per state.
         for (int activeIndex = 0; activeIndex < activeStates.Length; ++activeIndex)
         {
@@ -114,7 +123,7 @@ public static class AgentTrainingExtensions
 
             samples[activeIndices[activeIndex]] = sample;
         }
-
+        Profiling.Exit("BuildSamples"); 
         return samples;
     }
 

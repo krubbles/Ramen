@@ -176,7 +176,7 @@ public class RamenAgent
         }
         UseHandTensors useHandTensors = new UseHandTensors
         {
-            Score = tensor(scores).view([1, -1]).DetachFromDisposeScope(),
+            Score = tensor(scores).view([1, -1]),
         };
         return (useHandTensors, useHandCount * 2);
     }

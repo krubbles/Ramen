@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using TorchSharp;
+using System.Runtime.CompilerServices;
 
 torch.set_default_device(torch.MPS);
 // needed for cursor
@@ -97,10 +98,13 @@ void ExecuteCommand(string command, bool isFromRepeat)
         case "policy":
             EnqueueWork(() => Policy(context));
             break;
+        case "profile":
+            Profile(context);
+            break;
         case "repeat":
             Repeat(context);
             break;
-        default:
+        default: 
             Console.WriteLine($"Unknown command '{context.Name}'.");
             break;
     }
@@ -230,7 +234,7 @@ void RunGRPOTrainingRun(ConsoleCommandContext context)
     // Configure the GRPO training run settings.
     BasicGRPOTrainingRun trainingRun = new()
     {
-        RolloutSize = context.GetIntArg("rollout", 1000),
+        RolloutSize = context.GetIntArg("rollout", 500),
         Epochs = context.GetIntArg("epochs", 3),
         LearningRate = context.GetFloatArg("lr", 3e-4f),
         Entropy = context.GetFloatArg("ent", 0f),
@@ -578,6 +582,75 @@ void Policy(ConsoleCommandContext context)
         Console.WriteLine($"{i + 1}. {move} - {rankedMoves[i].prob:F6}");
         move.Revert(gameState);
     }
+}
+
+void Profile(ConsoleCommandContext context)
+{
+    string tagName = context.GetTextArg(0, "tag name");
+    (List<(string tag, float fraction)> fractions, float averageMilliseconds) = Profiling.GetFractionsAndAverageMillisecondsForTag(tagName);
+
+    if (averageMilliseconds <= 0f)
+    {
+        Console.WriteLine($"No completed profiling samples found for tag '{tagName}'.");
+        return;
+    }
+
+    Console.WriteLine($"Profile tag '{tagName}': average {averageMilliseconds:F3}ms");
+    if (fractions.Count == 0)
+    {
+        Console.WriteLine("No child tags were observed under this tag.");
+        return;
+    }
+
+    Console.WriteLine("Child tag fractions");
+
+    LogFractions(fractions);
+}
+
+[MethodImpl(MethodImplOptions.NoInlining)]
+static void LogFractions(List<(string tag, float fraction)> fractions)
+{
+    for (int i = 0; i < fractions.Count; i++)
+    {
+        Console.Write(i + ". " + fractions[i].tag + " - " + fractions[i].fraction);
+        Console.Write("\n");
+    }
+}
+
+string EscapeControlCharacters(string text)
+{
+    List<char> output = new(text.Length);
+    for (int i = 0; i < text.Length; i++)
+    {
+        char c = text[i];
+        if (c == '\r')
+        {
+            output.Add('\\');
+            output.Add('r');
+            continue;
+        }
+
+        if (c == '\n')
+        {
+            output.Add('\\');
+            output.Add('n');
+            continue;
+        }
+
+        if (char.IsControl(c))
+        {
+            string escaped = ((int)c).ToString("X4");
+            output.Add('\\');
+            output.Add('u');
+            for (int j = 0; j < escaped.Length; j++)
+                output.Add(escaped[j]);
+            continue;
+        }
+
+        output.Add(c);
+    }
+
+    return new string([.. output]);
 }
 
 static class ExternalConsole

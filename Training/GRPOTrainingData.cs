@@ -8,7 +8,7 @@ using static TorchSharp.torch;
 
 public static class GRPOTrainingData
 {
-    public static TrainingDataStats GenerateTrainingData(IPolicyModel model, int games, int sampleCount, int groupSize = 128)
+    public static TrainingDataStats GenerateTrainingData(IPolicyModel model, int games, int sampleCount, int groupSize = 256)
     {
         TrainingDataStats stats = new();
         if (games <= 0 || groupSize <= 0)
@@ -123,7 +123,7 @@ public static class GRPOTrainingData
         {
             PolicyTrainingSample sample = samples[i];
             float entropyScalar = totalNlProbAfterwards;
-            sample.EntropyScalar = tensor(entropyScalar).unsqueeze(0).DetachFromDisposeScope();
+            sample.EntropyScalar = tensor(entropyScalar, device: CPU).unsqueeze(0).DetachFromDisposeScope();
             totalNlProbAfterwards += sample.ChosenMoveNLProb;
         }
     }

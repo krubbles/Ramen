@@ -109,6 +109,8 @@ public class PolicyOnlyAgent : IAgent
 
     (UseHandTensors useHandTensors, int moveCount) CreateUseHandTensors(ReadOnlySpan<GameState> gameStates)
     {
+        using var p_funcScope = ProfileScope.New(nameof(CreateUseHandTensors));
+
         // Precompute combination count (assumes hand size is consistent across the batch).
         int useHandCount = Combinatorics.CalculateCombinationCount(
             setSize: gameStates[0].HandState.HandCardCount,
@@ -151,15 +153,18 @@ public class PolicyOnlyAgent : IAgent
     /// </summary>
     public (GameStateTensors gameStateTensors, UseHandTensors moveTensors, Tensor probs) GetPolicyProbDist(float temp, params ReadOnlySpan<GameState> gameStates)
     {
-        using var scope = NewDisposeScope();
-        using var noGrad = no_grad();
+        using var dscope = NewDisposeScope();
+        using var gscope = no_grad();
+        using var pscope = ProfileScope.New(nameof(GetPolicyProbDist));
 
         GameStateTensors gameStateTensors = CreateGameStateTensors(gameStates);
         (UseHandTensors useHandTensors, int moveCount) = CreateUseHandTensors(gameStates);
-
-        Tensor logits = Model.GetPolicyLogits(gameStateTensors, useHandTensors);
-
         Tensor discardMask = BuildDiscardMask(gameStates, moveCount);
+
+        Profiling.Enter("GetPolicyLogits");
+        Tensor logits = Model.GetPolicyLogits(gameStateTensors, useHandTensors); // interface so it doesn't have a profile scope internally
+        Profiling.Exit("GetPolicyLogits");
+
         logits += discardMask;
 
         Tensor probs = (logits / MathF.Max(temp, 0.0001f)).softmax(1).MoveToOuterDisposeScope();
@@ -171,6 +176,8 @@ public class PolicyOnlyAgent : IAgent
 
     static GameStateTensors CreateGameStateTensors(ReadOnlySpan<GameState> gameStates)
     {
+        using var pscope = ProfileScope.New(nameof(CreateGameStateTensors));
+
         // Build the full 3D card tensors in single allocations.
         Tensor fullHand = TensorizeHandBatch(gameStates, cardCount: GameData.HandSize);
         Tensor remainingDeck = TensorizeRemainingDeckBatch(gameStates, cardCount: 52);
@@ -204,6 +211,8 @@ public class PolicyOnlyAgent : IAgent
 
     static Tensor TensorizeHandBatch(ReadOnlySpan<GameState> gameStates, int cardCount)
     {
+        using var pscope = ProfileScope.New(nameof(TensorizeHandBatch));
+
         long[,,] cards = new long[gameStates.Length, cardCount, 2];
         for (int stateIndex = 0; stateIndex < gameStates.Length; ++stateIndex)
         {
@@ -260,18 +269,32 @@ public class PolicyOnlyAgent : IAgent
 
     static Tensor BuildDiscardMask(ReadOnlySpan<GameState> gameStates, int moveCount)
     {
-        float[,] mask = new float[gameStates.Length, moveCount];
+        using var dscope = NewDisposeScope();
+        using var pscope = ProfileScope.New(nameof(BuildDiscardMask));
+        
+        Profiling.Enter("BuildManaged");
+        float[] mask = new float[gameStates.Length * 2];
         int useHandCount = moveCount / 2;
         for (int stateIndex = 0; stateIndex < gameStates.Length; ++stateIndex)
         {
-            if (gameStates[stateIndex].HandState.RemainingDiscards != 0)
-                continue;
-
-            for (int handIndex = 0; handIndex < useHandCount; ++handIndex)
-                mask[stateIndex, handIndex * 2 + 1] = -1e8f;
+            if (gameStates[stateIndex].HandState.RemainingDiscards == 0)
+                mask[stateIndex * 2 + 1] = -1e8f;
         }
+        Profiling.Exit("BuildManaged");
 
-        return tensor(mask);
+        Profiling.Enter("BuildTensor");
+        Tensor maskNoRepeat = tensor(mask, device: CPU).view([gameStates.Length, -1]);
+        Profiling.Exit("BuildTensor");
+
+        Profiling.Enter("ToMPS");
+        maskNoRepeat = maskNoRepeat.to(MPS);
+        Profiling.Exit("ToMPS");
+
+        Profiling.Enter("Repeat");
+        Tensor result = maskNoRepeat.repeat([1, moveCount / 2]).MoveToOuterDisposeScope();
+        Profiling.Exit("Repeat");
+
+        return result;
     }
 
     static int GetHandsAndDiscardsValue(GameState gameState)

@@ -1,9 +1,8 @@
 namespace Ramen.AI;
 
-
 public static class Profiling
 {
-    public static bool CollectData = false;
+    public static bool CollectData = true;
 
     static Dictionary<int, List<ProfileDatum>> _data = new();
 
@@ -43,16 +42,16 @@ public static class Profiling
             return;
 
         List<ProfileDatum> timeSeries = GetTimeSeries();
-        timeSeries.Add(new ProfileDatum(isEnter: true, name: name, timeStamp: DateTime.UtcNow));
+        timeSeries.Add(new ProfileDatum(IsEnter: true, name, DateTime.UtcNow));
     }
-
+    
     public static void Exit(string name)
     {
         if (!CollectData)
             return;
 
         List<ProfileDatum> timeSeries = GetTimeSeries();
-        timeSeries.Add(new ProfileDatum(isEnter: false, name: name, timeStamp: DateTime.UtcNow));
+        timeSeries.Add(new ProfileDatum(IsEnter: false, name, DateTime.UtcNow));
     }
 
     public static (List<(string tag, float fraction)> fractions, float averageMilliseconds) GetFractionsAndAverageMillisecondsForTag(string tagName)
@@ -123,22 +122,26 @@ public static class Profiling
     }
 }
 
-public readonly record struct ProfileDatum(bool IsEnter, string Name, DateTime TimeStamp);
+public record struct ProfileDatum(bool IsEnter, string Name, DateTime TimeStamp);
 
-public readonly struct Profile() : IDisposable
+public struct ProfileScope : IDisposable
 {
     public readonly string Name;
+    bool _disposed;
 
-    readonly Profile(string name) => Name = name;
+    ProfileScope(string name) => Name = name;
 
-    public static Profile Scope(string name)
+    public static ProfileScope New(string name)
     {
         Profiling.Enter(name);
-        return new Profile(name);
+        return new ProfileScope(name);
     }
 
     public void Dispose()
     {
+        if (_disposed)
+            return;
+        _disposed = true;
         Profiling.Exit(Name);
     }
 }

@@ -3,6 +3,7 @@ namespace Ramen.Training;
 
 using System.Linq;
 using Ramen.AI;
+using TorchSharp;
 using TorchSharp.Modules;
 using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
@@ -46,7 +47,7 @@ public static class Training
         {
             stacked = TensorGroupExtentions.Stack(TrainingData.PolicyData, false, true);
         }
-
+        
         PolicyTrainingSample stackedGPU = stacked.ToDevice(MPS);
         stacked.Dispose();
         stacked = stackedGPU;
@@ -114,6 +115,8 @@ public static class Training
 
     public static void TrainPolicyModelGRPO(IPolicyModel model, TrainingParams tp, CancellationToken cancel, bool validate = false)
     {
+        using var dscope = NewDisposeScope();
+
         Console.WriteLine($"Training GRPO model for {tp.epochs} epochs, batch size {tp.batchSize}");
         _ = validate; // GRPO uses a surrogate objective, so validation loss is not meaningful.
 
@@ -125,11 +128,14 @@ public static class Training
 
 
         Tensor advantageGPU = stacked.Advantage.to(MPS);
+        Tensor entScalarGPU = stacked.EntropyScalar.to(MPS);
         stacked.Advantage.Dispose();
         stacked.Advantage = advantageGPU;
+        stacked.EntropyScalar.Dispose();
+        stacked.EntropyScalar = entScalarGPU;
 
         stacked = stacked.IndexSelect(0, randperm(stacked.SamplingProb.size(0)));
-
+    
         SetModelAndOptimizer(model, tp);
 
         int samples = TrainingData.PolicyData.Count;
@@ -144,6 +150,8 @@ public static class Training
 
             for (int i = 0; i < trainCount; i += tp.batchSize)
             {
+                using var dscopeInner = NewDisposeScope();
+                
                 Optimizer.zero_grad();
 
                 int end = Math.Min(i + tp.batchSize, samples);
@@ -165,6 +173,8 @@ public static class Training
 
             trainLossAvg /= Math.Max(1, trainBatchCount);
             Console.WriteLine($"GRPO Epoch {epoch} | Train Loss = {trainLossAvg} | KLD = {kldTotal / Math.Max(1, trainBatchCount)}");
+
+            GC.Collect();
         }
 
         stacked.Dispose();

@@ -38,6 +38,14 @@ public static class TrainingData
         public float NLProb;
     }
 
+    public static void Clear()
+    {
+        foreach (PolicyTrainingSample sample in PolicyData)
+        {
+            sample.Dispose();
+        }
+        PolicyData.Clear();
+    }
 
     static void RunGroup(IPolicyModel model, TrainingDataStats stats, int groupSize = 512)
     {
