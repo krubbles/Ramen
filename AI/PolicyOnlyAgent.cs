@@ -40,6 +40,7 @@ public class PolicyOnlyAgent : IAgent
     {
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
+        const int MaxActiveBatchSize = 32;
 
         // Advance all states to the next player choice and collect active indices.
         List<int> activeIndices = new();
@@ -54,28 +55,34 @@ public class PolicyOnlyAgent : IAgent
         if (activeIndices.Count == 0)
             return;
 
-        // Build the active state batch.
-        GameState[] activeStates = new GameState[activeIndices.Count];
-        for (int i = 0; i < activeStates.Length; ++i)
-            activeStates[i] = states[activeIndices[i]];
-
-        // Evaluate the policy in a single batch.
-        (GameStateTensors _, UseHandTensors _, Tensor probs) = GetPolicyProbDist(temp, activeStates);
-
-        // Sample and apply one move per active state.
-        Tensor indexTensor = multinomial(probs, num_samples: 1);
-        long[] indices = indexTensor.data<long>().ToArray();
-
-        for (int i = 0; i < activeStates.Length; ++i)
+        // Process active states in chunks when the active set is large.
+        for (int batchStart = 0; batchStart < activeIndices.Count; batchStart += MaxActiveBatchSize)
         {
-            int gameStateIndex = activeIndices[i];
-            int chosenIndex = (int)indices[i];
+            int batchSize = Math.Min(MaxActiveBatchSize, activeIndices.Count - batchStart);
 
-            UseHandMove move = MoveForIndex(chosenIndex);
-            move.Apply(states[gameStateIndex]);
+            // Build the active state batch.
+            GameState[] activeStates = new GameState[batchSize];
+            for (int i = 0; i < activeStates.Length; ++i)
+                activeStates[i] = states[activeIndices[batchStart + i]];
 
-            if (annotatePolicy)
-                AnnotatePolicy(states[gameStateIndex], probs, i);
+            // Evaluate the policy for the current active-state chunk.
+            (GameStateTensors _, UseHandTensors _, Tensor probs) = GetPolicyProbDist(temp, activeStates);
+
+            // Sample and apply one move per active state in this chunk.
+            Tensor indexTensor = multinomial(probs, num_samples: 1);
+            long[] indices = indexTensor.data<long>().ToArray();
+
+            for (int i = 0; i < activeStates.Length; ++i)
+            {
+                int gameStateIndex = activeIndices[batchStart + i];
+                int chosenIndex = (int)indices[i];
+
+                UseHandMove move = MoveForIndex(chosenIndex);
+                move.Apply(states[gameStateIndex]);
+
+                if (annotatePolicy)
+                    AnnotatePolicy(states[gameStateIndex], probs, i);
+            }
         }
     }
 

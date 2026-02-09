@@ -10,7 +10,7 @@ public interface ITensorGroup
 
 public static class TensorGroupExtentions
 {
-    public static ITensorGroup Stack(IList<ITensorGroup> tensorGroups, bool disposeInputs, bool concat, int dim = 0)
+    public static ITensorGroup Stack(IReadOnlyList<ITensorGroup> tensorGroups, bool disposeInputs, bool concat, int dim = 0)
     {
         ITensorGroup result = MakeNew(tensorGroups[0].GetType());
         FieldInfo[] fields = GetTensorFields(result.GetType());
@@ -43,7 +43,7 @@ public static class TensorGroupExtentions
         return result;
     }
 
-    public static T Stack<T>(IList<T> tensorGroups, bool disposeInputs, bool concat, int dim = 0) where T : ITensorGroup
+    public static T Stack<T>(IReadOnlyList<T> tensorGroups, bool disposeInputs, bool concat, int dim = 0) where T : ITensorGroup
     {
         ITensorGroup[] genericGroups = new ITensorGroup[tensorGroups.Count];
         for (int i = 0; i < tensorGroups.Count; ++i)

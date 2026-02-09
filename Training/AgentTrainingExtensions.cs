@@ -38,12 +38,13 @@ public static class AgentTrainingExtensions
 
         PolicyTrainingSample sample = new()
         {
-            SamplingProb = sampledProbs.DetachFromDisposeScope(),
-            StateTensors = agent.GameStateTensors.Clone().DetachFromDisposeScope(),
-            UseHandTensors = useHandTensors.DetachFromDisposeScope(),
-            MoveIndices = indices.unsqueeze(0).DetachFromDisposeScope(),
+            SamplingProb = sampledProbs,
+            StateTensors = agent.GameStateTensors.Clone(),
+            UseHandTensors = useHandTensors,
+            MoveIndices = indices.unsqueeze(0),
             ChosenMoveNLProb = -MathF.Log(probs[0, chosenIndex].item<float>() + 1e-9f),
         };
+        sample.DetachFromDisposeScope();
 
         UseHandMove move = agent.MoveForIndex(chosenIndex);
         move.Apply(agent.GameState);
@@ -134,12 +135,13 @@ public static class AgentTrainingExtensions
     {
         PolicyTrainingSample sample = new()
         {
-            SamplingProb = probs.DetachFromDisposeScope(),
-            StateTensors = agent.GameStateTensors.Clone().DetachFromDisposeScope(),
-            UseHandTensors = useHandTensors.DetachFromDisposeScope(),
-            Target = target.DetachFromDisposeScope(),
-            MoveIndices = moveIndices.DetachFromDisposeScope(),
+            SamplingProb = probs,
+            StateTensors = agent.GameStateTensors.Clone(),
+            UseHandTensors = useHandTensors,
+            Target = target,
+            MoveIndices = moveIndices,
         };
+        sample.DetachFromDisposeScope();
         return sample;
     }
 

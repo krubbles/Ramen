@@ -150,9 +150,6 @@ void Trim(ConsoleCommandContext context)
         Console.WriteLine($"Only {TrainingData.PolicyData.Count} commands in history.");
         return;
     }
-
-    TrainingData.PolicyData.RemoveRange(0, TrainingData.PolicyData.Count - count);
-    Console.WriteLine($"Trimmed data buffer to {count} commands.");
 }
 
 void Play(ConsoleCommandContext context)
@@ -458,7 +455,7 @@ void ToData(ConsoleCommandContext context)
 
 void Clear()
 {
-    TrainingData.PolicyData.Clear();
+    TrainingData.Clear();
     Console.WriteLine("Cleared all training data");
 }
 

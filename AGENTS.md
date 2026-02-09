@@ -1,5 +1,6 @@
-# Platform
-- Mac
+# Commands
+- Use mac commands
+- ALWAYS run dotnet build with elevated sandbox permissions. 
 
 # Git
 - Use short commit messages.

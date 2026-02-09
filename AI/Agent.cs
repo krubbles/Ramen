@@ -38,7 +38,6 @@ public class RamenAgent
         GameState = gameState;
         Model = model;
         Random = FastRandom.SeededByClock();
-        RegisterCallbacks();
     }
 
     /// <summary>
@@ -59,10 +58,12 @@ public class RamenAgent
     /// Returns whether or not the game is complete from the agent's perspective. Many tests and training runs involve subsets of the game,
     /// so this is not the same as when a game of Balatro is typically complete.
     /// </summary>
-    public bool GameIsDone() =>
-        GameState.ScoringState.CurrentRoundTotalChips >= 1 &&
+    public bool GameIsDone() 
+    {
+        return GameState.ScoringState.CurrentRoundTotalChips >= 1 &&
         (GameState.HandState.RemainingHands <= 0 ||
         GameState.ScoringState.CurrentRoundTotalChips >= 300);
+    }
 
     /// <summary>
     /// Returns the agent's reward at the current GameState. Note: the reward function is only valid when <see cref="GameIsDone"/> returns true.
@@ -148,7 +149,7 @@ public class RamenAgent
         return (useHandTensors, probs);
     }
 
-    static readonly Tensor _maskOutDiscards = tensor([0.0f, -1e8f]).repeat(218).view(-1).DetachFromDisposeScope();
+    static readonly Tensor _maskOutDiscards = tensor([0.0f, -1e8f]).repeat(218).view(-1);
 
     /// <summary>
     /// Embeds a list of moves into tensors.
@@ -279,22 +280,22 @@ public class RamenAgent
     {
         if (_disposeTensorsOnRegen)
             _tensors.FullHand?.Dispose();
-        _tensors.FullHand = TensorizeCardSet(GameState.HandState.Hand, 8).unsqueeze(0).DetachFromDisposeScope();
+        _tensors.FullHand = TensorizeCardSet(GameState.HandState.Hand, 8).unsqueeze(0);
     }
 
     void EmbedRemainingDeck()
     {
         if (_disposeTensorsOnRegen)
             _tensors.RemainingDeck?.Dispose();
-        _tensors.RemainingDeck = TensorizeCardSet(GameState.DeckState.RemainingDeck, 52).unsqueeze(0).DetachFromDisposeScope();
+        _tensors.RemainingDeck = TensorizeCardSet(GameState.DeckState.RemainingDeck, 52).unsqueeze(0);
     }
-
+    
     void EmbedHandsAndDiscards()
     {
         if (_disposeTensorsOnRegen)
             _tensors.HandsAndDiscards?.Dispose();
         int handsAndDiscards = GameState.HandState.RemainingHands * 5 + GameState.HandState.RemainingDiscards;
-        _tensors.HandsAndDiscards = tensor(handsAndDiscards).unsqueeze(0).DetachFromDisposeScope();
+        _tensors.HandsAndDiscards = tensor(handsAndDiscards).unsqueeze(0);
     }
 
     void EmbedScore()
@@ -302,7 +303,7 @@ public class RamenAgent
         if (_disposeTensorsOnRegen)
             _tensors.Score?.Dispose();
         float score = (float)GameState.ScoringState.CurrentRoundTotalChips;
-        _tensors.Score = tensor(score).view([1, 1]).DetachFromDisposeScope();
+        _tensors.Score = tensor(score).view([1, 1]);
     }
 
     void RegisterCallbacks()

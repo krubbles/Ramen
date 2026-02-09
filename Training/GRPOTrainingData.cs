@@ -14,6 +14,9 @@ public static class GRPOTrainingData
         if (games <= 0 || groupSize <= 0)
             return stats;
 
+        using var scope = NewDisposeScope();
+        using var noGrad = no_grad();
+
         PolicyOnlyAgent agent = new(model);
         int batchSize = Math.Min(groupSize, games);
 
@@ -37,8 +40,6 @@ public static class GRPOTrainingData
             gamesStarted++;
         }
 
-        using var scope = NewDisposeScope();
-        using var noGrad = no_grad();
         while (gamesFinished < games)
         {
             // Build active slot map for this step.
@@ -78,7 +79,8 @@ public static class GRPOTrainingData
 
                 lock (TrainingData.PolicyData)
                 {
-                    TrainingData.PolicyData.AddRange(samples);
+                    foreach (PolicyTrainingSample s in samples)
+                        TrainingData.AddSample(s);
                 }
 
                 gamesFinished++;
@@ -95,6 +97,7 @@ public static class GRPOTrainingData
 
                 slotIsActive[slot] = false;
             }
+            GC.Collect();
         }
 
         // Normalize rewards into advantages after all rollouts are complete.

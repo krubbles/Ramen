@@ -44,7 +44,7 @@ public static class TrainingRunAnalysis
             (int step, string filePath) = stepFiles[i];
             IPolicyModel model = new PolicyModel();
             model.Load(filePath);
-            List<GameState> games = PlayGameBatch(model, sampleSize);
+            GameState[] games = PlayGameBatch(model, sampleSize);
 
             output.NextRow().SetCell("step", step);
             for (int analyzerIndex = 0; analyzerIndex < analyzers.Length; analyzerIndex++)
@@ -57,21 +57,35 @@ public static class TrainingRunAnalysis
         return output;
     }
 
-    static List<GameState> PlayGameBatch(IPolicyModel model, int sampleSize)
+    static GameState[] PlayGameBatch(IPolicyModel model, int sampleSize)
     {
-        List<GameState> games = new();
         int gameCount = Math.Max(0, sampleSize);
+        GameState[] games = new GameState[gameCount];
+        PolicyOnlyAgent agent = new(model);
+
+        // Create all game states up front so policy evaluation can be batched across them.
         for (int i = 0; i < gameCount; i++)
+            games[i] = new(GameData.Default);
+
+        // Repeatedly perform one batched move until all games are finished.
+        while (true)
         {
-            GameState gameState = new(GameData.Default);
-            RamenAgent agent = new(gameState, model);
-            while (!agent.GameIsDone())
+            bool allGamesDone = true;
+            for (int i = 0; i < games.Length; i++)
             {
-                gameState.AdvanceToNextPlayerChoice();
-                agent.MakeMove(1f, annotatePolicy: true); // adds an annotation move to this history saving the policy prob dist for the made move.
+                if (!agent.IsGameDone(games[i]))
+                {
+                    allGamesDone = false;
+                    break;
+                }
             }
-            games.Add(gameState);
+
+            if (allGamesDone)
+                break;
+
+            agent.MakeMove(1f, annotatePolicy: true, games);
         }
+
         return games;
     }
 }

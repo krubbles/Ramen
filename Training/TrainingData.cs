@@ -25,7 +25,8 @@ public class TrainingDataStats
 
 public static class TrainingData
 {
-    public static readonly List<PolicyTrainingSample> PolicyData = new();
+    static readonly List<PolicyTrainingSample> _policyData = [];
+    public static IReadOnlyList<PolicyTrainingSample> PolicyData => _policyData;
 
     public const int PolicyOutputWidth = 9;
 
@@ -40,11 +41,16 @@ public static class TrainingData
 
     public static void Clear()
     {
-        foreach (PolicyTrainingSample sample in PolicyData)
+        foreach (PolicyTrainingSample sample in _policyData)
         {
             sample.Dispose();
         }
-        PolicyData.Clear();
+        _policyData.Clear();
+    }
+
+    public static void AddSample(PolicyTrainingSample sample)
+    {
+        _policyData.Add(sample);
     }
 
     static void RunGroup(IPolicyModel model, TrainingDataStats stats, int groupSize = 512)
@@ -84,44 +90,6 @@ public static class TrainingData
                 while (gameState.MoveState.MoveHistory.Count > startingMoveCount)
                     gameState.MoveState.RevertLastMove();
 
-            }
-        }
-        return;
-
-        float sum = 0;
-        float sqSum = 0;
-
-        for (int group = 0; group < groupSize; ++group)
-        {
-            sum += groupRewards[group];
-            sqSum += groupRewards[group] * groupRewards[group];
-        }
-
-        stats.TotalReward += sum;
-        stats.TotalSquaredReward += sqSum;
-        stats.GamesCount += groupSize;
-
-        float mean = sum / groupSize;
-        float ss = sqSum - sum * mean;
-        float stdDev = MathF.Sqrt(ss / (groupSize - 1));
-
-        Array.Sort(groupRewards, groupGames);
-        for (int group = 0; group < groupSize; ++group)
-        {
-            float percentile = (group + 0.5f) / groupSize;
-            float advantage = (groupRewards[group] - mean) / MathF.Max(stdDev, 1e-8f);
-            if (float.IsNaN(advantage) || float.IsInfinity(advantage))
-                advantage = 0;
-            List<SN> nodes = groupGames[group];
-            for (int depth = 0; depth < nodes.Count; ++depth)
-            {
-                SN node = nodes[depth];
-                stats.NodesCount++;
-                node.Sample.Advantage = tensor(advantage).unsqueeze_(0).DetachFromDisposeScope();
-                PolicyData.Add(node.Sample);
-
-                stats.TotalNLProbByDepth[depth] += node.NLProb;
-                stats.CountByDepth[depth] += 1;
             }
         }
     }
@@ -169,7 +137,7 @@ public static class TrainingData
                     game.MoveState.RevertLastMove(); // we want to create the sample in the context of the state before the move was applied.
                     moveIndex--;
                     PolicyTrainingSample sample = agent.CreateMonteCarloTrainingSample(branchData);
-                    PolicyData.Add(sample);
+                    _policyData.Add(sample);
                 }
             }
         }
