@@ -74,14 +74,14 @@ public class PolicyOnlyAgent : IAgent
 
             for (int i = 0; i < activeStates.Length; ++i)
             {
-                int gameStateIndex = activeIndices[batchStart + i];
+                GameState state = activeStates[i];
                 int chosenIndex = (int)indices[i];
 
-                UseHandMove move = MoveForIndex(chosenIndex);
-                move.Apply(states[gameStateIndex]);
+                UseHandMove move = MoveForIndex(state, chosenIndex);
+                move.Apply(state);
 
                 if (annotatePolicy)
-                    AnnotatePolicy(states[gameStateIndex], probs, i);
+                    AnnotatePolicy(state, probs, i);
             }
         }
     }
@@ -207,13 +207,13 @@ public class PolicyOnlyAgent : IAgent
     /// <summary>
     /// Returns the move for the given move index in a specific game state.
     /// </summary>
-    public static UseHandMove MoveForIndex(int index)
+    public static UseHandMove MoveForIndex(GameState state, int index)
     {
         int[][] useHandOptions = Combinatorics.GetCombinations(
             setSize: GameData.HandSize,
             minSubsetSize: 1,
             maxSubsetSize: 5);
-        return new UseHandMove(index % 2 == 1, useHandOptions[index / 2]);
+        return new UseHandMove(state.HandState.RemainingDiscards >= 1 && index % 2 == 1, useHandOptions[index / 2]);
     }
 
     static Tensor TensorizeHandBatch(ReadOnlySpan<GameState> gameStates, int cardCount)
@@ -280,17 +280,17 @@ public class PolicyOnlyAgent : IAgent
         using var pscope = ProfileScope.New(nameof(BuildDiscardMask));
         
         Profiling.Enter("BuildManaged");
-        float[] mask = new float[gameStates.Length * 2];
+        float[,] mask = new float[gameStates.Length, 2];
         int useHandCount = moveCount / 2;
         for (int stateIndex = 0; stateIndex < gameStates.Length; ++stateIndex)
         {
             if (gameStates[stateIndex].HandState.RemainingDiscards == 0)
-                mask[stateIndex * 2 + 1] = -1e8f;
+                mask[stateIndex, 1] = -1e6f;
         }
         Profiling.Exit("BuildManaged");
 
         Profiling.Enter("BuildTensor");
-        Tensor maskNoRepeat = tensor(mask, device: CPU).view([gameStates.Length, -1]);
+        Tensor maskNoRepeat = tensor(mask, device: CPU);
         Profiling.Exit("BuildTensor");
 
         Profiling.Enter("ToMPS");

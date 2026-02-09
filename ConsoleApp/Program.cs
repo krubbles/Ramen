@@ -9,8 +9,6 @@ using TorchSharp;
 using System.Runtime.CompilerServices;
 
 torch.set_default_device(torch.MPS);
-// needed for cursor
-// ExternalConsole.Initialize();
 
 Console.WriteLine("=== WELCOME! ===");
 Console.WriteLine("MPS available: " + torch.mps_is_available());
@@ -611,75 +609,5 @@ static void LogFractions(List<(string tag, float fraction)> fractions)
     {
         Console.Write(i + ". " + fractions[i].tag + " - " + fractions[i].fraction);
         Console.Write("\n");
-    }
-}
-
-string EscapeControlCharacters(string text)
-{
-    List<char> output = new(text.Length);
-    for (int i = 0; i < text.Length; i++)
-    {
-        char c = text[i];
-        if (c == '\r')
-        {
-            output.Add('\\');
-            output.Add('r');
-            continue;
-        }
-
-        if (c == '\n')
-        {
-            output.Add('\\');
-            output.Add('n');
-            continue;
-        }
-
-        if (char.IsControl(c))
-        {
-            string escaped = ((int)c).ToString("X4");
-            output.Add('\\');
-            output.Add('u');
-            for (int j = 0; j < escaped.Length; j++)
-                output.Add(escaped[j]);
-            continue;
-        }
-
-        output.Add(c);
-    }
-
-    return new string([.. output]);
-}
-
-static class ExternalConsole
-{
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool FreeConsole();
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool AllocConsole();
-
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern IntPtr GetStdHandle(int nStdHandle);
-
-    private const int STD_OUTPUT_HANDLE = -11;
-    private const int STD_INPUT_HANDLE = -10;
-
-    public static void Initialize()
-    {
-        FreeConsole();
-        if (AllocConsole())
-        {
-            var stdOutPtr = GetStdHandle(STD_OUTPUT_HANDLE);
-            var safeOutHandle = new Microsoft.Win32.SafeHandles.SafeFileHandle(stdOutPtr, true);
-            var sw = new StreamWriter(new FileStream(safeOutHandle, FileAccess.Write)) { AutoFlush = true };
-            Console.SetOut(sw);
-
-            var stdInPtr = GetStdHandle(STD_INPUT_HANDLE);
-            var safeInHandle = new Microsoft.Win32.SafeHandles.SafeFileHandle(stdInPtr, true);
-            var sr = new StreamReader(new FileStream(safeInHandle, FileAccess.Read));
-            Console.SetIn(sr);
-
-            Console.WriteLine("New Console Window Allocated!");
-        }
     }
 }

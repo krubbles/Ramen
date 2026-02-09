@@ -178,7 +178,7 @@ public static class TensorGroupExtentions
             List<FieldInfo> tList = new(5);
             foreach (FieldInfo field in type.GetFields())
             {
-                if (field.FieldType == typeof(Tensor) || (typeof(ITensorGroup)).IsAssignableFrom(field.FieldType))
+                if (field.FieldType == typeof(Tensor) || typeof(ITensorGroup).IsAssignableFrom(field.FieldType))
                 {
                     tList.Add(field);
                 }

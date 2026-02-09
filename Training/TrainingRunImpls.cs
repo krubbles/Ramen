@@ -20,7 +20,7 @@ public class BasicGRPOTrainingRun : ITrainingRun
     {
         // Reset any previously accumulated policy training samples.
         TrainingData.Clear();
-
+            
         // Generate a rollout where group size matches rollout size.
         GRPOTrainingData.GenerateTrainingData(model, games: RolloutSize, sampleCount: 10, groupSize: RolloutSize);
 
