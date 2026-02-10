@@ -174,10 +174,10 @@ public class PolicyOnlyAgent : IAgent
 
         logits += discardMask;
 
-        Tensor probs = (logits / MathF.Max(temp, 0.0001f)).softmax(1).MoveToOuterDisposeScope();
+        Tensor probs = (logits / MathF.Max(temp, 0.0001f)).softmax(1).ToOuterScope();
 
-        useHandTensors.MoveToOuterDisposeScope();
-        gameStateTensors.MoveToOuterDisposeScope();
+        useHandTensors.ToOuterScope();
+        gameStateTensors.ToOuterScope();
         return (gameStateTensors, useHandTensors, probs);
     }
 
@@ -298,7 +298,7 @@ public class PolicyOnlyAgent : IAgent
         Profiling.Exit("ToMPS");
 
         Profiling.Enter("Repeat");
-        Tensor result = maskNoRepeat.repeat([1, moveCount / 2]).MoveToOuterDisposeScope();
+        Tensor result = maskNoRepeat.repeat([1, moveCount / 2]).ToOuterScope();
         Profiling.Exit("Repeat");
 
         return result;

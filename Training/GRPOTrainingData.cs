@@ -8,134 +8,91 @@ using static TorchSharp.torch;
 
 public static class GRPOTrainingData
 {
-    public static TrainingDataStats GenerateTrainingData(IPolicyModel model, int games, int sampleCount, int groupSize = 256)
+    public static TrainingDataStats GenerateTrainingData(IPolicyModel model, int trainingSampleCount, int sampledSoftmaxCount, int groupSize = 32)
     {
-        TrainingDataStats stats = new();
-        if (games <= 0 || groupSize <= 0)
-            return stats;
+        if (trainingSampleCount <= 0 || groupSize <= 0)
+            return null;
 
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
 
         PolicyOnlyAgent agent = new(model);
-        int batchSize = Math.Min(groupSize, games);
 
-        GameState[] activeStates = new GameState[batchSize];
-        List<PolicyTrainingSample>[] activeSamples = new List<PolicyTrainingSample>[batchSize];
-        bool[] slotIsActive = new bool[batchSize];
+        GameState[] groupStates = new GameState[groupSize];
+        List<PolicyTrainingSample>[] activeSamples = new List<PolicyTrainingSample>[groupSize];
 
-        int gamesStarted = 0;
-        int gamesFinished = 0;
         Dictionary<PolicyTrainingSample, float> rewardBySample = new();
-        HashSet<PolicyTrainingSample> createdSamples = []; // this is a safety feat
-        HashSet<PolicyTrainingSample> persistedSamples = [];
         float totalReward = 0f;
         float totalSquaredReward = 0f;
+        int gamesCompleted = 0;
 
         // Seed the initial active slots. 
         // active slots are used to track which slots aren't in use after all games have been started but only some are completed. 
-        for (int slot = 0; slot < batchSize; ++slot)
+        for (int slot = 0; slot < groupSize; ++slot)
         {
-            activeStates[slot] = CreateGameState();
+            groupStates[slot] = CreateGameState();
             activeSamples[slot] = new();
-            slotIsActive[slot] = true;
-            gamesStarted++;
         }
 
-        try
+        while (TrainingData.PolicyData.Count < trainingSampleCount)
         {
-            while (gamesFinished < games)
+            // Advance all active games by one move in a single batched policy forward pass.
+            PolicyTrainingSample[] stepSamples = agent.MakeMoveAndTrainingSample(groupStates, sampledSoftmaxCount);
+
+            // Finalize completed games and refill slots immediately for maximum parallelism.
+            for (int slot = 0; slot < groupSize; ++slot)
             {
-                // Build active slot map for this step.
-                List<int> activeSlotIndices = new(batchSize);
-                for (int slot = 0; slot < batchSize; ++slot)
+                PolicyTrainingSample sample = stepSamples[slot];
+                if (sample != null)
                 {
-                    if (slotIsActive[slot])
-                        activeSlotIndices.Add(slot);
+                    activeSamples[slot].Add(sample);
                 }
 
-                GameState[] stepStates = new GameState[activeSlotIndices.Count];
-                for (int i = 0; i < activeSlotIndices.Count; ++i)
-                    stepStates[i] = activeStates[activeSlotIndices[i]];
+                if (!agent.IsGameDone(groupStates[slot]))
+                    continue;
 
-                // Advance all active games by one move in a single batched policy forward pass.
-                PolicyTrainingSample[] stepSamples = agent.MakeMoveAndTrainingSample(stepStates, sampleCount);
+                List<PolicyTrainingSample> gameSamples = activeSamples[slot];
+                FillEntropyScalars(gameSamples);
 
-                // Finalize completed games and refill slots immediately for maximum parallelism.
-                for (int i = 0; i < activeSlotIndices.Count; ++i)
+                gamesCompleted++;
+                float reward = GetReward(groupStates[slot]);
+                totalReward += reward;
+                totalSquaredReward += reward * reward;
+                for (int sampleIndex = 0; sampleIndex < gameSamples.Count; ++sampleIndex)
+                    rewardBySample[gameSamples[sampleIndex]] = reward;
+
+                lock (TrainingData.PolicyData)
                 {
-                    int slot = activeSlotIndices[i];
-                    PolicyTrainingSample sample = stepSamples[i];
-                    if (sample != null)
+                    foreach (PolicyTrainingSample s in gameSamples)
                     {
-                        activeSamples[slot].Add(sample);
-                        createdSamples.Add(sample);
+                        if (TrainingData.PolicyData.Count >= trainingSampleCount)
+                            goto fillAdvantagesAndReturn;
+                        TrainingData.AddSample(s);
                     }
-
-                    if (!agent.IsGameDone(activeStates[slot]))
-                        continue;
-
-                    List<PolicyTrainingSample> samples = activeSamples[slot];
-                    FillEntropyScalars(samples);
-
-                    float reward = GetReward(activeStates[slot]);
-                    totalReward += reward;
-                    totalSquaredReward += reward * reward;
-                    for (int sampleIndex = 0; sampleIndex < samples.Count; ++sampleIndex)
-                        rewardBySample[samples[sampleIndex]] = reward;
-
-                    lock (TrainingData.PolicyData)
-                    {
-                        foreach (PolicyTrainingSample s in samples)
-                        {
-                            TrainingData.AddSample(s);
-                            persistedSamples.Add(s);
-                        }
-                    }
-
-                    gamesFinished++;
-                    stats.GamesCount = gamesFinished;
-
-                    if (gamesStarted < games)
-                    {
-                        activeStates[slot] = CreateGameState();
-                        activeSamples[slot] = new();
-                        slotIsActive[slot] = true;
-                        gamesStarted++;
-                        continue;
-                    }
-
-                    slotIsActive[slot] = false;
                 }
-                GC.Collect();
+
+                groupStates[slot] = CreateGameState();
+                activeSamples[slot] = new();
+                continue;
             }
-
-            // Normalize rewards into advantages after all rollouts are complete.
-            float meanReward = totalReward / Math.Max(1, gamesFinished);
-            float centeredSquares = totalSquaredReward - totalReward * meanReward;
-            float stdDev = MathF.Sqrt(MathF.Max(0f, centeredSquares / Math.Max(1, gamesFinished - 1)));
-
-            foreach (KeyValuePair<PolicyTrainingSample, float> pair in rewardBySample)
-            {
-                PolicyTrainingSample sample = pair.Key;
-                float advantage = (pair.Value - meanReward) / MathF.Max(stdDev, 1e-8f);
-                sample.Advantage?.Dispose();
-                sample.Advantage = tensor([advantage], device: CPU).DetachFromDisposeScope();
-            }
-
-            stats.TotalReward = totalReward;
-            stats.TotalSquaredReward = totalSquaredReward;
-
-            return stats;
         }
-        finally
+
+        fillAdvantagesAndReturn:
+
+        // Normalize rewards into advantages after all rollouts are complete.
+        float meanReward = totalReward / gamesCompleted;
+        float centeredSquares = totalSquaredReward - totalReward * meanReward;
+        float stdDev = MathF.Sqrt(MathF.Max(0f, centeredSquares / gamesCompleted));
+
+        foreach (KeyValuePair<PolicyTrainingSample, float> pair in rewardBySample)
         {
-            foreach (PolicyTrainingSample sample in createdSamples)
-            {
-                if (!persistedSamples.Contains(sample))
-                    sample.Dispose();
-            }
-        }
+            PolicyTrainingSample sample = pair.Key;
+            float advantage = (pair.Value - meanReward) / MathF.Max(stdDev, 1e-8f);
+            sample.Advantage?.Dispose();
+            sample.Advantage = tensor([advantage], device: CPU).DetachFromScope();
+        }   
+
+        return null;
     }
 
 
@@ -147,7 +104,7 @@ public static class GRPOTrainingData
             PolicyTrainingSample sample = samples[i];
             float entropyScalar = totalNlProbAfterwards;
             sample.EntropyScalar?.Dispose();
-            sample.EntropyScalar = tensor([entropyScalar], device: CPU).DetachFromDisposeScope();
+            sample.EntropyScalar = tensor([entropyScalar], device: CPU).DetachFromScope();
             totalNlProbAfterwards += sample.ChosenMoveNLProb;
         }
     }

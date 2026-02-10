@@ -103,7 +103,9 @@ public class PolicyModel : Module, IPolicyModel
                 for (int i = 0; i < 5; ++i)
                     indices[i] = i + (int)suit * 5;
                 Tensor tensorIndices = tensor(indices, ScalarType.Int32);
-                tensorIndices.DetachFromDisposeScope();
+                tensorIndices.DetachFromScope();
+                tensorIndices.name = $"played_hand_selection_indices";
+                TensorManager.PersistForever(tensorIndices);
                 _playedHandSelectionIndices.Add((suit, usedCardIndex), tensorIndices);
             }
         }

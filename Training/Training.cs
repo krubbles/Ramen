@@ -31,9 +31,9 @@ public static class Training
         _model = model;
         Optimizer = optim.AdamW(modelModule.parameters(),
             lr: tp.learningRate,
-            weight_decay: 0.01f,
-            beta1: 0.9f,
-            beta2: 0.998f
+            weight_decay: 0.00f,
+            beta1: 0.99f,
+            beta2: 0.999f
         );
         Optimizer.zero_grad();
     }
@@ -117,25 +117,27 @@ public static class Training
     {
         using var dscope = NewDisposeScope();
 
-        Console.WriteLine($"Training GRPO model for {tp.epochs} epochs, batch size {tp.batchSize}");
-        _ = validate; // GRPO uses a surrogate objective, so validation loss is not meaningful.
-
         PolicyTrainingSample stacked;
-        lock (TrainingData.PolicyData)
+        using (var nograd = no_grad())
         {
-            stacked = TensorGroupExtentions.Stack(TrainingData.PolicyData, false, true);
+            Console.WriteLine($"Training GRPO model for {tp.epochs} epochs, batch size {tp.batchSize}");
+            _ = validate; // GRPO uses a surrogate objective, so validation loss is not meaningful.
+
+            lock (TrainingData.PolicyData)
+            {
+                stacked = TensorGroupExtentions.Stack(TrainingData.PolicyData, false, true);
+            }
+
+            Tensor advantageGPU = stacked.Advantage.to(MPS);
+            Tensor entScalarGPU = stacked.EntropyScalar.to(MPS);
+            stacked.Advantage.Dispose();
+            stacked.Advantage = advantageGPU;
+            stacked.EntropyScalar.Dispose();
+            stacked.EntropyScalar = entScalarGPU;
+
+            stacked = stacked.IndexSelect(0, randperm(stacked.SamplingProb.size(0)));
         }
 
-
-        Tensor advantageGPU = stacked.Advantage.to(MPS);
-        Tensor entScalarGPU = stacked.EntropyScalar.to(MPS);
-        stacked.Advantage.Dispose();
-        stacked.Advantage = advantageGPU;
-        stacked.EntropyScalar.Dispose();
-        stacked.EntropyScalar = entScalarGPU;
-
-        stacked = stacked.IndexSelect(0, randperm(stacked.SamplingProb.size(0)));
-    
         SetModelAndOptimizer(model, tp);
 
         int samples = TrainingData.PolicyData.Count;

@@ -5,7 +5,7 @@ using Ramen.AI;
 
 public class BasicGRPOTrainingRun : ITrainingRun
 {
-    public int RolloutSize { get; set; } = 500;
+    public int RolloutSize { get; set; } = 3000;
 
     public int Epochs { get; set; } = 3;
 
@@ -22,10 +22,10 @@ public class BasicGRPOTrainingRun : ITrainingRun
         TrainingData.Clear();
             
         // Generate a rollout where group size matches rollout size.
-        GRPOTrainingData.GenerateTrainingData(model, games: RolloutSize, sampleCount: 10, groupSize: 32);
+        GRPOTrainingData.GenerateTrainingData(model, trainingSampleCount: RolloutSize, sampledSoftmaxCount: 10, groupSize: 256);
 
         // Train on the freshly generated rollout.
-        TrainingParams trainingParams = new(epochs: Epochs, learningRate: LearningRate, entropyCoeff: Entropy);
+        TrainingParams trainingParams = new(epochs: Epochs, learningRate: LearningRate, entropyCoeff: Entropy, batchSize: 256);
         Training.TrainPolicyModelGRPO(model, trainingParams, CancellationToken.None);
     }
 }

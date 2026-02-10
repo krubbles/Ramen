@@ -123,35 +123,35 @@ public static class TensorGroupExtentions
 
     public static T Clone<T>(this T me) where T : ITensorGroup => (T)Clone((ITensorGroup)me);
 
-    public static ITensorGroup DetachFromDisposeScope(this ITensorGroup me)
+    public static ITensorGroup DetachFromScope(this ITensorGroup me)
     {
         foreach (FieldInfo field in GetTensorFields(me.GetType()))
         {
             object value = field.GetValue(me);
             if (value is Tensor tensor)
-                tensor.DetachFromDisposeScope();
+                tensor.DetachFromScope();
             else if (value is ITensorGroup group)
-                group.DetachFromDisposeScope();
+                group.DetachFromScope();
         }
         return me;
     }
 
-    public static T DetachFromDisposeScope<T>(this T me) where T : ITensorGroup => (T)DetachFromDisposeScope((ITensorGroup)me);
+    public static T DetachFromScope<T>(this T me) where T : ITensorGroup => (T)DetachFromScope((ITensorGroup)me);
 
-    public static ITensorGroup MoveToOuterDisposeScope(this ITensorGroup me)
+    public static ITensorGroup ToOuterScope(this ITensorGroup me)
     {
         foreach (FieldInfo field in GetTensorFields(me.GetType()))
         {
             object value = field.GetValue(me);
             if (value is Tensor tensor)
-                tensor.MoveToOuterDisposeScope();
+                tensor.ToOuterScope();
             else if (value is ITensorGroup group)
-                group.MoveToOuterDisposeScope();
+                group.ToOuterScope();
         }
         return me;
     }
 
-    public static T MoveToOuterDisposeScope<T>(this T me) where T : ITensorGroup => (T)MoveToOuterDisposeScope((ITensorGroup)me);
+    public static T ToOuterScope<T>(this T me) where T : ITensorGroup => (T)ToOuterScope((ITensorGroup)me);
 
     public static void Dispose(this ITensorGroup me)
     {
@@ -197,7 +197,7 @@ public static class TensorGroupExtentions
             if (value is Tensor tensor)
             {
                 Tensor moved = tensor.to(device, nonBlocking);
-                moved.MoveToOuterDisposeScope();
+                moved.ToOuterScope();
                 field.SetValue(me, moved);
             }
             else if (value is ITensorGroup group)

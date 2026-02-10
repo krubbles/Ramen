@@ -231,8 +231,8 @@ void RunGRPOTrainingRun(ConsoleCommandContext context)
     // Configure the GRPO training run settings.
     BasicGRPOTrainingRun trainingRun = new()
     {
-        RolloutSize = context.GetIntArg("rollout", 500),
-        Epochs = context.GetIntArg("epochs", 3),
+        RolloutSize = context.GetIntArg("rollout", 5000),
+        Epochs = context.GetIntArg("epochs", 4),
         LearningRate = context.GetFloatArg("lr", 3e-4f),
         Entropy = context.GetFloatArg("ent", 0f),
     };

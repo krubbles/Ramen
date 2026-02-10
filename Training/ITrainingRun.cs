@@ -24,7 +24,7 @@ public interface ITrainingRun
         return Task.Run(() =>
         {
             // Create the model and ensure the output directory exists.
-            IPolicyModel model = new PolicyModel();
+            using PolicyModel model = new();
             string baseDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Ramen", "Weights", runName);
             Directory.CreateDirectory(baseDir);
 
@@ -41,6 +41,8 @@ public interface ITrainingRun
                     string filePath = Path.Combine(baseDir, $"{step}.bin");
                     model.Save(filePath);
                 }
+
+                TensorManager.DisposeAll();
             }
         }, cancellationTokenSource.Token);
     }

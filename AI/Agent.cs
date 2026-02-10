@@ -44,7 +44,7 @@ public class RamenAgent
     /// Returns the embedded version of the current game state.
     /// Caches each individual component of the <see cref="AI.GameStateTensors"/> class and only updates them when they change.
     /// DOES NOT automatically clone when called. If persistent embedding objects are needed, call .Clone() on the return value.
-    /// You may also need to call DetachFromDisposeScope().
+    /// You may also need to call DetachFromScope().
     /// </summary>
     public GameStateTensors GameStateTensors => new()
     {
@@ -328,6 +328,6 @@ public class RamenAgent
         }
 
         Tensor handTensor = tensor(cards);
-        return handTensor.MoveToOuterDisposeScope();
+        return handTensor.ToOuterScope();
     }
 }

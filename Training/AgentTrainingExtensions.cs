@@ -44,7 +44,7 @@ public static class AgentTrainingExtensions
             MoveIndices = indices.unsqueeze(0),
             ChosenMoveNLProb = -MathF.Log(probs[0, chosenIndex].item<float>() + 1e-9f),
         };
-        sample.DetachFromDisposeScope();
+        sample.DetachFromScope();
 
         UseHandMove move = agent.MoveForIndex(chosenIndex);
         move.Apply(agent.GameState);
@@ -121,7 +121,7 @@ public static class AgentTrainingExtensions
                 MoveIndices = sampleMoveIndices,
                 ChosenMoveNLProb = -MathF.Log(chosenProbsManaged[activeIndex] + 1e-9f),
             };
-            sample.DetachFromDisposeScope();
+            sample.DetachFromScope();
 
             // make the chosen move
             GameState state = activeStates[activeIndex];
@@ -148,7 +148,7 @@ public static class AgentTrainingExtensions
             Target = target,
             MoveIndices = moveIndices,
         };
-        sample.DetachFromDisposeScope();
+        sample.DetachFromScope();
         return sample;
     }
 
