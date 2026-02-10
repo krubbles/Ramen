@@ -11,7 +11,6 @@ TensorManager.Init();
 Console.WriteLine("=== WELCOME! ===");
 Console.WriteLine("MPS available: " + torch.mps_is_available());
 
-IPolicyModel model = new PolicyModel();
 CancellationTokenSource cancel = new();
 
 while (true)

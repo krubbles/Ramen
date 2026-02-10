@@ -107,18 +107,6 @@ public static class Training
         stacked.Dispose();
     }
 
-    static Tensor CalculateSupervisedLoss(IPolicyModel model, PolicyTrainingSample sample)
-    {
-        Tensor logits = model.GetPolicyLogits(sample.StateTensors, sample.UseHandTensors, sample.MoveIndices);
-        Tensor logQ = log(sample.SamplingProb + 1e-9);
-        Tensor logitsAdjusted = logits - logQ;
-
-        Tensor logProbs = functional.log_softmax(logitsAdjusted, dim: 1);
-        Tensor ceLoss = -(sample.Target * logProbs);
-        Tensor loss = ceLoss.mean();
-        return loss;
-    }
-
     static Tensor CalculatePPOLoss(Tensor logits, Tensor oldProbs, Tensor advantage, Tensor entScalar, float ec, float kc, bool useIndex0, ref float kldAccumulate, Tensor moveIndex = null)
     {
         oldProbs /= oldProbs.sum(dim: 1, keepdim: true).max(1e-9f);

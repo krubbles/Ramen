@@ -134,9 +134,3 @@ public class PolicyTrainingSample : ITensorGroup
     public Tensor Advantage;
     public Tensor EntropyScalar;
 }
-
-public struct MoveSampleAnnotationData
-{
-    public ushort MoveIndex;
-    public ushort NLProbTimes1K; // for log-q adjustment
-}

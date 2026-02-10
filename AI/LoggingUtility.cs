@@ -27,5 +27,4 @@ public static class LoggingUtility
         }
         return sb.ToString();
     }
-
 }

@@ -1,5 +1,8 @@
 namespace Ramen.AI;
 
+// NOTE: CURRENTLY NOT IN USE. 
+// MAY END UP USING IN THE FUTURE HOWEVER
+
 using System;
 using System.Collections.Generic;
 using TorchSharp;
