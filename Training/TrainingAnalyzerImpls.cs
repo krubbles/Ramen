@@ -97,8 +97,7 @@ public sealed class RewardStatsTrainingRunAnalyzer : ITrainingRunAnalyzer
 
         foreach (GameState game in games)
         {
-            RamenAgent agent = new(game, model);
-            float reward = agent.GetCurrentReward();
+            float reward = GRPOTrainingData.GetReward(game);
             sum += reward;
             sqSum += reward * reward;
             count++;

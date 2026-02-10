@@ -18,14 +18,20 @@ public class BasicGRPOTrainingRun : ITrainingRun
     /// </summary>
     public void Step(IPolicyModel model)
     {
-        // Reset any previously accumulated policy training samples.
-        TrainingData.Clear();
-            
         // Generate a rollout where group size matches rollout size.
-        GRPOTrainingData.GenerateTrainingData(model, trainingSampleCount: RolloutSize, sampledSoftmaxCount: 10, groupSize: 256);
+        IReadOnlyList<PolicyTrainingSample> trainingData = GRPOTrainingData.GenerateTrainingData(
+            model, 
+            trainingSampleCount: RolloutSize, 
+            sampledSoftmaxCount: 10, 
+            groupSize: 256);
 
         // Train on the freshly generated rollout.
-        TrainingParams trainingParams = new(epochs: Epochs, learningRate: LearningRate, entropyCoeff: Entropy, batchSize: 256);
-        Training.TrainPolicyModelGRPO(model, trainingParams, CancellationToken.None);
+        TrainingParams trainingParams = new(
+            epochs: Epochs, 
+            learningRate: LearningRate, 
+            entropyCoeff: Entropy, 
+            batchSize: 256);
+
+        Training.TrainPolicyModelGRPO(model, trainingData, trainingParams, CancellationToken.None);
     }
 }
