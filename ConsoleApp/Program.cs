@@ -10,6 +10,8 @@ using System.Runtime.CompilerServices;
 
 torch.set_default_device(torch.MPS);
 
+TensorManager.Init();
+
 Console.WriteLine("=== WELCOME! ===");
 Console.WriteLine("MPS available: " + torch.mps_is_available());
 
