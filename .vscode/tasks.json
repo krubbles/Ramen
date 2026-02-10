@@ -7,8 +7,6 @@
             "type": "process",
             "args": [
                 "build",
-                "/property:GenerateFullPaths=true",
-                "/consoleloggerparameters:NoSummary;ForceNoAlign"
             ],
             "problemMatcher": "$msCompile"
         },

@@ -8,53 +8,88 @@ using static TorchSharp.torch;
 
 public static class GRPOTrainingData
 {
-    public static TrainingDataStats GenerateTrainingData(PolicyModel model, int games, int sampleCount, int groupSize = 128)
+    public static List<PolicyTrainingSample> GenerateTrainingData(IPolicyModel model, int trainingSampleCount, int sampledSoftmaxCount, int groupSize = 32)
     {
-        TrainingDataStats stats = new();
-        GameState gameState = new(new());
-        RamenAgent agent = new(gameState, model);
-
+        List<PolicyTrainingSample> outputSamples = [];
+        
         using var scope = NewDisposeScope();
+        using var noGrad = no_grad();
 
-        // Generate grouped rollouts.
-        while (stats.GamesCount < games)
+        PolicyOnlyAgent agent = new(model);
+
+        GameState[] groupStates = new GameState[groupSize];
+        List<PolicyTrainingSample>[] activeSamples = new List<PolicyTrainingSample>[groupSize];
+
+        Dictionary<PolicyTrainingSample, float> rewardBySample = new();
+        float totalReward = 0f;
+        float totalSquaredReward = 0f;
+        int gamesCompleted = 0;
+
+        // Seed the initial active slots. 
+        // active slots are used to track which slots aren't in use after all games have been started but only some are completed. 
+        for (int slot = 0; slot < groupSize; ++slot)
         {
-            // Prepare batch containers.
-            int batchSize = Math.Min(groupSize, games - stats.GamesCount);
-            List<PolicyTrainingSample>[] groupSamples = new List<PolicyTrainingSample>[batchSize];
-            float[] groupRewards = new float[batchSize];
-
-            int startingMoveCount = gameState.MoveState.MoveHistory.Count;
-            using (no_grad())
-            {
-                // Play each game in the batch.
-                for (int group = 0; group < batchSize; ++group)
-                {
-                    gameState.Reseed();
-                    List<PolicyTrainingSample> gameSamples = new();
-                    groupSamples[group] = gameSamples;
-
-                    while (!agent.GameIsDone())
-                    {
-                        PolicyTrainingSample sample = agent.MakeMoveAndTrainingSample(sampleCount);
-                        if (sample != null)
-                            gameSamples.Add(sample);
-                    }
-
-                    groupRewards[group] = agent.GetCurrentReward();
-                    FillEntropyScalars(gameSamples);
-
-                    while (gameState.MoveState.MoveHistory.Count > startingMoveCount)
-                        gameState.MoveState.RevertLastMove();
-                }
-            }
-
-            // Aggregate stats and add samples to the training buffer.
-            ApplyGroupStatsAndSamples(stats, groupRewards, groupSamples);
+            groupStates[slot] = CreateGameState();
+            activeSamples[slot] = [];
         }
 
-        return stats;
+        while (outputSamples.Count < trainingSampleCount)
+        {
+            // Advance all active games by one move in a single batched policy forward pass.
+            PolicyTrainingSample[] stepSamples = agent.MakeMoveAndTrainingSample(groupStates, sampledSoftmaxCount);
+
+            for (int slot = 0; slot < groupSize; ++slot)
+            {
+                PolicyTrainingSample sample = stepSamples[slot];
+                if (sample != null)
+                    activeSamples[slot].Add(sample);
+
+                if (!agent.IsGameDone(groupStates[slot]))
+                    continue;
+
+                // Game is done, calculate reward and fill out training data for all moves in the game.
+
+                List<PolicyTrainingSample> gameSamples = activeSamples[slot];
+                FillEntropyScalars(gameSamples);
+
+                gamesCompleted++;
+                float reward = GetReward(groupStates[slot]);
+                totalReward += reward;
+                totalSquaredReward += reward * reward;
+                for (int sampleIndex = 0; sampleIndex < gameSamples.Count; ++sampleIndex)
+                    rewardBySample[gameSamples[sampleIndex]] = reward;
+
+                foreach (PolicyTrainingSample s in gameSamples)
+                {
+                    if (outputSamples.Count >= trainingSampleCount)
+                        goto fillAdvantagesAndReturn;
+                    outputSamples.Add(s);
+                }
+
+                groupStates[slot] = CreateGameState();
+                activeSamples[slot] = [];
+                continue;
+            }
+        }
+
+        fillAdvantagesAndReturn:
+
+        // Normalize rewards into advantages after all rollouts are complete.
+        float meanReward = totalReward / gamesCompleted;
+        float centeredSquares = totalSquaredReward - totalReward * meanReward;
+        float stdDev = MathF.Sqrt(MathF.Max(0f, centeredSquares / gamesCompleted));
+
+        foreach (KeyValuePair<PolicyTrainingSample, float> pair in rewardBySample)
+        {
+            PolicyTrainingSample sample = pair.Key;
+            float advantage = (pair.Value - meanReward) / MathF.Max(stdDev, 1e-8f);
+            sample.Advantage?.Dispose();
+            sample.Advantage = tensor([advantage], device: CPU).DetachFromScope();
+        }   
+
+        return outputSamples;
     }
+
 
     static void FillEntropyScalars(List<PolicyTrainingSample> samples)
     {
@@ -63,55 +98,39 @@ public static class GRPOTrainingData
         {
             PolicyTrainingSample sample = samples[i];
             float entropyScalar = totalNlProbAfterwards;
-            sample.EntropyScalar = tensor(entropyScalar).unsqueeze(0).DetachFromDisposeScope();
+            sample.EntropyScalar?.Dispose();
+            sample.EntropyScalar = tensor([entropyScalar], device: CPU).DetachFromScope();
             totalNlProbAfterwards += sample.ChosenMoveNLProb;
         }
     }
 
-    static void ApplyGroupStatsAndSamples(TrainingDataStats stats, float[] groupRewards, List<PolicyTrainingSample>[] groupSamples)
+
+    static GameState CreateGameState()
     {
-        float sum = 0f;
-        float sqSum = 0f;
-
-        for (int group = 0; group < groupRewards.Length; ++group)
-        {
-            sum += groupRewards[group];
-            sqSum += groupRewards[group] * groupRewards[group];
-        }
-
-        stats.TotalReward += sum;
-        stats.TotalSquaredReward += sqSum;
-        stats.GamesCount += groupRewards.Length;
-
-        float mean = sum / groupRewards.Length;
-        float ss = sqSum - sum * mean;
-        float stdDev = MathF.Sqrt(ss / Math.Max(1, groupRewards.Length - 1));
-
-        Array.Sort(groupRewards, groupSamples);
-
-        lock (TrainingData.PolicyData)
-        {
-            for (int group = 0; group < groupSamples.Length; ++group)
-            {
-                float advantage = (groupRewards[group] - mean) / MathF.Max(stdDev, 1e-8f);
-                if (float.IsNaN(advantage) || float.IsInfinity(advantage))
-                    advantage = 0f;
-
-                List<PolicyTrainingSample> nodes = groupSamples[group];
-                for (int depth = 0; depth < nodes.Count; ++depth)
-                {
-                    PolicyTrainingSample node = nodes[depth];
-                    stats.NodesCount++;
-                    node.Advantage = tensor(advantage).unsqueeze(0).DetachFromDisposeScope();
-                    TrainingData.PolicyData.Add(node);
-
-                    if (depth < TrainingDataStats.MaxDepth)
-                    {
-                        stats.TotalNLProbByDepth[depth] += node.ChosenMoveNLProb;
-                        stats.CountByDepth[depth] += 1;
-                    }
-                }
-            }
-        }
+        return new(GameData.Default);
     }
+
+
+    public static float GetReward(GameState gameState)
+    {
+        if (gameState.ScoringState.CurrentRoundTotalChips >= 300)
+            return 1f + gameState.HandState.RemainingHands * 0.2f;
+        return (float)gameState.ScoringState.CurrentRoundTotalChips / 1000f;
+    }
+}
+
+public class PolicyTrainingSample : ITensorGroup
+{
+    public GameStateTensors StateTensors;
+    public UseHandTensors UseHandTensors;
+    public Tensor MoveIndices;
+    public Tensor Target;
+    public Tensor SamplingProb;
+
+    /// <summary>
+    /// The negative natural log probability of the chosen move.
+    /// </summary>
+    public float ChosenMoveNLProb;
+    public Tensor Advantage;
+    public Tensor EntropyScalar;
 }

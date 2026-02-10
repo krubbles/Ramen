@@ -60,7 +60,7 @@ public static CSVBuilder Analyze(string runName, params ITrainingRunAnalyzer[] a
     for (int i = 0; i < stepFiles.Count; i++)
     {
         (int step, string filePath) = stepFiles[i];
-        PolicyModel model = new();
+        IPolicyModel model = new PolicyModel();
         model.load(filePath);
         List<GameState> games = PlayGameBatch(model);
 

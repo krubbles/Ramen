@@ -89,7 +89,7 @@ public static class TrainingRunAnalyzerUtils
 /// </summary>
 public sealed class RewardStatsTrainingRunAnalyzer : ITrainingRunAnalyzer
 {
-    public void Analyze(PolicyModel model, IEnumerable<GameState> games, CSVBuilder output)
+    public void Analyze(IPolicyModel model, IEnumerable<GameState> games, CSVBuilder output)
     {
         double sum = 0;
         double sqSum = 0;
@@ -97,8 +97,7 @@ public sealed class RewardStatsTrainingRunAnalyzer : ITrainingRunAnalyzer
 
         foreach (GameState game in games)
         {
-            RamenAgent agent = new(game, model);
-            float reward = agent.GetCurrentReward();
+            float reward = GRPOTrainingData.GetReward(game);
             sum += reward;
             sqSum += reward * reward;
             count++;
@@ -146,7 +145,7 @@ public sealed class PolicyEntropyTrainingRunAnalyzer : ITrainingRunAnalyzer
         _filters = filters ?? [];
     }
 
-    public void Analyze(PolicyModel model, IEnumerable<GameState> games, CSVBuilder output)
+    public void Analyze(IPolicyModel model, IEnumerable<GameState> games, CSVBuilder output)
     {
         if (_filters.Length == 0)
             return;
@@ -205,7 +204,7 @@ public sealed class PolicyEntropyTrainingRunAnalyzer : ITrainingRunAnalyzer
 /// </summary>
 public sealed class HandTypePresenceTrainingRunAnalyzer : ITrainingRunAnalyzer
 {
-    public void Analyze(PolicyModel model, IEnumerable<GameState> games, CSVBuilder output)
+    public void Analyze(IPolicyModel model, IEnumerable<GameState> games, CSVBuilder output)
     {
         // Initialize counts.
         int gameCount = 0;
@@ -257,7 +256,7 @@ public sealed class HandTypePresenceTrainingRunAnalyzer : ITrainingRunAnalyzer
 /// </summary>
 public sealed class EndStateHandCountTrainingRunAnalyzer : ITrainingRunAnalyzer
 {
-    public void Analyze(PolicyModel model, IEnumerable<GameState> games, CSVBuilder output)
+    public void Analyze(IPolicyModel model, IEnumerable<GameState> games, CSVBuilder output)
     {
         // Initialize counts.
         int gameCount = 0;

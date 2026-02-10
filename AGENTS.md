@@ -1,5 +1,6 @@
-# Platform
-- Mac
+# Commands
+- Use mac commands
+- ALWAYS run dotnet build with elevated sandbox permissions. 
 
 # Git
 - Use short commit messages.
@@ -40,6 +41,7 @@ Note: private functions with exactly 1 caller should be placed directly after th
 - Include `using static TorchSharp.torch` in all files that use TorchSharp.
 - If you need to access most of the data in a tensor, use `.data<T>().ToArray()` instead of using `.item<T>()` multiple times. 
 - Don't use using statements on individual tensors, instead, add `using var scope = NewDisposeScope()` to the top of the function.
-- Call `.MoveToOuterDisposeScope()` on tensors created in functions whose ownership should be transferred to their calling context. 
-- Call `.DetachFromDisposeScope()` on long-life tensors.
+- Call `.ToOuterScope()` on tensors created in functions whose ownership should be transferred to their calling context. 
+- Never call `.ToOuterScope()` in functions that don't have a dispose scope. They are already in the outer dispose scope.
+- Call `.DetachFromScope()` on long-life tensors.
 - The first argument of `amax()` is a dim array. 

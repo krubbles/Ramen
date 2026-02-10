@@ -16,15 +16,6 @@ public interface IPolicyModel
     Tensor GetPolicyLogits(GameStateTensors gameStateTensors, UseHandTensors useHandTensors);
 
     /// <summary>
-    /// Returns logits for specific (hand, action) pairs.
-    /// Inputs use batch-first tensors; implementations must accept a full hand tensor of shape (batch, 8, 2)
-    /// in <paramref name="gameStateTensors"/>, a use-hand score tensor of shape (batch, useableHandCount)
-    /// in <paramref name="useHandTensors"/>, and index tensors of shape (batch, moveCount). Output must be a
-    /// tensor of shape (batch, moveCount).
-    /// </summary>
-    Tensor GetPolicyLogits(GameStateTensors gameStateTensors, UseHandTensors useHandTensors, Tensor handIndices, Tensor actionIndices);
-
-    /// <summary>
     /// Returns logits for move indices encoded as (handIndex * 2 + actionIndex).
     /// Inputs use batch-first tensors; implementations must accept a full hand tensor of shape (batch, 8, 2)
     /// in <paramref name="gameStateTensors"/>, a use-hand score tensor of shape (batch, useableHandCount)
@@ -32,4 +23,7 @@ public interface IPolicyModel
     /// tensor of shape (batch, moveCount).
     /// </summary>
     Tensor GetPolicyLogits(GameStateTensors gameStateTensors, UseHandTensors useHandTensors, Tensor moveIndices);
+
+    public void Save(string filePath);
+    public void Load(string filePath);
 }

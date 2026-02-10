@@ -5,7 +5,7 @@ using Ramen.AI;
 
 public class BasicGRPOTrainingRun : ITrainingRun
 {
-    public int RolloutSize { get; set; } = 1000;
+    public int RolloutSize { get; set; } = 3000;
 
     public int Epochs { get; set; } = 3;
 
@@ -16,16 +16,22 @@ public class BasicGRPOTrainingRun : ITrainingRun
     /// <summary>
     /// Clears prior policy samples, generates a GRPO rollout, then trains the model on that rollout.
     /// </summary>
-    public void Step(PolicyModel model)
+    public void Step(IPolicyModel model)
     {
-        // Reset any previously accumulated policy training samples.
-        TrainingData.PolicyData.Clear();
-
         // Generate a rollout where group size matches rollout size.
-        GRPOTrainingData.GenerateTrainingData(model, games: RolloutSize, sampleCount: 10, groupSize: RolloutSize);
+        IReadOnlyList<PolicyTrainingSample> trainingData = GRPOTrainingData.GenerateTrainingData(
+            model, 
+            trainingSampleCount: RolloutSize, 
+            sampledSoftmaxCount: 10, 
+            groupSize: 256);
 
         // Train on the freshly generated rollout.
-        TrainingParams trainingParams = new(epochs: Epochs, learningRate: LearningRate, entropyCoeff: Entropy);
-        Training.TrainPolicyModelGRPO(model, trainingParams, CancellationToken.None);
+        TrainingParams trainingParams = new(
+            epochs: Epochs, 
+            learningRate: LearningRate, 
+            entropyCoeff: Entropy, 
+            batchSize: 256);
+
+        Training.TrainPolicyModelGRPO(model, trainingData, trainingParams, CancellationToken.None);
     }
 }
