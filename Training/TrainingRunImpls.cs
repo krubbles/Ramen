@@ -23,7 +23,7 @@ public class BasicGRPOTrainingRun : ITrainingRun
             model, 
             trainingSampleCount: RolloutSize, 
             sampledSoftmaxCount: 10, 
-            groupSize: 256);
+            groupSize: 32);
 
         // Train on the freshly generated rollout.
         TrainingParams trainingParams = new(

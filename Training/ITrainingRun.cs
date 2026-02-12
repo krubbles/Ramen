@@ -19,7 +19,7 @@ public interface ITrainingRun
     /// <summary>
     /// Repeatedly calls <see cref="Step"> <paramref name="steps"> times. Saves model weight snapshots into [EnvironmentAppData]/Ramen/Weights/[<paramref name="runName">]/[step].bin every <paramref name="samplingFrequency"> steps.
     /// </summary>
-    public static Task Run(ITrainingRun trainingRun, string runName, int steps, int samplingFrequency, CancellationTokenSource cancellationTokenSource)
+    public static Task Run(ITrainingRun trainingRun, string runName, int steps, int samplingFrequency, CancellationTokenSource cancellationTokenSource, int startingStep = 0)
     {
         return Task.Run(() =>
         {
@@ -38,7 +38,7 @@ public interface ITrainingRun
 
                 if (samplingFrequency > 0 && step % samplingFrequency == 0)
                 {
-                    string filePath = Path.Combine(baseDir, $"{step}.bin");
+                    string filePath = Path.Combine(baseDir, $"{startingStep + step}.bin");
                     model.Save(filePath);
                 }
 

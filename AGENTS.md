@@ -2,6 +2,13 @@
 - Use mac commands
 - ALWAYS run dotnet build with elevated sandbox permissions. 
 
+# Training Experiments Workflow
+- If asked to do an experiment apply the following rules:
+- You can run the ConsoleApp program by calling `dotnet run --project ConsoleApp` with elevated sandbox permissions. 
+- Put ALL experiment code in ConsoleApp/Program.cs. You can remove whatever is there before, the code is disposable. 
+- Read ITrainingRun.cs, TrainingRunImpls.cs, ITrainingRunAnalyzer.cs, and TrainingAnalyzerImpls.cs before coding any experiments. Use these APIs for running them. 
+- Do all statistical analysis in Notebooks.
+
 # Git
 - Use short commit messages.
 
