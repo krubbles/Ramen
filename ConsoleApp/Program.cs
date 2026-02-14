@@ -3,7 +3,6 @@ namespace Ramen.ConsoleApp;
 using System;
 using System.IO;
 using System.Threading;
-using Ramen.AI;
 using Ramen.Training;
 using static TorchSharp.torch;
 
@@ -12,79 +11,92 @@ public static class Program
     public static void Main()
     {
         // Do not change START
-        TorchSharp.torch.set_default_device(MPS);
-        Ramen.AI.TensorManager.Init(); // gc system for tensors.
+        set_default_device(MPS);
+        Ramen.AI.TensorManager.Init();
         Console.WriteLine("=== START ===");
         // Do not change END
 
-        string baseRunName = "2026-02-12_grpo_s200_r5000_lr2e-4_ent0p01";
-        string experimentName = "2026-02-12_grpo_continue_s230_from200_r5000_lr5e-5_ent0";
-
-        int startingStep = 230;
-        int additionalSteps = 100;
+        string experimentName = "2026-02-14_grpo_s1000_r5000_lr1e-5_ent0p02";
+        int trainingSteps = 1000;
         int rolloutSize = 5000;
-        int samplingFrequency = 5;
+        float learningRate = 1e-5f;
+        float entropyCoeff = 0.02f;
+        int snapshotFrequency = 5;
         int analysisSampleSize = 512;
-        float learningRate = 5e-5f;
-        float entropyCoeff = 0f;
+        bool shouldRunTraining = false;
 
         string repoRoot = FindRepoRoot();
         string analysisDir = Path.Combine(repoRoot, "Analysis", experimentName);
         Directory.CreateDirectory(analysisDir);
 
-        string baseWeightsDir = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "Ramen",
-            "Weights",
-            baseRunName);
-        string resumeSnapshotPath = Path.Combine(baseWeightsDir, $"{startingStep}.bin");
+        if (shouldRunTraining)
+        {
+            RunTraining(
+                experimentName: experimentName,
+                trainingSteps: trainingSteps,
+                rolloutSize: rolloutSize,
+                learningRate: learningRate,
+                entropyCoeff: entropyCoeff,
+                snapshotFrequency: snapshotFrequency);
+        }
 
-        if (!File.Exists(resumeSnapshotPath))
-            throw new FileNotFoundException($"Missing resume snapshot: {resumeSnapshotPath}");
-
-        RunContinuedTraining(
-            runName: baseRunName,
-            resumeSnapshotPath: resumeSnapshotPath,
-            startingStep: startingStep,
-            additionalSteps: additionalSteps,
-            rolloutSize: rolloutSize,
-            samplingFrequency: samplingFrequency,
-            learningRate: learningRate,
-            entropyCoeff: entropyCoeff);
-
-        CSVBuilder analysisOutput = TrainingRunAnalysis.Analyze(
-            runName: baseRunName,
-            sampleSize: analysisSampleSize,
-            new RewardStatsTrainingRunAnalyzer(),
-            new PolicyEntropyTrainingRunAnalyzer(),
-            new HandTypePresenceTrainingRunAnalyzer(),
-            new EndStateHandCountTrainingRunAnalyzer());
-
-        string analysisPath = Path.Combine(analysisDir, "training_analysis.csv");
-        File.WriteAllText(analysisPath, analysisOutput.ToString());
-        Console.WriteLine($"Wrote analysis CSV: {analysisPath}");
+        WriteAnalyzerCsvs(
+            analysisDir: analysisDir,
+            experimentName: experimentName,
+            analysisSampleSize: analysisSampleSize);
     }
 
-    static void RunContinuedTraining(string runName, string resumeSnapshotPath, int startingStep, int additionalSteps, int rolloutSize, int samplingFrequency, float learningRate, float entropyCoeff)
+
+    static void RunTraining(string experimentName, int trainingSteps, int rolloutSize, float learningRate, float entropyCoeff, int snapshotFrequency)
     {
-        BasicGRPOTrainingRun baseRun = new()
+        BasicGRPOTrainingRun trainingRun = new()
         {
             RolloutSize = rolloutSize,
             LearningRate = learningRate,
             Entropy = entropyCoeff,
         };
 
-        ResumeFromSnapshotTrainingRun resumedRun = new(baseRun, resumeSnapshotPath);
-
         using CancellationTokenSource cancellationTokenSource = new();
         ITrainingRun.Run(
-            trainingRun: resumedRun,
-            runName: runName,
-            steps: additionalSteps,
-            samplingFrequency: samplingFrequency,
-            cancellationTokenSource: cancellationTokenSource,
-            startingStep: startingStep).Wait();
+            trainingRun: trainingRun,
+            runName: experimentName,
+            steps: trainingSteps,
+            samplingFrequency: snapshotFrequency,
+            cancellationTokenSource: cancellationTokenSource).Wait();
     }
+
+
+    static void WriteAnalyzerCsvs(string analysisDir, string experimentName, int analysisSampleSize)
+    {
+        // Entropy over snapshots.
+        CSVBuilder entropyOutput = TrainingRunAnalysis.Analyze(
+            runName: experimentName,
+            sampleSize: analysisSampleSize,
+            new PolicyEntropyTrainingRunAnalyzer());
+        string entropyPath = Path.Combine(analysisDir, "entropy.csv");
+        File.WriteAllText(entropyPath, entropyOutput.ToString());
+
+        // Average reward over snapshots.
+        CSVBuilder avgRewardOutput = TrainingRunAnalysis.Analyze(
+            runName: experimentName,
+            sampleSize: analysisSampleSize,
+            new RewardStatsTrainingRunAnalyzer());
+        string avgRewardPath = Path.Combine(analysisDir, "avg_reward.csv");
+        File.WriteAllText(avgRewardPath, avgRewardOutput.ToString());
+
+        // End-state outcome distribution over snapshots.
+        CSVBuilder outcomeDistOutput = TrainingRunAnalysis.Analyze(
+            runName: experimentName,
+            sampleSize: analysisSampleSize,
+            new EndStateHandCountTrainingRunAnalyzer());
+        string outcomeDistPath = Path.Combine(analysisDir, "outcome_dist.csv");
+        File.WriteAllText(outcomeDistPath, outcomeDistOutput.ToString());
+
+        Console.WriteLine($"Wrote entropy CSV: {entropyPath}");
+        Console.WriteLine($"Wrote average reward CSV: {avgRewardPath}");
+        Console.WriteLine($"Wrote outcome distribution CSV: {outcomeDistPath}");
+    }
+
 
     static string FindRepoRoot()
     {
@@ -101,30 +113,5 @@ public static class Program
         }
 
         throw new InvalidOperationException("Could not find repository root containing Analysis/.");
-    }
-
-    sealed class ResumeFromSnapshotTrainingRun : ITrainingRun
-    {
-        readonly ITrainingRun _innerRun;
-        readonly string _resumeSnapshotPath;
-        bool _hasLoadedSnapshot;
-
-        public ResumeFromSnapshotTrainingRun(ITrainingRun innerRun, string resumeSnapshotPath)
-        {
-            _innerRun = innerRun;
-            _resumeSnapshotPath = resumeSnapshotPath;
-            _hasLoadedSnapshot = false;
-        }
-
-        public void Step(IPolicyModel model)
-        {
-            if (!_hasLoadedSnapshot)
-            {
-                model.Load(_resumeSnapshotPath);
-                _hasLoadedSnapshot = true;
-            }
-
-            _innerRun.Step(model);
-        }
     }
 }
