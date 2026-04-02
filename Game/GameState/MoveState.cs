@@ -91,7 +91,7 @@ public sealed class MoveState
 
     internal void Deserialize(GameStateSerializer serializer, int versionNumber)
     {
-        if (versionNumber != 1)
+        if (versionNumber != 2)
             throw new NotSupportedException($"GameState serialization version number {versionNumber} not supported.");
         serializer.Stream.ReadStartTag("MS");
         MoveHistory.Clear();

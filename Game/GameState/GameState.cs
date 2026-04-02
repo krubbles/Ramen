@@ -154,7 +154,7 @@ public sealed class GameState
 
     public void Serialize(Stream stream)
     {
-        int versionNumber = 1;
+        int versionNumber = 2;
 
         GameStateSerializer serializer = new(this, stream);
 

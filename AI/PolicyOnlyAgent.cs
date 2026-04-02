@@ -320,10 +320,7 @@ public class PolicyOnlyAgent : IAgent, IDisposable
     {
         Tensor row = probs[batchIndex];
         float[] probDist = row.data<float>().ToArray();
-        ushort[] encodedProbs = new ushort[probDist.Length];
-        for (int i = 0; i < probDist.Length; i++)
-            encodedProbs[i] = AnnotatingDataMove.EncodeProb(probDist[i]);
-        AnnotatingDataMove annotation = AnnotatingDataMove.FromArray(encodedProbs);
+        AnnotatingDataMove annotation = AnnotationDataUtils.CreatePolicyAnnotation(probDist);
         annotation.Apply(gameState);
     }
 }

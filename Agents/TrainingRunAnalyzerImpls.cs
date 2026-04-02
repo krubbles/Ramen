@@ -130,7 +130,9 @@ public sealed class RewardStatsTrainingRunAnalyzer : ITrainingRunAnalyzer
 }
 
 /// <summary>
-/// Calculates the models average policy entropy. Supports multiple columns, each of which has a filter that determines which GameStates to average over.
+/// Calculates the models average policy entropy. 
+/// Only works for agents that add policy annotations using <see cref="AnnotationDataUtils"/> 
+/// Supports multiple columns, each of which has a filter that determines which GameStates to average over.
 /// </summary>
 public sealed class PolicyEntropyTrainingRunAnalyzer : ITrainingRunAnalyzer
 {
@@ -163,16 +165,15 @@ public sealed class PolicyEntropyTrainingRunAnalyzer : ITrainingRunAnalyzer
             game.ForeachMove(context =>
             {
                 AnnotatingDataMove annotation = context.Annotation;
-                ushort[] encodedProbs = annotation.ToArray<ushort>();
-                if (encodedProbs.Length == 0)
+                if (!AnnotationDataUtils.TryDecodePolicyAnnotation(annotation, out float[] policy) || policy.Length == 0)
                     return;
 
                 Move move = context.Move;
 
                 float entropy = 0f;
-                for (int i = 0; i < encodedProbs.Length; i++)
+                for (int i = 0; i < policy.Length; i++)
                 {
-                    float prob = AnnotatingDataMove.DecodeProb(encodedProbs[i]);
+                    float prob = policy[i];
                     float nlProb = -MathF.Log(MathF.Max(prob, 1e-9f));
                     entropy += prob * nlProb;
                 }

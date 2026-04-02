@@ -417,18 +417,19 @@ public sealed class ShuffleMove : Move
 /// </summary>
 public sealed class AnnotatingDataMove : Move
 {
+    public readonly ushort DataTypeID;
     public readonly byte[] Data;
 
-    public AnnotatingDataMove(byte[] data)
+    public AnnotatingDataMove(ushort dataTypeID, byte[] data)
     {
+        DataTypeID = dataTypeID;
         Data = data ?? [];
     }
 
-    public static AnnotatingDataMove FromArray<T>(ReadOnlySpan<T> array) where T : unmanaged
+    public static AnnotatingDataMove FromArray<T>(ushort dataTypeID, ReadOnlySpan<T> array) where T : unmanaged
     {
-        // Handle empty input
         if (array.Length == 0)
-            return new AnnotatingDataMove([]);
+            return new(dataTypeID, []);
 
         // Interpret the T[] as bytes and copy into a new byte[] for storage
         ReadOnlySpan<T> tSpan = array;
@@ -436,12 +437,11 @@ public sealed class AnnotatingDataMove : Move
         byte[] data = new byte[bytes.Length];
         bytes.CopyTo(data);
 
-        return new AnnotatingDataMove(data);
+        return new(dataTypeID, data);
     }
 
     public T[] ToArray<T>() where T : unmanaged
     {
-        // Handle empty Data
         if (Data == null || Data.Length == 0)
             return [];
 
@@ -465,7 +465,7 @@ public sealed class AnnotatingDataMove : Move
 
     public override string ToString()
     {
-        return $"Data: {Data.Length} bytes";
+        return $"DataTypeID: {DataTypeID}, Data: {Data.Length} bytes";
     }
 
     internal class Serializer : IMoveSerializer
@@ -475,13 +475,15 @@ public sealed class AnnotatingDataMove : Move
         public void Serialize(GameStateSerializer serializer, Move move)
         {
             AnnotatingDataMove trainingDataMove = (AnnotatingDataMove)move;
+            serializer.Stream.WriteStruct<ushort>(trainingDataMove.DataTypeID);
             serializer.Stream.WriteArrayUshortSize<byte>(trainingDataMove.Data);
         }
 
         public Move Deserialize(GameStateSerializer serializer)
         {
+            ushort dataTypeID = serializer.Stream.ReadStruct<ushort>();
             byte[] data = serializer.Stream.ReadArrayUshortSize<byte>();
-            return new AnnotatingDataMove(data);
+            return new AnnotatingDataMove(dataTypeID, data);
         }
     }
 
