@@ -8,6 +8,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="TorchSharp" Version="0.105.2" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Game\Game.csproj" />
   </ItemGroup>
 
