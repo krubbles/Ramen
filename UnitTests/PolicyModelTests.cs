@@ -46,13 +46,10 @@ public class PolicyModelTests
 
     static Tensor BuildRemainingDeckTensor(GameState gameState)
     {
-        long[,,] cards = new long[1, 52, 2];
+        long[,] cards = new long[1, 52];
         ReadOnlySpan<Card> deck = gameState.DeckState.RemainingDeck;
         for (int i = 0; i < deck.Length; ++i)
-        {
-            cards[0, i, 0] = deck[i].Rank - 2;
-            cards[0, i, 1] = (int)deck[i].Suit;
-        }
+            cards[0, i] = deck[i].ToIndex();
         return tensor(cards, ScalarType.Int64);
     }
 
@@ -61,7 +58,7 @@ public class PolicyModelTests
         using var scope = NewDisposeScope();
 
         // Get embedding vectors for each real remaining-deck card.
-        Embedding remainingDeckEmbedding = GetRemainingDeckEmbedding(model);
+        TorchSharp.Modules.Embedding remainingDeckEmbedding = GetRemainingDeckEmbedding(model);
         ReadOnlySpan<Card> deck = gameState.DeckState.RemainingDeck;
         float[] cardEmbeds = [];
         if (deck.Length > 0)
@@ -111,12 +108,12 @@ public class PolicyModelTests
         return expectedExpanded;
     }
 
-    static Embedding GetRemainingDeckEmbedding(PolicyModel model)
+    static TorchSharp.Modules.Embedding GetRemainingDeckEmbedding(PolicyModel model)
     {
         BindingFlags bindingFlags = BindingFlags.Instance | BindingFlags.NonPublic;
         FieldInfo fieldInfo = typeof(PolicyModel).GetField("_remainingDeckCardEmbedding", bindingFlags);
         Assert.That(fieldInfo, Is.Not.Null);
-        Embedding embedding = fieldInfo.GetValue(model) as Embedding;
+        TorchSharp.Modules.Embedding embedding = fieldInfo.GetValue(model) as TorchSharp.Modules.Embedding;
         Assert.That(embedding, Is.Not.Null);
         return embedding;
     }

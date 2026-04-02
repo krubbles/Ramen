@@ -20,9 +20,9 @@ public class PolicyModel : Module, IPolicyModel
         SuitCount = 4;
     
     const int RankEmbedWidth = 32;
-    readonly Embedding _rankEmbedding = Embedding(RankCount, RankEmbedWidth, device: EvalDevice);
+    readonly TorchSharp.Modules.Embedding _rankEmbedding = Embedding(RankCount, RankEmbedWidth, device: EvalDevice);
     const int RemainingDeckCardEmbedWidth = 32;
-    readonly Embedding _remainingDeckCardEmbedding = Embedding(53, RemainingDeckCardEmbedWidth, device: EvalDevice);
+    readonly TorchSharp.Modules.Embedding _remainingDeckCardEmbedding = Embedding(53, RemainingDeckCardEmbedWidth, device: EvalDevice);
 
     const int UseHandCardSetOutputWidth = 32;
     const int UseHandCardSetInputWidth = RankEmbedWidth * 2 + RemainingDeckCardEmbedWidth * 2;
@@ -42,7 +42,7 @@ public class PolicyModel : Module, IPolicyModel
         );
 
     public const int HandsAndDiscardsEmbedWidth = 25;
-    readonly Embedding _embedHandsAndDiscards = Embedding(25, HandsAndDiscardsEmbedWidth, device: EvalDevice);
+    readonly TorchSharp.Modules.Embedding _embedHandsAndDiscards = Embedding(25, HandsAndDiscardsEmbedWidth, device: EvalDevice);
 
     public const int StateScoreEmbedWidth = 1;
     public const int StateProcessorInputWidth = RemainingDeckCardSetWidth + HandsAndDiscardsEmbedWidth + 1;
@@ -81,8 +81,7 @@ public class PolicyModel : Module, IPolicyModel
     static PolicyModel()
     {
         using var scope = NewDisposeScope();
-        // Input: A (batch x cardCount x 1) rank index vector and a (batch x cardCount x 10) suit vector
-        // - Suit vector format is (0, isDiamond, isClub, isHeart, isSpade)
+        // Input: A batch x cardCount card-index tensor that gets decoded into rank embeddings and suit one-hots.
         // Output: A batch x playedHandCount x rankEmbedWidth tensor for each suit. 
         // Steps:
         // 1. Embed the ranks
@@ -117,8 +116,9 @@ public class PolicyModel : Module, IPolicyModel
 
     Tensor FullHandToUsedHands(Tensor fullHand, Tensor remainingDeck)
     {
-        Tensor fullHandRanks = _rankEmbedding.forward(fullHand.select(2, 0)); // BatchSize x CardCount x RankEmbedWidth
-        Tensor fullHandSuits = functional.one_hot(fullHand.select(2, 1), SuitCount + 1).to_type(ScalarType.Float32); // BatchSize x CardCount x SuitCount (including null)
+        // Decode stored card indices back into rank/suit features for the model.
+        Tensor fullHandRanks = _rankEmbedding.forward(GetRankIndices(fullHand)); // BatchSize x CardCount x RankEmbedWidth
+        Tensor fullHandSuits = functional.one_hot(GetSuitIndices(fullHand), SuitCount + 1).to_type(ScalarType.Float32); // BatchSize x CardCount x SuitCount (including null)
         
         int useableHandCount = Combinatorics.CalculateCombinationCount(setSize: 8, maxSubsetSize: 5, minSubsetSize: 1);
         Tensor embeddedFullHand = fullHandRanks.sum(dim: 1); // BatchSize x RankEmbedWidth
@@ -146,8 +146,8 @@ public class PolicyModel : Module, IPolicyModel
 
     Tensor FullHandToUsedHands(Tensor fullHand, Tensor remainingDeck, int[] handIndices)
     {
-        Tensor fullHandRanks = _rankEmbedding.forward(fullHand.select(2, 0)); // BatchSize x CardCount x RankEmbedWidth
-        Tensor fullHandSuits = functional.one_hot(fullHand.select(2, 1), SuitCount + 1).to_type(ScalarType.Float32); // BatchSize x CardCount x SuitCount (including null)
+        Tensor fullHandRanks = _rankEmbedding.forward(GetRankIndices(fullHand)); // BatchSize x CardCount x RankEmbedWidth
+        Tensor fullHandSuits = functional.one_hot(GetSuitIndices(fullHand), SuitCount + 1).to_type(ScalarType.Float32); // BatchSize x CardCount x SuitCount (including null)
 
         int moveCount = handIndices.Length;
         Tensor embeddedFullHand = fullHandRanks.sum(dim: 1); // BatchSize x RankEmbedWidth
@@ -176,8 +176,8 @@ public class PolicyModel : Module, IPolicyModel
 
     Tensor FullHandToUsedHands(Tensor fullHand, Tensor remainingDeck, Tensor handIndices)
     {
-        Tensor fullHandRanks = _rankEmbedding.forward(fullHand.select(2, 0)); // BatchSize x CardCount x RankEmbedWidth
-        Tensor fullHandSuits = functional.one_hot(fullHand.select(2, 1), SuitCount + 1).to_type(ScalarType.Float32); // BatchSize x CardCount x SuitCount (including null)
+        Tensor fullHandRanks = _rankEmbedding.forward(GetRankIndices(fullHand)); // BatchSize x CardCount x RankEmbedWidth
+        Tensor fullHandSuits = functional.one_hot(GetSuitIndices(fullHand), SuitCount + 1).to_type(ScalarType.Float32); // BatchSize x CardCount x SuitCount (including null)
 
         int batchSize = (int)fullHand.size(0);
         Tensor handIndexTensor = handIndices.to_type(ScalarType.Int64);
@@ -211,10 +211,10 @@ public class PolicyModel : Module, IPolicyModel
 
     public Tensor GetRemainingDeckSuitInputExpanded(Tensor remainingDeck, Suit suit, int moveCount)
     {
-        Tensor remainingDeckRanks = remainingDeck.select(2, 0);
-        Tensor remainingDeckSuits = remainingDeck.select(2, 1);
+        Tensor remainingDeckRanks = GetRankIndices(remainingDeck);
+        Tensor remainingDeckSuits = GetSuitIndices(remainingDeck);
 
-        Tensor validCardMask = remainingDeckSuits.gt(0);
+        Tensor validCardMask = remainingDeck.gt(0);
         Tensor validCardMaskLong = validCardMask.to_type(ScalarType.Int64);
         Tensor validCardMaskFloat = validCardMask.unsqueeze(-1).to_type(ScalarType.Float32);
 
@@ -235,9 +235,9 @@ public class PolicyModel : Module, IPolicyModel
 
     Tensor ProcessCardSet(Tensor cardSet, Sequential processor)
     {
-        int cardDim = (int)cardSet.Dimensions - 2;
-        Tensor cardRanks = cardSet.select(cardSet.Dimensions - 1, 0);
-        Tensor cardSuits = cardSet.select(cardSet.Dimensions - 1, 1);
+        int cardDim = (int)cardSet.Dimensions - 1;
+        Tensor cardRanks = GetRankIndices(cardSet);
+        Tensor cardSuits = GetSuitIndices(cardSet);
 
         Tensor rankIndex = cardRanks.clamp(0, RankCount - 1);
         Tensor suitIndex = cardSuits.clamp(0, SuitCount - 1);
@@ -273,6 +273,18 @@ public class PolicyModel : Module, IPolicyModel
         }
 
         return processedSum;
+    }
+
+    static Tensor GetRankIndices(Tensor cardIndices)
+    {
+        return (cardIndices - 1).clamp_min(0).remainder(RankCount).to_type(ScalarType.Int64);
+    }
+
+    static Tensor GetSuitIndices(Tensor cardIndices)
+    {
+        Tensor validCardMask = cardIndices.gt(0).to_type(ScalarType.Int64);
+        Tensor suitIndices = (cardIndices - 1).clamp_min(0).div(RankCount).to_type(ScalarType.Int64) + 1;
+        return suitIndices * validCardMask;
     }
 
     Tensor ProcessState(Tensor embeddedState)

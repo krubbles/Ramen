@@ -220,18 +220,14 @@ public class PolicyOnlyAgent : IAgent
     {
         using var pscope = ProfileScope.New(nameof(TensorizeHandBatch));
 
-        long[,,] cards = new long[gameStates.Length, cardCount, 2];
+        long[,] cards = new long[gameStates.Length, cardCount];
         for (int stateIndex = 0; stateIndex < gameStates.Length; ++stateIndex)
         {
             ReadOnlySpan<Card> hand = gameStates[stateIndex].HandState.Hand;
             for (int i = 0; i < cardCount; ++i)
             {
                 if (i < hand.Length)
-                {
-                    Card card = hand[i];
-                    cards[stateIndex, i, 0] = card.Rank - 2;
-                    cards[stateIndex, i, 1] = (int)card.Suit;
-                }
+                    cards[stateIndex, i] = hand[i].ToIndex();
             }
         }
 
@@ -240,18 +236,14 @@ public class PolicyOnlyAgent : IAgent
 
     static Tensor TensorizeRemainingDeckBatch(ReadOnlySpan<GameState> gameStates, int cardCount)
     {
-        long[,,] cards = new long[gameStates.Length, cardCount, 2];
+        long[,] cards = new long[gameStates.Length, cardCount];
         for (int stateIndex = 0; stateIndex < gameStates.Length; ++stateIndex)
         {
             ReadOnlySpan<Card> deck = gameStates[stateIndex].DeckState.RemainingDeck;
             for (int i = 0; i < cardCount; ++i)
             {
                 if (i < deck.Length)
-                {
-                    Card card = deck[i];
-                    cards[stateIndex, i, 0] = card.Rank - 2;
-                    cards[stateIndex, i, 1] = (int)card.Suit;
-                }
+                    cards[stateIndex, i] = deck[i].ToIndex();
             }
         }
 
