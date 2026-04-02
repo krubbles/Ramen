@@ -3,6 +3,8 @@ namespace Ramen.ConsoleApp;
 using System;
 using System.IO;
 using System.Threading;
+using Ramen.Agents;
+using Ramen.AI;
 using Ramen.Training;
 using static TorchSharp.torch;
 
@@ -71,6 +73,7 @@ public static class Program
         // Entropy over snapshots.
         CSVBuilder entropyOutput = TrainingRunAnalysis.Analyze(
             runName: experimentName,
+            agentLoader: LoadSnapshotAgent,
             sampleSize: analysisSampleSize,
             new PolicyEntropyTrainingRunAnalyzer());
         string entropyPath = Path.Combine(analysisDir, "entropy.csv");
@@ -79,6 +82,7 @@ public static class Program
         // Average reward over snapshots.
         CSVBuilder avgRewardOutput = TrainingRunAnalysis.Analyze(
             runName: experimentName,
+            agentLoader: LoadSnapshotAgent,
             sampleSize: analysisSampleSize,
             new RewardStatsTrainingRunAnalyzer());
         string avgRewardPath = Path.Combine(analysisDir, "avg_reward.csv");
@@ -87,6 +91,7 @@ public static class Program
         // End-state outcome distribution over snapshots.
         CSVBuilder outcomeDistOutput = TrainingRunAnalysis.Analyze(
             runName: experimentName,
+            agentLoader: LoadSnapshotAgent,
             sampleSize: analysisSampleSize,
             new EndStateHandCountTrainingRunAnalyzer());
         string outcomeDistPath = Path.Combine(analysisDir, "outcome_dist.csv");
@@ -95,6 +100,14 @@ public static class Program
         Console.WriteLine($"Wrote entropy CSV: {entropyPath}");
         Console.WriteLine($"Wrote average reward CSV: {avgRewardPath}");
         Console.WriteLine($"Wrote outcome distribution CSV: {outcomeDistPath}");
+    }
+
+
+    static IAgent LoadSnapshotAgent(string filePath)
+    {
+        PolicyModel model = new();
+        model.Load(filePath);
+        return new PolicyOnlyAgent(model, ownsModel: true);
     }
 
 

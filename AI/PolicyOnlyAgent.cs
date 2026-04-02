@@ -2,14 +2,17 @@ namespace Ramen.AI;
 
 using System;
 using System.Collections.Generic;
+using Ramen.Agents;
 using Ramen.Game;
 using static TorchSharp.torch;
 
 /// <summary>
 /// Batch-first AI agent that plays Balatro across multiple game states.
 /// </summary>
-public class PolicyOnlyAgent : IAgent
+public class PolicyOnlyAgent : IAgent, IDisposable
 {
+    readonly bool _ownsModel;
+
     /// <summary>
     /// A reference to the policy network used by this agent.
     /// </summary>
@@ -20,9 +23,10 @@ public class PolicyOnlyAgent : IAgent
     /// </summary>
     public readonly FastRandom Random;
 
-    public PolicyOnlyAgent(IPolicyModel model)
+    public PolicyOnlyAgent(IPolicyModel model, bool ownsModel = false)
     {
         Model = model;
+        _ownsModel = ownsModel;
         Random = FastRandom.SeededByClock();
     }
 
@@ -30,6 +34,12 @@ public class PolicyOnlyAgent : IAgent
     /// Returns true if the game is done from the perspective of this agent. Is sometimes but not always equivalent to <see cref="GameState.GameIsDone"/>.
     /// </summary>
     public bool IsGameDone(GameState gameState) => gameState.GameIsDone;
+
+    public void Dispose()
+    {
+        if (_ownsModel && Model is IDisposable disposableModel)
+            disposableModel.Dispose();
+    }
 
     /// <summary>
     /// Makes a move based on the policy model's predicted probability distribution.

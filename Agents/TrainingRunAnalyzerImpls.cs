@@ -1,8 +1,5 @@
-namespace Ramen.Training;
+namespace Ramen.Agents;
 
-using System;
-using System.Collections.Generic;
-using Ramen.AI;
 using Ramen.Game;
 
 public static class TrainingRunAnalyzerUtils
@@ -89,15 +86,15 @@ public static class TrainingRunAnalyzerUtils
 /// </summary>
 public sealed class RewardStatsTrainingRunAnalyzer : ITrainingRunAnalyzer
 {
-    public void Analyze(IPolicyModel model, IEnumerable<GameState> games, CSVBuilder output)
+    public void Analyze(IEnumerable<GameState> games, CSVBuilder output)
     {
-        double sum = 0;
-        double sqSum = 0;
+        float sum = 0f;
+        float sqSum = 0f;
         int count = 0;
 
         foreach (GameState game in games)
         {
-            float reward = GRPOTrainingData.GetReward(game);
+            float reward = GetReward(game);
             sum += reward;
             sqSum += reward * reward;
             count++;
@@ -110,23 +107,30 @@ public sealed class RewardStatsTrainingRunAnalyzer : ITrainingRunAnalyzer
             return;
         }
 
-        double mean = sum / count;
-        double variance = 0;
+        float mean = sum / count;
+        float variance = 0f;
         if (count > 1)
             variance = (sqSum - sum * mean) / (count - 1);
-        if (variance < 0)
-            variance = 0;
+        if (variance < 0f)
+            variance = 0f;
 
-        double stdDev = Math.Sqrt(variance);
+        float stdDev = MathF.Sqrt(variance);
 
         output.SetCell("reward_mean", mean);
         output.SetCell("reward_stddev", stdDev);
+    }
+
+    static float GetReward(GameState gameState)
+    {
+        if (gameState.ScoringState.CurrentRoundTotalChips >= 300)
+            return 1f + gameState.HandState.RemainingHands * 0.2f;
+
+        return (float)gameState.ScoringState.CurrentRoundTotalChips / 1000f;
     }
 }
 
 /// <summary>
 /// Calculates the models average policy entropy. Supports multiple columns, each of which has a filter that determines which GameStates to average over.
-/// 
 /// </summary>
 public sealed class PolicyEntropyTrainingRunAnalyzer : ITrainingRunAnalyzer
 {
@@ -136,7 +140,7 @@ public sealed class PolicyEntropyTrainingRunAnalyzer : ITrainingRunAnalyzer
     /// Initializes a new instance of the <see cref="PolicyEntropyTrainingRunAnalyzer"/> class with a default filter that includes all GameStates.
     /// This means it calculates the mean policy entropy across all moves.
     /// </summary>
-    public PolicyEntropyTrainingRunAnalyzer() : this(( "policy_entropy_mean", (_, _) => true ))
+    public PolicyEntropyTrainingRunAnalyzer() : this(("policy_entropy_mean", (_, _) => true))
     {
     }
 
@@ -145,7 +149,7 @@ public sealed class PolicyEntropyTrainingRunAnalyzer : ITrainingRunAnalyzer
         _filters = filters ?? [];
     }
 
-    public void Analyze(IPolicyModel model, IEnumerable<GameState> games, CSVBuilder output)
+    public void Analyze(IEnumerable<GameState> games, CSVBuilder output)
     {
         if (_filters.Length == 0)
             return;
@@ -153,7 +157,7 @@ public sealed class PolicyEntropyTrainingRunAnalyzer : ITrainingRunAnalyzer
         float[] totalEntropy = new float[_filters.Length];
         int[] distributionCount = new int[_filters.Length];
 
-        // gather entropy from each annotated policy distribution.
+        // Gather entropy from each annotated policy distribution.
         foreach (GameState game in games)
         {
             game.ForeachMove(context =>
@@ -165,7 +169,7 @@ public sealed class PolicyEntropyTrainingRunAnalyzer : ITrainingRunAnalyzer
 
                 Move move = context.Move;
 
-                float entropy = 0;
+                float entropy = 0f;
                 for (int i = 0; i < encodedProbs.Length; i++)
                 {
                     float prob = AnnotatingDataMove.DecodeProb(encodedProbs[i]);
@@ -193,7 +197,7 @@ public sealed class PolicyEntropyTrainingRunAnalyzer : ITrainingRunAnalyzer
                 continue;
             }
 
-            double meanEntropy = totalEntropy[filterIndex] / distributionCount[filterIndex];
+            float meanEntropy = totalEntropy[filterIndex] / distributionCount[filterIndex];
             output.SetCell(colName, meanEntropy);
         }
     }
@@ -204,7 +208,7 @@ public sealed class PolicyEntropyTrainingRunAnalyzer : ITrainingRunAnalyzer
 /// </summary>
 public sealed class HandTypePresenceTrainingRunAnalyzer : ITrainingRunAnalyzer
 {
-    public void Analyze(IPolicyModel model, IEnumerable<GameState> games, CSVBuilder output)
+    public void Analyze(IEnumerable<GameState> games, CSVBuilder output)
     {
         // Initialize counts.
         int gameCount = 0;
@@ -256,7 +260,7 @@ public sealed class HandTypePresenceTrainingRunAnalyzer : ITrainingRunAnalyzer
 /// </summary>
 public sealed class EndStateHandCountTrainingRunAnalyzer : ITrainingRunAnalyzer
 {
-    public void Analyze(IPolicyModel model, IEnumerable<GameState> games, CSVBuilder output)
+    public void Analyze(IEnumerable<GameState> games, CSVBuilder output)
     {
         // Initialize counts.
         int gameCount = 0;
