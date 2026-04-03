@@ -19,8 +19,8 @@ public sealed class GameData
         Jokers.Add(joker.Name, joker);
     }
 
-    public (int chips, int mult)[] StartingHandBaseScore = new (int chips, int mult)[]
-    {
+    public (int chips, int mult)[] StartingHandBaseScore =
+    [
         (0, 0), // null
         (5, 1), // high card
         (10, 2), // pair
@@ -34,10 +34,10 @@ public sealed class GameData
         (120, 12), // 5oak
         (140, 14), // flush house
         (160, 16), // flush five
-    };
+    ];
 
-    public (int chips, int mult)[] PlanetScores = new (int chips, int mult)[]
-    {
+    public (int chips, int mult)[] PlanetScores =
+    [
         (0, 0), // null
         (10, 1), // high card
         (15, 1), // pair
@@ -51,7 +51,7 @@ public sealed class GameData
         (35, 3), // 5oak
         (40, 4), // flush house
         (50, 3), // flush five
-    };
+    ];
 
     public Action<GameState> InitStartingDeck = (gameState) =>
     {
@@ -79,4 +79,14 @@ public sealed class GameData
     }
 
     public static readonly GameData Default = new();
+
+    public static readonly GameData FlushStratTest = new();
+
+    static GameData()
+    {
+        FlushStratTest.Hands = 1;
+        FlushStratTest.Discards = 4;
+        FlushStratTest.StartingHandBaseScore[(int)HandType.Straight] = (0, 0);
+        FlushStratTest.StartingHandBaseScore[(int)HandType.FullHouse] = (0, 0);
+    }
 }

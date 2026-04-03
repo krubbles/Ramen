@@ -1,4 +1,4 @@
-namespace Ramen.AI;
+namespace Ramen.AgentTools;
 
 public static class Profiling
 {
@@ -44,7 +44,7 @@ public static class Profiling
         List<ProfileDatum> timeSeries = GetTimeSeries();
         timeSeries.Add(new ProfileDatum(IsEnter: true, name, DateTime.UtcNow));
     }
-    
+
     public static void Exit(string name)
     {
         if (!CollectData)
@@ -56,7 +56,6 @@ public static class Profiling
 
     public static (List<(string tag, float fraction)> fractions, float averageMilliseconds) GetFractionsAndAverageMillisecondsForTag(string tagName)
     {
-        // Aggregate totals for the requested tag across all threads.
         Dictionary<string, float> childDurationMsByTag = [];
         float totalDurationMs = 0f;
         int totalCount = 0;
@@ -66,7 +65,6 @@ public static class Profiling
             Stack<ScopeFrame> scopeStack = new();
             List<ProfileDatum> timeSeries = kvp.Value;
 
-            // Reconstruct nested scopes and attribute child durations to parents.
             foreach (ProfileDatum datum in timeSeries)
             {
                 if (datum.IsEnter)
@@ -108,7 +106,6 @@ public static class Profiling
             }
         }
 
-        // Convert aggregated child durations into fractions and compute average duration.
         if (totalCount == 0 || totalDurationMs <= 0f)
             return ([], 0f);
 
@@ -134,13 +131,14 @@ public struct ProfileScope : IDisposable
     public static ProfileScope New(string name)
     {
         Profiling.Enter(name);
-        return new ProfileScope(name);
+        return new(name);
     }
 
     public void Dispose()
     {
         if (_disposed)
             return;
+
         _disposed = true;
         Profiling.Exit(Name);
     }

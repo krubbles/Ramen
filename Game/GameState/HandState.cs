@@ -26,13 +26,13 @@ public class HandState
     /// <summary>
     /// The player's hand.
     /// </summary>
-    public Span<Card> Hand => _handBuffer.AsSpan(0, HandCardCount);
+    public ReadOnlySpan<Card> Hand => _handBuffer.AsSpan(0, HandCardCount);
 
     /// <summary>
     /// The hand the player is currently playing or discarding, if applicable.
     /// Not persistent state.
     /// </summary>
-    public Span<Card> ActiveHand => _activeHandBuffer.AsSpan(0, ActiveHandCardCount);
+    public ReadOnlySpan<Card> ActiveHand => _activeHandBuffer.AsSpan(0, ActiveHandCardCount);
 
 
     int _remainingHands, _remainingDiscards;

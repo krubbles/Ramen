@@ -15,6 +15,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\AgentTools\AgentTools.csproj" />
     <ProjectReference Include="..\Game\Game.csproj" />
   </ItemGroup>
 

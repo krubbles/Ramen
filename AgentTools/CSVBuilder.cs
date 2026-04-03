@@ -1,7 +1,5 @@
-namespace Ramen.Training;
+namespace Ramen.AgentTools;
 
-using System;
-using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
@@ -41,6 +39,7 @@ public sealed class CSVBuilder
                 Array.Resize(ref row, _columns.Count);
                 _rows[i] = row;
             }
+
             if (_currentRow != null)
                 _currentRow = _rows[^1];
         }
@@ -57,12 +56,6 @@ public sealed class CSVBuilder
         if (value is float floatValue)
         {
             _currentRow[columnIndex] = floatValue.ToString("F4", CultureInfo.InvariantCulture);
-            return this;
-        }
-
-        if (value is double doubleValue)
-        {
-            _currentRow[columnIndex] = doubleValue.ToString("F4", CultureInfo.InvariantCulture);
             return this;
         }
 
@@ -88,8 +81,10 @@ public sealed class CSVBuilder
         {
             if (i > 0)
                 sb.Append(',');
+
             sb.Append(EscapeCell(cells[i]));
         }
+
         sb.AppendLine();
     }
 
@@ -112,6 +107,7 @@ public sealed class CSVBuilder
             else
                 sb.Append(c);
         }
+
         sb.Append('"');
         return sb.ToString();
     }

@@ -3,10 +3,12 @@ namespace Ramen.Training;
 
 using System.Linq;
 using Ramen.AI;
+using Ramen.AgentTools;
 using TorchSharp;
 using TorchSharp.Modules;
 using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
+using TensorGroups = Ramen.AgentTools.TensorGroupExtentions;
 
 public record struct TrainingParams
 (
@@ -32,8 +34,8 @@ public static class Training
         Optimizer = optim.AdamW(modelModule.parameters(),
             lr: tp.learningRate,
             weight_decay: 0.00f,
-            beta1: 0.99f,
-            beta2: 0.999f
+            beta1: 0.9f,
+            beta2: 0.99f
         );
         Optimizer.zero_grad();
     }
@@ -42,15 +44,14 @@ public static class Training
     {
         using var dscope = NewDisposeScope();
 
-        PolicyTrainingSample stacked = TensorGroupExtentions.Stack(trainingData, false, true);
+        PolicyTrainingSample stacked = TensorGroups.Stack(trainingData, false, true);
         using (var nograd = no_grad())
         {
-            Console.WriteLine($"Training GRPO model for {tp.epochs} epochs, batch size {tp.batchSize}");
             _ = validate; // GRPO uses a surrogate objective, so validation loss is not meaningful.
 
             lock (trainingData)
             {
-                stacked = TensorGroupExtentions.Stack(trainingData, false, true);
+                stacked = TensorGroups.Stack(trainingData, false, true);
             }
 
             Tensor advantageGPU = stacked.Advantage.to(MPS);
@@ -99,7 +100,8 @@ public static class Training
             }
 
             trainLossAvg /= Math.Max(1, trainBatchCount);
-            Console.WriteLine($"GRPO Epoch {epoch} | Train Loss = {trainLossAvg} | KLD = {kldTotal / Math.Max(1, trainBatchCount)}");
+            if (epoch == tp.epochs - 1)
+                Console.WriteLine($"KLD: {kldTotal / Math.Max(1, trainBatchCount)}");
 
             GC.Collect();
         }

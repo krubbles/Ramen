@@ -3,6 +3,7 @@ namespace Ramen.Training;
 using System;
 using System.Collections.Generic;
 using Ramen.AI;
+using Ramen.AgentTools;
 using Ramen.Game;
 using static TorchSharp.torch;
 
@@ -119,7 +120,7 @@ public static class GRPOTrainingData
     }
 }
 
-public class PolicyTrainingSample : ITensorGroup
+public class PolicyTrainingSample : Ramen.AgentTools.ITensorGroup
 {
     public GameStateTensors StateTensors;
     public UseHandTensors UseHandTensors;

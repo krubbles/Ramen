@@ -44,4 +44,5 @@ Note: private functions with exactly 1 caller should be placed directly after th
 - Call `.ToOuterScope()` on tensors created in functions whose ownership should be transferred to their calling context. 
 - Never call `.ToOuterScope()` in functions that don't have a dispose scope. They are already in the outer dispose scope.
 - Call `.DetachFromScope()` on long-life tensors.
-- The first argument of `amax()` is a dim array. 
+- Always call `.Size()` on the output of a tensor op that changes the size.
+- All code should assume the first dimension is the batch dimension.

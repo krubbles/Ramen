@@ -1,5 +1,6 @@
 namespace Ramen.AI;
 
+using Ramen.AgentTools;
 using static TorchSharp.torch;
 
 /// <summary>
@@ -12,7 +13,7 @@ public interface IPolicyModel
     /// Inputs use batch-first tensors; implementations must accept a full hand tensor of shape (batch, 8, 2)
     /// in <paramref name="gameStateTensors"/>, and a use-hand score tensor of shape (batch, useableHandCount)
     /// in <paramref name="useHandTensors"/>. Output must be a tensor of shape (batch, useableHandCount * 2).
-    /// </summary>
+    /// </summary> 
     Tensor GetPolicyLogits(GameStateTensors gameStateTensors, UseHandTensors useHandTensors);
 
     /// <summary>

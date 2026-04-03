@@ -2,14 +2,17 @@ namespace Ramen.AI;
 
 using System;
 using System.Collections.Generic;
+using Ramen.AgentTools;
 using Ramen.Game;
 using static TorchSharp.torch;
 
 /// <summary>
 /// Batch-first AI agent that plays Balatro across multiple game states.
 /// </summary>
-public class PolicyOnlyAgent : IAgent
+public class PolicyOnlyAgent : IAgent, IDisposable
 {
+    readonly bool _ownsModel;
+
     /// <summary>
     /// A reference to the policy network used by this agent.
     /// </summary>
@@ -20,9 +23,10 @@ public class PolicyOnlyAgent : IAgent
     /// </summary>
     public readonly FastRandom Random;
 
-    public PolicyOnlyAgent(IPolicyModel model)
+    public PolicyOnlyAgent(IPolicyModel model, bool ownsModel = false)
     {
         Model = model;
+        _ownsModel = ownsModel;
         Random = FastRandom.SeededByClock();
     }
 
@@ -30,6 +34,12 @@ public class PolicyOnlyAgent : IAgent
     /// Returns true if the game is done from the perspective of this agent. Is sometimes but not always equivalent to <see cref="GameState.GameIsDone"/>.
     /// </summary>
     public bool IsGameDone(GameState gameState) => gameState.GameIsDone;
+
+    public void Dispose()
+    {
+        if (_ownsModel && Model is IDisposable disposableModel)
+            disposableModel.Dispose();
+    }
 
     /// <summary>
     /// Makes a move based on the policy model's predicted probability distribution.
@@ -220,18 +230,14 @@ public class PolicyOnlyAgent : IAgent
     {
         using var pscope = ProfileScope.New(nameof(TensorizeHandBatch));
 
-        long[,,] cards = new long[gameStates.Length, cardCount, 2];
+        long[,] cards = new long[gameStates.Length, cardCount];
         for (int stateIndex = 0; stateIndex < gameStates.Length; ++stateIndex)
         {
             ReadOnlySpan<Card> hand = gameStates[stateIndex].HandState.Hand;
             for (int i = 0; i < cardCount; ++i)
             {
                 if (i < hand.Length)
-                {
-                    Card card = hand[i];
-                    cards[stateIndex, i, 0] = card.Rank - 2;
-                    cards[stateIndex, i, 1] = (int)card.Suit;
-                }
+                    cards[stateIndex, i] = hand[i].ToIndex();
             }
         }
 
@@ -240,18 +246,14 @@ public class PolicyOnlyAgent : IAgent
 
     static Tensor TensorizeRemainingDeckBatch(ReadOnlySpan<GameState> gameStates, int cardCount)
     {
-        long[,,] cards = new long[gameStates.Length, cardCount, 2];
+        long[,] cards = new long[gameStates.Length, cardCount];
         for (int stateIndex = 0; stateIndex < gameStates.Length; ++stateIndex)
         {
             ReadOnlySpan<Card> deck = gameStates[stateIndex].DeckState.RemainingDeck;
             for (int i = 0; i < cardCount; ++i)
             {
                 if (i < deck.Length)
-                {
-                    Card card = deck[i];
-                    cards[stateIndex, i, 0] = card.Rank - 2;
-                    cards[stateIndex, i, 1] = (int)card.Suit;
-                }
+                    cards[stateIndex, i] = deck[i].ToIndex();
             }
         }
 
@@ -318,10 +320,7 @@ public class PolicyOnlyAgent : IAgent
     {
         Tensor row = probs[batchIndex];
         float[] probDist = row.data<float>().ToArray();
-        ushort[] encodedProbs = new ushort[probDist.Length];
-        for (int i = 0; i < probDist.Length; i++)
-            encodedProbs[i] = AnnotatingDataMove.EncodeProb(probDist[i]);
-        AnnotatingDataMove annotation = AnnotatingDataMove.FromArray(encodedProbs);
+        AnnotatingDataMove annotation = AnnotationDataUtils.CreatePolicyAnnotation(probDist);
         annotation.Apply(gameState);
     }
 }

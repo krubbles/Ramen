@@ -1,6 +1,5 @@
-namespace Ramen.AI;
+namespace Ramen.AgentTools;
 
-using System;
 using Ramen.Game;
 
 public interface IAgent
@@ -14,11 +13,11 @@ public interface IAgent
 
 public static class IAgentExtensions
 {
-    public static bool[] IsGameDone(ReadOnlySpan<GameState> gameStates)
+    public static bool[] IsGameDone(IAgent agent, ReadOnlySpan<GameState> gameStates)
     {
         bool[] results = new bool[gameStates.Length];
         for (int i = 0; i < gameStates.Length; ++i)
-            results[i] = gameStates[i].GameIsDone;
+            results[i] = agent.IsGameDone(gameStates[i]);
         return results;
     }
 }
