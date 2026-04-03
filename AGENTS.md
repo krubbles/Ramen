@@ -1,15 +1,6 @@
-# Commands
-- Use mac commands
+- Before writing code, check to make sure there isn't code that serves the same purpose. If there is, and it can be reused, do so. 
 - ALWAYS run dotnet build with elevated sandbox permissions. 
-
-# Git
 - Use short commit messages.
-
-# Unit Tests
-- Use `Assert.That()`
-
-# Commenting
-- For longer functions, break them up into sections with short comments explaining what each section does. 
 
 # Code Guidelines
 - Use file-scoped namespace declarations.

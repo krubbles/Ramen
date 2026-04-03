@@ -16,6 +16,7 @@ public class MeanPooledCardSetEmbedding : Module<Tensor, Tensor>
         _cardEmbedding = Embedding(Card.RankCount * Card.SuitCount + 1, embeddingSize, device: targetDevice);
 
         // Keep the null-card embedding at zero so padded cards contribute nothing by default.
+        using var noGrad = no_grad();
         _cardEmbedding.weight[0].fill_(0f);
         RegisterComponents();
     }

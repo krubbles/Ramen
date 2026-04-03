@@ -2,10 +2,9 @@ namespace Ramen.ConsoleApp;
 
 using System;
 using System.IO;
-using System.Threading;
 using Ramen.AI;
 using Ramen.AgentTools;
-using Ramen.Training;
+using Ramen.Game;
 using static TorchSharp.torch;
 
 public static class Program
@@ -18,96 +17,96 @@ public static class Program
         Console.WriteLine("=== START ===");
         // Do not change END
 
-        string experimentName = "2026-02-14_grpo_s1000_r5000_lr1e-5_ent0p02";
-        int trainingSteps = 1000;
-        int rolloutSize = 5000;
-        float learningRate = 1e-5f;
-        float entropyCoeff = 0.02f;
-        int snapshotFrequency = 5;
-        int analysisSampleSize = 512;
-        bool shouldRunTraining = false;
+        string experimentName = "2026-04-02_bt_value_g5000_p500000_a2000_s100";
+        int rolloutGameCount = 5000;
+        int trainingPairCount = 500000;
+        int trainingPairIncrement = 2000;
+        int trainingBatchSize = 256;
+        float learningRate = 3e-4f;
+        int analysisSampleSize = 100;
+        int weightSnapshotFrequency = 5;
+        bool shouldRunTraining = true;
 
         string repoRoot = FindRepoRoot();
         string analysisDir = Path.Combine(repoRoot, "Analysis", experimentName);
         Directory.CreateDirectory(analysisDir);
+        string analysisCsvPath = Path.Combine(analysisDir, "analysis.csv");
+        string weightsDir = Path.Combine(analysisDir, "weights");
+        Directory.CreateDirectory(weightsDir);
 
         if (shouldRunTraining)
         {
             RunTraining(
                 experimentName: experimentName,
-                trainingSteps: trainingSteps,
-                rolloutSize: rolloutSize,
+                rolloutGameCount: rolloutGameCount,
+                trainingPairCount: trainingPairCount,
+                trainingPairIncrement: trainingPairIncrement,
+                trainingBatchSize: trainingBatchSize,
                 learningRate: learningRate,
-                entropyCoeff: entropyCoeff,
-                snapshotFrequency: snapshotFrequency);
+                analysisSampleSize: analysisSampleSize,
+                weightSnapshotFrequency: weightSnapshotFrequency,
+                analysisCsvPath: analysisCsvPath,
+                weightsDir: weightsDir);
         }
 
-        WriteAnalyzerCsvs(
-            analysisDir: analysisDir,
-            experimentName: experimentName,
-            analysisSampleSize: analysisSampleSize);
+        Console.WriteLine($"Experiment directory ready: {analysisDir}");
     }
 
 
-    static void RunTraining(string experimentName, int trainingSteps, int rolloutSize, float learningRate, float entropyCoeff, int snapshotFrequency)
+    static void RunTraining(
+        string experimentName,
+        int rolloutGameCount,
+        int trainingPairCount,
+        int trainingPairIncrement,
+        int trainingBatchSize,
+        float learningRate,
+        int analysisSampleSize,
+        int weightSnapshotFrequency,
+        string analysisCsvPath,
+        string weightsDir)
     {
-        BasicGRPOTrainingRun trainingRun = new()
+        using PreferenceTrainingPipeline trainingPipeline = new(learningRate: learningRate);
+        PreferenceGameRecord[] trainingGames = trainingPipeline.PlayTrainingGames(gameCount: rolloutGameCount);
+
+        RewardStatsTrainingRunAnalyzer rewardAnalyzer = new();
+        PolicyEntropyTrainingRunAnalyzer entropyAnalyzer = new();
+        HandTypePresenceTrainingRunAnalyzer handTypeAnalyzer = new();
+        EndStateHandCountTrainingRunAnalyzer endStateAnalyzer = new();
+        CSVBuilder analysisOutput = new();
+
+        for (int trainedPairs = trainingPairIncrement; trainedPairs <= trainingPairCount; trainedPairs += trainingPairIncrement)
         {
-            RolloutSize = rolloutSize,
-            LearningRate = learningRate,
-            Entropy = entropyCoeff,
-        };
+            PreferenceTrainingMetrics metrics = trainingPipeline.TrainOnRandomPairs(
+                gameRecords: trainingGames,
+                pairCount: trainingPairIncrement,
+                batchSize: trainingBatchSize);
 
-        using CancellationTokenSource cancellationTokenSource = new();
-        ITrainingRun.Run(
-            trainingRun: trainingRun,
-            runName: experimentName,
-            steps: trainingSteps,
-            samplingFrequency: snapshotFrequency,
-            cancellationTokenSource: cancellationTokenSource).Wait();
-    }
+            GameState[] analysisGames = trainingPipeline.PlayAnalysisGames(gameCount: analysisSampleSize);
 
+            analysisOutput.NextRow()
+                .SetCell("experiment", experimentName)
+                .SetCell("trained_pairs", trainedPairs)
+                .SetCell("pair_batch_loss", metrics.MeanLoss)
+                .SetCell("rollout_game_count", rolloutGameCount)
+                .SetCell("analysis_game_count", analysisSampleSize)
+                .SetCell("rollout_reward_mean", GetMeanReward(trainingGames))
+                .SetCell("rollout_reward_stddev", GetRewardStdDev(trainingGames));
 
-    static void WriteAnalyzerCsvs(string analysisDir, string experimentName, int analysisSampleSize)
-    {
-        // Entropy over snapshots.
-        CSVBuilder entropyOutput = TrainingRunAnalysis.Analyze(
-            runName: experimentName,
-            agentLoader: LoadSnapshotAgent,
-            sampleSize: analysisSampleSize,
-            new PolicyEntropyTrainingRunAnalyzer());
-        string entropyPath = Path.Combine(analysisDir, "entropy.csv");
-        File.WriteAllText(entropyPath, entropyOutput.ToString());
+            rewardAnalyzer.Analyze(analysisGames, analysisOutput);
+            entropyAnalyzer.Analyze(analysisGames, analysisOutput);
+            handTypeAnalyzer.Analyze(analysisGames, analysisOutput);
+            endStateAnalyzer.Analyze(analysisGames, analysisOutput);
 
-        // Average reward over snapshots.
-        CSVBuilder avgRewardOutput = TrainingRunAnalysis.Analyze(
-            runName: experimentName,
-            agentLoader: LoadSnapshotAgent,
-            sampleSize: analysisSampleSize,
-            new RewardStatsTrainingRunAnalyzer());
-        string avgRewardPath = Path.Combine(analysisDir, "avg_reward.csv");
-        File.WriteAllText(avgRewardPath, avgRewardOutput.ToString());
+            File.WriteAllText(analysisCsvPath, analysisOutput.ToString());
 
-        // End-state outcome distribution over snapshots.
-        CSVBuilder outcomeDistOutput = TrainingRunAnalysis.Analyze(
-            runName: experimentName,
-            agentLoader: LoadSnapshotAgent,
-            sampleSize: analysisSampleSize,
-            new EndStateHandCountTrainingRunAnalyzer());
-        string outcomeDistPath = Path.Combine(analysisDir, "outcome_dist.csv");
-        File.WriteAllText(outcomeDistPath, outcomeDistOutput.ToString());
+            int analysisPoint = trainedPairs / trainingPairIncrement;
+            if (analysisPoint % weightSnapshotFrequency == 0)
+                trainingPipeline.Save(Path.Combine(weightsDir, $"{trainedPairs}.bin"));
 
-        Console.WriteLine($"Wrote entropy CSV: {entropyPath}");
-        Console.WriteLine($"Wrote average reward CSV: {avgRewardPath}");
-        Console.WriteLine($"Wrote outcome distribution CSV: {outcomeDistPath}");
-    }
+            Console.WriteLine($"[{experimentName}] Trained {trainedPairs}/{trainingPairCount} pairs.");
+        }
 
-
-    static IAgent LoadSnapshotAgent(string filePath)
-    {
-        PolicyModel model = new();
-        model.Load(filePath);
-        return new PolicyOnlyAgent(model, ownsModel: true);
+        trainingPipeline.Save(Path.Combine(weightsDir, "latest.bin"));
     }
 
 
@@ -126,5 +125,35 @@ public static class Program
         }
 
         throw new InvalidOperationException("Could not find repository root containing Analysis/.");
+    }
+
+
+    static float GetMeanReward(ReadOnlySpan<PreferenceGameRecord> trainingGames)
+    {
+        if (trainingGames.Length == 0)
+            return 0f;
+
+        float totalReward = 0f;
+        for (int gameIndex = 0; gameIndex < trainingGames.Length; ++gameIndex)
+            totalReward += trainingGames[gameIndex].FinalReward;
+
+        return totalReward / trainingGames.Length;
+    }
+
+
+    static float GetRewardStdDev(ReadOnlySpan<PreferenceGameRecord> trainingGames)
+    {
+        if (trainingGames.Length <= 1)
+            return 0f;
+
+        float meanReward = GetMeanReward(trainingGames);
+        float sqErrorTotal = 0f;
+        for (int gameIndex = 0; gameIndex < trainingGames.Length; ++gameIndex)
+        {
+            float error = trainingGames[gameIndex].FinalReward - meanReward;
+            sqErrorTotal += error * error;
+        }
+
+        return MathF.Sqrt(sqErrorTotal / (trainingGames.Length - 1));
     }
 }
