@@ -102,7 +102,10 @@ public readonly struct Card : IEquatable<Card>, IComparable<Card>
         return hash;
     }
 
-    public int ToIndex() => Rank == 0 ? 0 : Rank - 1 + ((int)Suit - 1) * 13;
+    public int ToIndex() => Rank == 0 ? 0 : Rank - 1 + ((int)Suit - 1) * RankCount;
+
+    public const int RankCount = 13;
+    public const int SuitCount = 4;
 }
 
 public enum Suit : byte
