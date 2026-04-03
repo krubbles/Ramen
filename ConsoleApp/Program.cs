@@ -3,8 +3,8 @@ namespace Ramen.ConsoleApp;
 using System;
 using System.IO;
 using System.Threading;
-using Ramen.Agents;
 using Ramen.AI;
+using Ramen.AgentTools;
 using Ramen.Training;
 using static TorchSharp.torch;
 

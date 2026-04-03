@@ -1,4 +1,4 @@
-namespace Ramen.Agents;
+namespace Ramen.AgentTools;
 
 using System.Globalization;
 using System.Text;

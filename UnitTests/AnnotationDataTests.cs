@@ -1,6 +1,6 @@
 namespace Ramen.UnitTests;
 
-using Ramen.Agents;
+using Ramen.AgentTools;
 using Ramen.Game;
 
 public class AnnotationDataTests

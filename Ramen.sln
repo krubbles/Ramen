@@ -13,7 +13,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ConsoleApp", "ConsoleApp\Co
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Training", "Training\Training.csproj", "{3E1C52A6-7D4F-4E0F-8D3B-0B27A6B54F5A}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AgentTools", "Agents\AgentTools.csproj", "{32B0A20E-555C-44CF-8034-894A6090A5B0}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AgentTools", "AgentTools\AgentTools.csproj", "{32B0A20E-555C-44CF-8034-894A6090A5B0}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{A66046A7-89B8-4B45-B376-3ABD37028DCB}"
 	ProjectSection(SolutionItems) = preProject

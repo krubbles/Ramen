@@ -1,4 +1,4 @@
-namespace Ramen.AI;
+namespace Ramen.AgentTools;
 
 using Ramen.Game;
 using static TorchSharp.torch;

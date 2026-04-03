@@ -2,7 +2,7 @@ namespace Ramen.AI;
 
 using System;
 using System.Collections.Generic;
-using Ramen.Agents;
+using Ramen.AgentTools;
 using Ramen.Game;
 using static TorchSharp.torch;
 

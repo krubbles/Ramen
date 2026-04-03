@@ -1,5 +1,6 @@
 namespace Ramen.AI;
 
+using Ramen.AgentTools;
 using Ramen.Game;
 using TorchSharp;
 using TorchSharp.Modules;

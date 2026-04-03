@@ -3,10 +3,12 @@ namespace Ramen.Training;
 
 using System.Linq;
 using Ramen.AI;
+using Ramen.AgentTools;
 using TorchSharp;
 using TorchSharp.Modules;
 using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
+using TensorGroups = Ramen.AgentTools.TensorGroupExtentions;
 
 public record struct TrainingParams
 (
@@ -42,14 +44,14 @@ public static class Training
     {
         using var dscope = NewDisposeScope();
 
-        PolicyTrainingSample stacked = TensorGroupExtentions.Stack(trainingData, false, true);
+        PolicyTrainingSample stacked = TensorGroups.Stack(trainingData, false, true);
         using (var nograd = no_grad())
         {
             _ = validate; // GRPO uses a surrogate objective, so validation loss is not meaningful.
 
             lock (trainingData)
             {
-                stacked = TensorGroupExtentions.Stack(trainingData, false, true);
+                stacked = TensorGroups.Stack(trainingData, false, true);
             }
 
             Tensor advantageGPU = stacked.Advantage.to(MPS);

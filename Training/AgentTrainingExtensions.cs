@@ -3,9 +3,12 @@ namespace Ramen.Training;
 using System;
 using System.Collections.Generic;
 using Ramen.AI;
+using Ramen.AgentTools;
 using Ramen.Game;
 using Tensorboard;
 using static TorchSharp.torch;
+using AgentProfiling = Ramen.AgentTools.Profiling;
+using AgentProfileScope = Ramen.AgentTools.ProfileScope;
 
 /// <summary>
 /// Extension methods for RamenAgent that provide training-related functionality.
@@ -20,7 +23,7 @@ public static class AgentTrainingExtensions
     {
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
-        using var p_funcScope = ProfileScope.New(nameof(MakeMoveAndTrainingSample));
+        using var p_funcScope = AgentProfileScope.New(nameof(MakeMoveAndTrainingSample));
 
         // go through each state, advance them to the next player choice, and build a list of states that aren't done. 
         PolicyTrainingSample[] outputSamples = new PolicyTrainingSample[gameStates.Length];
@@ -58,12 +61,12 @@ public static class AgentTrainingExtensions
         Tensor chosenProbs = sampledProbs.select(dim: 1, index: 0);
 
         // readback the chosen move index and prob, so the move can be made and nl prob can be stored in the sample
-        Profiling.Enter("ChosenMoveReadback");
+        AgentProfiling.Enter("ChosenMoveReadback");
         long[] chosenMoveIndicesManaged = [.. chosenMoveIndices.to(CPU).data<long>()];
         float[] chosenProbsManaged = [.. chosenProbs.to(CPU).data<float>()];
-        Profiling.Exit("ChosenMoveReadback");
+        AgentProfiling.Exit("ChosenMoveReadback");
         
-        Profiling.Enter("BuildSamples");
+        AgentProfiling.Enter("BuildSamples");
         // Sample and apply one move per active state while creating one sample per state.
         for (int activeIndex = 0; activeIndex < activeStates.Length; ++activeIndex)
         {
@@ -91,7 +94,7 @@ public static class AgentTrainingExtensions
             // save sample in the output buffer
             outputSamples[activeIndices[activeIndex]] = sample;
         }
-        Profiling.Exit("BuildSamples"); 
+        AgentProfiling.Exit("BuildSamples"); 
         return outputSamples;
     }
 }
