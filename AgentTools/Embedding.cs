@@ -124,7 +124,7 @@ public static class Embedding
 
     static float GetScoreValue(GameState gameState)
     {
-        return (float)gameState.ScoringState.CurrentRoundTotalChips;
+        return (float)gameState.ScoringState.CurrentRoundTotalChips / 300f;
     }
 
     static int GetHandsAndDiscardsValue(GameState gameState)
