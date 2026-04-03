@@ -45,3 +45,4 @@ Note: private functions with exactly 1 caller should be placed directly after th
 - Never call `.ToOuterScope()` in functions that don't have a dispose scope. They are already in the outer dispose scope.
 - Call `.DetachFromScope()` on long-life tensors.
 - Always call `.Size()` on the output of a tensor op that changes the size.
+- All code should assume the first dimension is the batch dimension.
