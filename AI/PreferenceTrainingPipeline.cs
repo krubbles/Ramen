@@ -30,17 +30,23 @@ public sealed class PreferenceTrainingPipeline : IDisposable
 {
     readonly bool _ownsModel;
     readonly AdamW _optimizer;
+    readonly float _gameplaySamplingTemp;
 
     public readonly PreferenceValueModel Model;
     public readonly PreferenceSamplingAgent Agent;
     public readonly FastRandom Random;
 
-    public PreferenceTrainingPipeline(float learningRate, PreferenceValueModel model = null, bool ownsModel = true)
+    public PreferenceTrainingPipeline(
+        float learningRate,
+        float gameplaySamplingTemp = 1f,
+        PreferenceValueModel model = null,
+        bool ownsModel = true)
     {
         Model = model ?? new();
         Agent = new(Model, ownsModel: false);
         Random = FastRandom.SeededByClock();
         _ownsModel = ownsModel;
+        _gameplaySamplingTemp = gameplaySamplingTemp;
 
         _optimizer = optim.AdamW(
             parameters: Model.parameters(),
@@ -159,7 +165,7 @@ public sealed class PreferenceTrainingPipeline : IDisposable
             if (allGamesDone)
                 break;
 
-            Agent.MakeMove(temp: 1f, annotatePolicy: annotatePolicy, games);
+            Agent.MakeMove(temp: _gameplaySamplingTemp, annotatePolicy: annotatePolicy, games);
         }
 
         return games;
