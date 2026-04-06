@@ -13,6 +13,10 @@ public sealed class PreferenceSamplingAgent : IAgent, IDisposable
 
     public int MaxActiveBatchSize { get; set; } = 16;
 
+    public float TopMoveProbabilityMassTarget { get; set; } = float.NaN;
+
+    public int TopMoveProbabilityCount { get; set; } = 4;
+
     public PreferenceSamplingAgent(PreferenceValueModel model, bool ownsModel = false)
     {
         Model = model;
@@ -119,7 +123,17 @@ public sealed class PreferenceSamplingAgent : IAgent, IDisposable
         for (int stateIndex = 0; stateIndex < gameStates.Length; ++stateIndex)
         {
             CandidateRange candidateRange = candidateRanges[stateIndex];
-            float[] policy = AgentUtilities.SafeSoftmax(flatLogits.AsSpan(candidateRange.Start, candidateRange.Count), temp);
+            ReadOnlySpan<float> candidateLogits = flatLogits.AsSpan(candidateRange.Start, candidateRange.Count);
+            float policyTemperature = temp;
+            if (float.IsFinite(TopMoveProbabilityMassTarget))
+            {
+                policyTemperature = AgentUtilities.GetTemperatureForTargetTopProbabilityMass(
+                    logits: candidateLogits,
+                    topProbabilityCount: Math.Max(1, TopMoveProbabilityCount),
+                    targetProbabilityMass: TopMoveProbabilityMassTarget);
+            }
+
+            float[] policy = AgentUtilities.SafeSoftmax(candidateLogits, policyTemperature);
             policies[stateIndex] = policy;
         }
 
