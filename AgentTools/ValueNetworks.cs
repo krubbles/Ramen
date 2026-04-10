@@ -1,5 +1,6 @@
 namespace Ramen.AgentTools;
 
+using System.Runtime.CompilerServices;
 using TorchSharp;
 using TorchSharp.Modules;
 using static TorchSharp.torch;
@@ -62,6 +63,7 @@ public sealed class ValueNetwork : Module, IValueNetwork
 public sealed class SimpleValueNetwork : Module, IValueNetwork
 {
     public const int ScoreEmbeddingWidth = 16;
+    public const int ScoreBucketCount = 8;
     public const int HandsAndDiscardsEmbeddingWidth = 32;
     public const int HiddenWidth0 = 128;
     public const int HiddenWidth1 = 64;
@@ -72,11 +74,11 @@ public sealed class SimpleValueNetwork : Module, IValueNetwork
     readonly TorchSharp.Modules.Embedding _handsAndDiscardsEmbedding = Embedding(25, HandsAndDiscardsEmbeddingWidth, device: ValueNetwork.EvalDevice);
     readonly Sequential _valueHead;
 
-    public SimpleValueNetwork(float scoreThreshold, int scoreBucketCount) : base(nameof(SimpleValueNetwork))
+    public SimpleValueNetwork(float scoreThreshold = 300) : base(nameof(SimpleValueNetwork))
     {
         _scoreEmbedding = new(
             threshold: scoreThreshold,
-            bucketCount: scoreBucketCount,
+            bucketCount: 8,
             embeddingWidth: ScoreEmbeddingWidth,
             device: ValueNetwork.EvalDevice);
         _valueHead =
