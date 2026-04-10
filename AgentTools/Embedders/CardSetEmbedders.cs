@@ -9,7 +9,7 @@ public sealed class StandardProcessor : Module<Tensor, Tensor>
 {
     public const int ExactCardCountWidth = Card.RankCount * Card.SuitCount + 1;
     public const int RankThresholdWidth = Card.RankCount * 4;
-    public const int SuitThresholdWidth = Card.SuitCount * 5;
+    public const int SuitThresholdWidth = Card.SuitCount * 4;
     public const int OutputWidth = ExactCardCountWidth + RankThresholdWidth + SuitThresholdWidth;
 
     public StandardProcessor() : base(nameof(StandardProcessor))
