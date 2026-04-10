@@ -59,6 +59,62 @@ public sealed class ValueNetwork : Module, IValueNetwork
     }
 }
 
+public sealed class SimpleValueNetwork : Module, IValueNetwork
+{
+    public const int ScoreEmbeddingWidth = 16;
+    public const int HandsAndDiscardsEmbeddingWidth = 32;
+    public const int HiddenWidth0 = 128;
+    public const int HiddenWidth1 = 64;
+    public const int StateWidth = StandardProcessor.OutputWidth + ScoreEmbeddingWidth + HandsAndDiscardsEmbeddingWidth;
+
+    readonly StandardProcessor _handEmbedding = new();
+    readonly ThresholdScoreEmbedding _scoreEmbedding;
+    readonly TorchSharp.Modules.Embedding _handsAndDiscardsEmbedding = Embedding(25, HandsAndDiscardsEmbeddingWidth, device: ValueNetwork.EvalDevice);
+    readonly Sequential _valueHead;
+
+    public SimpleValueNetwork(float scoreThreshold, int scoreBucketCount) : base(nameof(SimpleValueNetwork))
+    {
+        _scoreEmbedding = new(
+            threshold: scoreThreshold,
+            bucketCount: scoreBucketCount,
+            embeddingWidth: ScoreEmbeddingWidth,
+            device: ValueNetwork.EvalDevice);
+        _valueHead =
+            Sequential(
+                Linear(StateWidth, HiddenWidth0, device: ValueNetwork.EvalDevice),
+                GELU(),
+                Linear(HiddenWidth0, HiddenWidth1, device: ValueNetwork.EvalDevice),
+                GELU(),
+                Linear(HiddenWidth1, 1, device: ValueNetwork.EvalDevice)
+            );
+
+        RegisterComponents();
+    }
+
+
+    public Tensor GetAdvantages(GameStateTensors gameStateTensors)
+    {
+        Tensor embeddedHand = _handEmbedding.forward(gameStateTensors.FullHand);
+        Tensor embeddedScore = _scoreEmbedding.forward(gameStateTensors.Score).squeeze(1);
+        Tensor embeddedHandsAndDiscards = _handsAndDiscardsEmbedding.forward(gameStateTensors.HandsAndDiscards);
+        Tensor stateVector = cat([embeddedHand, embeddedScore, embeddedHandsAndDiscards], dim: -1);
+        Tensor advantages = _valueHead.forward(stateVector);
+        return advantages.squeeze(-1);
+    }
+
+
+    public void Save(string filePath)
+    {
+        save(filePath);
+    }
+
+
+    public void Load(string filePath)
+    {
+        load(filePath);
+    }
+}
+
 sealed class ValueResidualBlock : Module<Tensor, Tensor>
 {
     readonly LayerNorm _layerNorm;
