@@ -103,8 +103,10 @@ public abstract class Move
         { MoveType.AfterHandUse, new AfterHandUsedMove.Serializer() },
         { MoveType.StartRound, new StartRoundMove.Serializer() },
         { MoveType.Reseed, new ReseedMove.Serializer() },
+        { MoveType.Shuffle, new ShuffleMove.Serializer() },
         { MoveType.DrawSpecificHand, new DrawSpecificHandMove.Serializer() },
         { MoveType.SetRemainingHandsAndDiscards, new SetRemainingHandsAndDiscardsMove.Serializer() },
+        { MoveType.SetCurrentRoundScore, new SetCurrentRoundScoreMove.Serializer() },
         { MoveType.AnnotatingData, new AnnotatingDataMove.Serializer() },
     };
 }
@@ -121,6 +123,7 @@ public enum MoveType : byte
     AnnotatingData,
     DrawSpecificHand,
     SetRemainingHandsAndDiscards,
+    SetCurrentRoundScore,
 }
 
 /// <summary>

@@ -306,6 +306,56 @@ public sealed class SetRemainingHandsAndDiscardsMove : Move
     }
 }
 
+/// <summary>
+/// Move for setting the current round score. Never a legal move, used for testing.
+/// </summary>
+public sealed class SetCurrentRoundScoreMove : Move
+{
+    public readonly float Score;
+
+    float _previousScore;
+
+    public SetCurrentRoundScoreMove(float score)
+    {
+        Score = score;
+    }
+
+    public override MoveType GetMoveType() => MoveType.SetCurrentRoundScore;
+
+    protected override void Apply()
+    {
+        _previousScore = (float)gameState.ScoringState.CurrentRoundTotalChips;
+        gameState.ScoringState.CurrentRoundTotalChips = Score;
+    }
+
+    protected override void Revert()
+    {
+        gameState.ScoringState.CurrentRoundTotalChips = _previousScore;
+    }
+
+    public override string ToString()
+    {
+        return $"Set Current Round Score: {Score}";
+    }
+
+    internal sealed class Serializer : IMoveSerializer
+    {
+        public MoveType MoveType => MoveType.SetCurrentRoundScore;
+
+        public void Serialize(GameStateSerializer gsSerializer, Move move)
+        {
+            SetCurrentRoundScoreMove setMove = (SetCurrentRoundScoreMove)move;
+            gsSerializer.Stream.WriteStruct<float>(setMove.Score);
+        }
+
+        public Move Deserialize(GameStateSerializer gsSerializer)
+        {
+            float score = gsSerializer.Stream.ReadStruct<float>();
+            return new SetCurrentRoundScoreMove(score);
+        }
+    }
+}
+
 #if false // not currently in use
 /// <summary>
 /// Move for drawing a fixed quantity of cards.
