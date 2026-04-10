@@ -5,6 +5,7 @@ using Ramen.Game;
 public enum AnnotationDataType : ushort
 {
     Policy = 1,
+    ExpectedReward = 3,
 }
 
 public static class AnnotationDataUtils
@@ -40,6 +41,24 @@ public static class AnnotationDataUtils
         }
 
         policy = DecodePolicyAnnotation(annotation);
+        return true;
+    }
+
+    public static AnnotatingDataMove CreateExpectedRewardAnnotation(float expectedReward)
+    {
+        byte[] data = BitConverter.GetBytes(expectedReward);
+        return new((ushort)AnnotationDataType.ExpectedReward, data);
+    }
+
+    public static bool TryDecodeExpectedRewardAnnotation(AnnotatingDataMove annotation, out float expectedReward)
+    {
+        if (annotation == null || annotation.DataTypeID != (ushort)AnnotationDataType.ExpectedReward)
+        {
+            expectedReward = 0f;
+            return false;
+        }
+
+        expectedReward = BitConverter.ToSingle(annotation.Data, 0);
         return true;
     }
 }
