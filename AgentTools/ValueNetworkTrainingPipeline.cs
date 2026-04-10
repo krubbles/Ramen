@@ -50,6 +50,19 @@ public sealed class ValueNetworkTrainingPipeline : IDisposable
     public ValueNetworkTrainingMetrics TrainOnAllStates(GameDatabase gameDatabase, int epochCount, int batchSize)
     {
         ValueGameRecord[] gameRecords = BuildGameRecords(gameDatabase);
+        return TrainOnAllStates(gameRecords: gameRecords, epochCount: epochCount, batchSize: batchSize);
+    }
+
+
+    public ValueNetworkTrainingMetrics TrainOnAllStatesFromFile(string gameDatabasePath, int epochCount, int batchSize)
+    {
+        ValueGameRecord[] gameRecords = BuildGameRecordsFromFile(gameDatabasePath);
+        return TrainOnAllStates(gameRecords: gameRecords, epochCount: epochCount, batchSize: batchSize);
+    }
+
+
+    ValueNetworkTrainingMetrics TrainOnAllStates(ValueGameRecord[] gameRecords, int epochCount, int batchSize)
+    {
         if (gameRecords.Length == 0 || epochCount <= 0)
             return new(MeanLoss: 0f, TrainedStates: 0);
 
@@ -107,6 +120,27 @@ public sealed class ValueNetworkTrainingPipeline : IDisposable
         List<ValueGameRecord> gameRecords = [];
         foreach (GameState gameState in gameDatabase)
         {
+            using MemoryStream stream = new();
+            gameState.Serialize(stream);
+            gameRecords.Add(new(
+                SerializedGame: stream.ToArray(),
+                FinalReward: GetReward(gameState),
+                MoveCount: gameState.MoveState.MoveHistory.Count));
+        }
+
+        return [.. gameRecords];
+    }
+
+
+    static ValueGameRecord[] BuildGameRecordsFromFile(string gameDatabasePath)
+    {
+        List<ValueGameRecord> gameRecords = [];
+        using FileStream fileStream = new(gameDatabasePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+
+        while (fileStream.Position < fileStream.Length)
+        {
+            GameState gameState = new(GameData.Default);
+            gameState.Deserialize(fileStream);
             using MemoryStream stream = new();
             gameState.Serialize(stream);
             gameRecords.Add(new(
