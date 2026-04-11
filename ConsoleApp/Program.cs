@@ -3,21 +3,18 @@ namespace Ramen.ConsoleApp;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
+using System.Text.Json;
 using Ramen.AI;
 using Ramen.AgentTools;
 using Ramen.Game;
 using TorchSharp;
 using TorchSharp.Modules;
 using static TorchSharp.torch;
-using static TorchSharp.torch.nn;
 
 public static class Program
 {
-    const string ExperimentName = "2026-04-10_padded_swiglu_value_expected_reward_400k_suitx24_e10_b256_lr3e4_w192_l2";
-    const string BaselineExperimentName = "2026-04-10_simple_value_expected_reward_400k_suitx24_e10_b256_lr3e4";
-    const string SecondExperimentName = "2026-04-10_simple_value_expected_reward_400k_suitx24_e10_b256_lr3e4_w192_w96";
-    const string ThirdExperimentName = "2026-04-10_simple_value_expected_reward_400k_suitx24_e10_b256_lr3e4_w128_w64_w32";
-    const string FourthExperimentName = "2026-04-10_padded_swiglu_value_expected_reward_400k_suitx24_e10_b256_lr3e4";
+    const string ExperimentName = "2026-04-10_quantile_padded_swiglu_value_expected_reward_400k_suitx24_e10_b256_lr3e4_w192_l2_q50";
+    const string BaselineExperimentName = "2026-04-10_padded_swiglu_value_expected_reward_400k_suitx24_e10_b256_lr3e4_w192_l2";
     const string GameDatabasePath = "/Users/miles/Documents/Ramen/GameDatabases/random_discard_preredraw_winprob_h1_d1_3334x1000.bin";
     const int EpochCount = 10;
     const int BatchSize = 256;
@@ -28,17 +25,16 @@ public static class Program
     const float ScoreThreshold = 1f;
     const int ResidualWidth = 192;
     const int ResidualLayerCount = 2;
+    const float QuantileHuberKappa = 1f;
 
     static readonly SuitPermutation[] SuitPermutations = BuildSuitPermutations();
     static readonly int[] SuitPermutationIndexMap = BuildSuitPermutationIndexMap();
 
     public static void Main()
     {
-        // Do not change START
         set_default_device(mps_is_available() ? MPS : CPU);
         TensorManager.Init();
         Console.WriteLine("=== START ===");
-        // Do not change END
 
         RunExperiment();
     }
@@ -68,12 +64,13 @@ public static class Program
         Array.Copy(shuffledBaseIndices, trainingBaseCount, validationBaseIndices, 0, validationBaseCount);
 
         int augmentedTrainingCount = trainingBaseCount * SuitPermutations.Length;
-        int augmentedValidationCount = validationBaseCount * SuitPermutations.Length;
+        int augmentedValidationCount = validationBaseIndices.Length * SuitPermutations.Length;
 
         CSVBuilder analysis = new();
         analysis.NextRow()
             .SetCell("row_type", "config")
             .SetCell("experiment", ExperimentName)
+            .SetCell("baseline_experiment", BaselineExperimentName)
             .SetCell("game_database_path", GameDatabasePath)
             .SetCell("base_dataset_count", dataset.Count)
             .SetCell("suit_permutation_count", SuitPermutations.Length)
@@ -87,17 +84,28 @@ public static class Program
             .SetCell("split_seed", SplitSeed)
             .SetCell("checkpoint_count_per_epoch", CheckpointsPerEpoch)
             .SetCell("score_threshold", ScoreThreshold.ToString("F4", CultureInfo.InvariantCulture))
-            .SetCell("score_bucket_count", PaddedSwiGLUValueNetwork.ScoreBucketCount)
-            .SetCell("score_embedding_width", PaddedSwiGLUValueNetwork.ScoreEmbeddingWidth)
-            .SetCell("hands_discards_embedding_width", PaddedSwiGLUValueNetwork.HandsAndDiscardsEmbeddingWidth)
-            .SetCell("input_width", PaddedSwiGLUValueNetwork.InputWidth)
+            .SetCell("score_bucket_count", QuantilePaddedSwiGLUValueNetwork.ScoreBucketCount)
+            .SetCell("score_embedding_width", QuantilePaddedSwiGLUValueNetwork.ScoreEmbeddingWidth)
+            .SetCell("hands_discards_embedding_width", QuantilePaddedSwiGLUValueNetwork.HandsAndDiscardsEmbeddingWidth)
+            .SetCell("input_width", QuantilePaddedSwiGLUValueNetwork.InputWidth)
             .SetCell("residual_width", ResidualWidth)
-            .SetCell("swiglu_hidden_width", PaddedSwiGLUValueNetwork.SwiGLUHiddenWidth)
-            .SetCell("residual_layer_count", ResidualLayerCount);
+            .SetCell("swiglu_hidden_width", QuantilePaddedSwiGLUValueNetwork.SwiGLUHiddenWidth)
+            .SetCell("residual_layer_count", ResidualLayerCount)
+            .SetCell("quantile_count", QuantilePaddedSwiGLUValueNetwork.QuantileCount)
+            .SetCell("quantile_huber_kappa", QuantileHuberKappa.ToString("F4", CultureInfo.InvariantCulture));
+
+        File.WriteAllText(analysisCsvPath, analysis.ToString());
+        File.WriteAllText(readmePath, BuildReadme(
+            commitHash: GetCommitHash(repoRoot),
+            datasetCount: dataset.Count,
+            trainingCount: augmentedTrainingCount,
+            validationCount: augmentedValidationCount));
+        File.WriteAllText(notebookPath, BuildNotebookJson());
+        File.Copy(Path.Combine(repoRoot, "ConsoleApp", "Program.cs"), programSnapshotPath, overwrite: true);
 
         Stopwatch experimentStopwatch = Stopwatch.StartNew();
 
-        using PaddedSwiGLUValueNetwork model = new(
+        using QuantilePaddedSwiGLUValueNetwork model = new(
             scoreThreshold: ScoreThreshold,
             residualWidth: ResidualWidth,
             residualLayerCount: ResidualLayerCount);
@@ -113,6 +121,7 @@ public static class Program
         for (int epoch = 1; epoch <= EpochCount; ++epoch)
         {
             Console.WriteLine($"Epoch {epoch}/{EpochCount}");
+
             int[] trainingOrder = BuildAugmentedOrder(
                 baseIndices: trainingBaseIndices,
                 permutationCount: SuitPermutations.Length,
@@ -122,6 +131,7 @@ public static class Program
 
             model.train();
             float accumulatedTrainingLoss = 0f;
+            float accumulatedTrainingEvMse = 0f;
             int accumulatedBatchCount = 0;
             int trainedExamples = 0;
             int nextCheckpointCursor = 0;
@@ -138,12 +148,16 @@ public static class Program
 
                 optimizer.zero_grad();
 
-                Tensor predictions = model.GetAdvantages(batch);
-                Tensor loss = functional.mse_loss(predictions, targets);
+                Tensor quantilePredictions = model.GetQuantiles(batch);
+                Tensor loss = GetQuantileRegressionLoss(quantilePredictions, targets);
+                Tensor expectedValues = quantilePredictions.mean([quantilePredictions.Dimensions - 1]);
+                Tensor evMse = torch.nn.functional.mse_loss(expectedValues, targets);
+
                 loss.backward();
                 optimizer.step();
 
                 accumulatedTrainingLoss += loss.item<float>();
+                accumulatedTrainingEvMse += evMse.item<float>();
                 accumulatedBatchCount++;
                 trainedExamples += currentBatchSize;
 
@@ -152,8 +166,10 @@ public static class Program
 
                 globalCheckpointIndex++;
                 float meanTrainingLoss = accumulatedTrainingLoss / Math.Max(1, accumulatedBatchCount);
+                float meanTrainingEvMse = accumulatedTrainingEvMse / Math.Max(1, accumulatedBatchCount);
+
                 Stopwatch validationStopwatch = Stopwatch.StartNew();
-                float validationLoss = EvaluateModel(model, dataset, validationBaseIndices);
+                EvaluationMetrics validationMetrics = EvaluateModel(model, dataset, validationBaseIndices);
                 validationStopwatch.Stop();
 
                 string weightsPath = Path.Combine(weightsDir, $"step{globalCheckpointIndex:D3}.bin");
@@ -168,8 +184,10 @@ public static class Program
                     .SetCell("checkpoint_in_epoch", nextCheckpointCursor + 1)
                     .SetCell("global_checkpoint", globalCheckpointIndex)
                     .SetCell("trained_examples", trainedExamples)
-                    .SetCell("training_loss", meanTrainingLoss.ToString("F6", CultureInfo.InvariantCulture))
-                    .SetCell("validation_loss", validationLoss.ToString("F6", CultureInfo.InvariantCulture))
+                    .SetCell("training_quantile_loss", meanTrainingLoss.ToString("F6", CultureInfo.InvariantCulture))
+                    .SetCell("training_ev_mse", meanTrainingEvMse.ToString("F6", CultureInfo.InvariantCulture))
+                    .SetCell("validation_quantile_loss", validationMetrics.QuantileLoss.ToString("F6", CultureInfo.InvariantCulture))
+                    .SetCell("validation_ev_mse", validationMetrics.EvMse.ToString("F6", CultureInfo.InvariantCulture))
                     .SetCell("validation_seconds", validationStopwatch.Elapsed.TotalSeconds.ToString("F4", CultureInfo.InvariantCulture))
                     .SetCell("elapsed_seconds", experimentStopwatch.Elapsed.TotalSeconds.ToString("F4", CultureInfo.InvariantCulture))
                     .SetCell("weights_path", weightsPath);
@@ -178,20 +196,18 @@ public static class Program
                 Console.WriteLine(
                     $"  checkpoint {globalCheckpointIndex:D3} " +
                     $"epoch_progress={(float)(batchIndex + 1) / batchCount:F3} " +
-                    $"train_loss={meanTrainingLoss:F6} val_loss={validationLoss:F6}");
+                    $"train_quantile={meanTrainingLoss:F6} " +
+                    $"train_ev_mse={meanTrainingEvMse:F6} " +
+                    $"val_quantile={validationMetrics.QuantileLoss:F6} " +
+                    $"val_ev_mse={validationMetrics.EvMse:F6}");
 
                 accumulatedTrainingLoss = 0f;
+                accumulatedTrainingEvMse = 0f;
                 accumulatedBatchCount = 0;
                 nextCheckpointCursor++;
             }
         }
 
-        File.Copy(Path.Combine(repoRoot, "ConsoleApp", "Program.cs"), programSnapshotPath, overwrite: true);
-        File.WriteAllText(readmePath, BuildReadme(
-            datasetCount: dataset.Count,
-            trainingCount: augmentedTrainingCount,
-            validationCount: augmentedValidationCount));
-        File.WriteAllText(notebookPath, BuildNotebookJson());
         File.WriteAllText(analysisCsvPath, analysis.ToString());
     }
 
@@ -230,6 +246,7 @@ public static class Program
     {
         int count = 0;
         GameData gameData = CreateOneHandOneDiscardGameData();
+
         using FileStream fileStream = new(gameDatabasePath, FileMode.Open, FileAccess.Read, FileShare.Read);
         while (fileStream.Position < fileStream.Length)
         {
@@ -289,16 +306,18 @@ public static class Program
     }
 
 
-    static float EvaluateModel(PaddedSwiGLUValueNetwork model, BaseDataset dataset, int[] validationBaseIndices)
+    static EvaluationMetrics EvaluateModel(QuantilePaddedSwiGLUValueNetwork model, BaseDataset dataset, int[] validationBaseIndices)
     {
-        using var noGrad = no_grad();
+        using IDisposable noGrad = no_grad();
+
         model.eval();
 
         int validationCount = validationBaseIndices.Length * SuitPermutations.Length;
         if (validationCount == 0)
-            return 0f;
+            return new(QuantileLoss: 0f, EvMse: 0f);
 
-        float totalLoss = 0f;
+        float totalQuantileLoss = 0f;
+        float totalEvMse = 0f;
         int batchCount = 0;
 
         for (int augmentedStart = 0; augmentedStart < validationCount; augmentedStart += BatchSize)
@@ -338,14 +357,40 @@ public static class Program
             };
             Tensor targetTensor = tensor(targets, dtype: ScalarType.Float32, device: ValueNetwork.EvalDevice);
 
-            Tensor predictions = model.GetAdvantages(batch);
-            Tensor loss = functional.mse_loss(predictions, targetTensor);
-            totalLoss += loss.item<float>();
+            Tensor quantilePredictions = model.GetQuantiles(batch);
+            Tensor quantileLoss = GetQuantileRegressionLoss(quantilePredictions, targetTensor);
+            Tensor expectedValues = quantilePredictions.mean([quantilePredictions.Dimensions - 1]);
+            Tensor evMse = torch.nn.functional.mse_loss(expectedValues, targetTensor);
+
+            totalQuantileLoss += quantileLoss.item<float>();
+            totalEvMse += evMse.item<float>();
             batchCount++;
         }
 
         model.train();
-        return totalLoss / Math.Max(1, batchCount);
+        return new(
+            QuantileLoss: totalQuantileLoss / Math.Max(1, batchCount),
+            EvMse: totalEvMse / Math.Max(1, batchCount));
+    }
+
+
+    static Tensor GetQuantileRegressionLoss(Tensor predictedQuantiles, Tensor targets)
+    {
+        using var scope = NewDisposeScope();
+
+        Tensor taus = (arange(QuantilePaddedSwiGLUValueNetwork.QuantileCount, dtype: ScalarType.Float32, device: predictedQuantiles.device) + 0.5f)
+            / QuantilePaddedSwiGLUValueNetwork.QuantileCount;
+        Tensor tdErrors = targets.unsqueeze(-1) - predictedQuantiles;
+        Tensor absoluteTdErrors = tdErrors.abs();
+        Tensor quadraticPart = absoluteTdErrors.clamp_max(QuantileHuberKappa);
+        Tensor linearPart = absoluteTdErrors - quadraticPart;
+        Tensor huberLoss = 0.5f * quadraticPart.square() + QuantileHuberKappa * linearPart;
+        Tensor indicator = tdErrors.lt(0f).to_type(ScalarType.Float32);
+        Tensor quantileWeights = (taus.unsqueeze(0) - indicator).abs();
+        Tensor loss = (quantileWeights * huberLoss / QuantileHuberKappa).mean();
+
+        loss.MoveToOuterDisposeScope();
+        return loss;
     }
 
 
@@ -523,196 +568,197 @@ public static class Program
 
     static string FindRepoRoot()
     {
-        string current = AppContext.BaseDirectory;
-        while (!string.IsNullOrEmpty(current))
+        DirectoryInfo directory = new(AppContext.BaseDirectory);
+        while (directory != null)
         {
-            if (File.Exists(Path.Combine(current, "Ramen.sln")))
-                return current;
-
-            string? parent = Directory.GetParent(current)?.FullName;
-            if (string.Equals(parent, current, StringComparison.Ordinal))
-                break;
-
-            current = parent ?? string.Empty;
+            if (Directory.Exists(Path.Combine(directory.FullName, ".git")))
+                return directory.FullName;
+            directory = directory.Parent;
         }
 
         throw new InvalidOperationException("Could not locate repository root.");
     }
 
 
-    static string BuildReadme(int datasetCount, int trainingCount, int validationCount)
+    static string GetCommitHash(string repoRoot)
     {
-        List<string> lines =
-        [
-            $"Date: {DateTime.Now:yyyy-MM-dd}",
-            $"Commit Hash: {GetCommitHash()}",
-            string.Empty,
-            "# Training Params",
-            $"1. Dataset path: {GameDatabasePath}",
-            $"2. Base dataset count: {datasetCount}",
-            $"3. Suit permutation count: {SuitPermutations.Length}",
-            $"4. Augmented training count: {trainingCount}",
-            $"5. Augmented validation count: {validationCount}",
-            $"6. Epoch count: {EpochCount}",
-            $"7. Training batch size: {BatchSize}",
-            $"8. Learning rate: {LearningRate}",
-            $"9. Validation fraction: {ValidationFraction}",
-            $"10. Split seed: {SplitSeed}",
-            $"11. Checkpoints per epoch: {CheckpointsPerEpoch}",
-            $"12. Score threshold: {ScoreThreshold}",
-            $"13. Score bucket count: {PaddedSwiGLUValueNetwork.ScoreBucketCount}",
-            $"14. Score embedding width: {PaddedSwiGLUValueNetwork.ScoreEmbeddingWidth}",
-            $"15. Hands/discards embedding width: {PaddedSwiGLUValueNetwork.HandsAndDiscardsEmbeddingWidth}",
-            $"16. Input width before zero padding: {PaddedSwiGLUValueNetwork.InputWidth}",
-            $"17. Residual stream width: {ResidualWidth}",
-            $"18. SwiGLU hidden width: {PaddedSwiGLUValueNetwork.SwiGLUHiddenWidth}",
-            $"19. Residual layer count: {ResidualLayerCount}",
-            string.Empty,
-            "# Description",
-            "- Trains `PaddedSwiGLUValueNetwork` with MSE on the saved float annotation from the one-hand one-discard pre-discard dataset.",
-            "- Treats the dataset's `winprob` annotation as the expected reward target, per the experiment request.",
-            "- Splits base states before augmentation, then expands both train and validation sets by all 24 suit permutations.",
-            "- Concatenates zero features to expand the 169-wide state vector to a 192-wide residual stream.",
-            "- Applies 2 pre-norm 1:1 SwiGLU residual layers with gate and value hidden widths of 284, then GELU and a final linear head.",
-            "- Shuffles the augmented training order every epoch and writes a single `analysis.csv` with checkpointed train and validation loss.",
-            "- The notebook overlays this run with the earlier `128/64`, `192/96`, partial `128/64/32`, and `384`-wide padded SwiGLU trajectories.",
-        ];
+        string headPath = Path.Combine(repoRoot, ".git", "HEAD");
+        if (!File.Exists(headPath))
+            return "unknown";
 
-        return string.Join(Environment.NewLine, lines) + Environment.NewLine;
+        string headContents = File.ReadAllText(headPath).Trim();
+        if (!headContents.StartsWith("ref: ", StringComparison.Ordinal))
+            return headContents.Length >= 7 ? headContents[..7] : headContents;
+
+        string refPath = Path.Combine(repoRoot, ".git", headContents[5..].Replace('/', Path.DirectorySeparatorChar));
+        if (!File.Exists(refPath))
+            return "unknown";
+
+        string hash = File.ReadAllText(refPath).Trim();
+        return hash.Length >= 7 ? hash[..7] : hash;
+    }
+
+
+    static string BuildReadme(string commitHash, int datasetCount, int trainingCount, int validationCount)
+    {
+        StringBuilder readme = new();
+        readme.AppendLine("Date: 2026-04-10");
+        readme.AppendLine($"Commit Hash: {commitHash}");
+        readme.AppendLine();
+        readme.AppendLine("# Training Params");
+        readme.AppendLine($"1. Dataset path: {GameDatabasePath}");
+        readme.AppendLine($"2. Baseline comparison run: {BaselineExperimentName}");
+        readme.AppendLine($"3. Base dataset count: {datasetCount}");
+        readme.AppendLine($"4. Suit permutation count: {SuitPermutations.Length}");
+        readme.AppendLine($"5. Augmented training count: {trainingCount}");
+        readme.AppendLine($"6. Augmented validation count: {validationCount}");
+        readme.AppendLine($"7. Epoch count: {EpochCount}");
+        readme.AppendLine($"8. Training batch size: {BatchSize}");
+        readme.AppendLine($"9. Learning rate: {LearningRate}");
+        readme.AppendLine($"10. Validation fraction: {ValidationFraction}");
+        readme.AppendLine($"11. Split seed: {SplitSeed}");
+        readme.AppendLine($"12. Checkpoints per epoch: {CheckpointsPerEpoch}");
+        readme.AppendLine($"13. Score threshold: {ScoreThreshold}");
+        readme.AppendLine($"14. Score bucket count: {QuantilePaddedSwiGLUValueNetwork.ScoreBucketCount}");
+        readme.AppendLine($"15. Score embedding width: {QuantilePaddedSwiGLUValueNetwork.ScoreEmbeddingWidth}");
+        readme.AppendLine($"16. Hands/discards embedding width: {QuantilePaddedSwiGLUValueNetwork.HandsAndDiscardsEmbeddingWidth}");
+        readme.AppendLine($"17. Input width before zero padding: {QuantilePaddedSwiGLUValueNetwork.InputWidth}");
+        readme.AppendLine($"18. Residual stream width: {ResidualWidth}");
+        readme.AppendLine($"19. SwiGLU hidden width: {QuantilePaddedSwiGLUValueNetwork.SwiGLUHiddenWidth}");
+        readme.AppendLine($"20. Residual layer count: {ResidualLayerCount}");
+        readme.AppendLine($"21. Quantile count: {QuantilePaddedSwiGLUValueNetwork.QuantileCount}");
+        readme.AppendLine($"22. Quantile Huber kappa: {QuantileHuberKappa}");
+        readme.AppendLine();
+        readme.AppendLine("# Description");
+        readme.AppendLine("- Trains a quantile-output version of the 192-wide 2-layer padded SwiGLU value network on the saved expected-reward target.");
+        readme.AppendLine("- Uses 50 quantiles with QR-DQN style quantile Huber regression against the scalar expected reward target.");
+        readme.AppendLine("- Logs both quantile regression loss and the MSE between the predicted expected value and the true target.");
+        readme.AppendLine("- Splits base states before augmentation, then expands both train and validation sets by all 24 suit permutations.");
+        readme.AppendLine("- The notebook overlays the new EV-MSE curves with the original scalar 192/l2 run on the same graph.");
+        return readme.ToString();
     }
 
 
     static string BuildNotebookJson()
     {
-        return $$"""
-{
-  "cells": [
-    {
-      "cell_type": "markdown",
-      "metadata": {},
-      "source": [
-        "# Padded SwiGLU Value Training\n",
-        "\n",
-        "Overlays the current padded SwiGLU run with the earlier `128/64`, `192/96`, and partial `128/64/32` runs."
-      ]
-    },
-    {
-      "cell_type": "code",
-      "execution_count": null,
-      "metadata": {},
-      "outputs": [],
-      "source": [
-        "import csv\n",
-        "from pathlib import Path\n",
-        "import matplotlib.pyplot as plt\n",
-        "\n",
-        "current_path = Path('analysis.csv')\n",
-        "baseline_path = Path('../{{BaselineExperimentName}}/analysis.csv')\n",
-        "second_path = Path('../{{SecondExperimentName}}/analysis.csv')\n",
-        "third_path = Path('../{{ThirdExperimentName}}/analysis.csv')\n",
-        "fourth_path = Path('../{{FourthExperimentName}}/analysis.csv')\n",
-        "\n",
-        "def load_rows(path):\n",
-        "    rows = []\n",
-        "    if not path.exists():\n",
-        "        return rows\n",
-        "    with path.open() as f:\n",
-        "        reader = csv.DictReader(f)\n",
-        "        for row in reader:\n",
-        "            if row['row_type'] == 'checkpoint':\n",
-        "                rows.append(row)\n",
-        "    return rows\n",
-        "\n",
-        "current_rows = load_rows(current_path)\n",
-        "baseline_rows = load_rows(baseline_path)\n",
-        "second_rows = load_rows(second_path)\n",
-        "third_rows = load_rows(third_path)\n",
-        "fourth_rows = load_rows(fourth_path)\n",
-        "\n",
-        "print(f'current checkpoints: {len(current_rows)}')\n",
-        "print(f'baseline checkpoints: {len(baseline_rows)}')\n",
-        "print(f'second checkpoints: {len(second_rows)}')\n",
-        "print(f'third checkpoints: {len(third_rows)}')\n",
-        "print(f'fourth checkpoints: {len(fourth_rows)}')\n",
-        "if current_rows:\n",
-        "    print('latest current checkpoint:')\n",
-        "    print(current_rows[-1])\n",
-        "\n",
-        "fig, ax = plt.subplots(figsize=(10, 5))\n",
-        "\n",
-        "for rows, label in [\n",
-        "    (baseline_rows, 'baseline 128/64'),\n",
-        "    (second_rows, 'second 192/96'),\n",
-        "    (third_rows, 'third 128/64/32'),\n",
-        "    (fourth_rows, 'fourth padded SwiGLU 384/l3'),\n",
-        "    (current_rows, 'current padded SwiGLU 192/l2'),\n",
-        "]:\n",
-        "    steps = [int(row['global_checkpoint']) for row in rows]\n",
-        "    train_loss = [float(row['training_loss']) for row in rows]\n",
-        "    val_loss = [float(row['validation_loss']) for row in rows]\n",
-        "    ax.plot(steps, train_loss, label=f'{label} train')\n",
-        "    ax.plot(steps, val_loss, label=f'{label} val', alpha=0.25)\n",
-        "\n",
-        "ax.set_xlabel('checkpoint')\n",
-        "ax.set_ylabel('mse')\n",
-        "ax.set_ylim(0, 0.002)\n",
-        "ax.set_title('Loss')\n",
-        "ax.grid(True)\n",
-        "ax.legend()\n",
-        "plt.show()\n"
-      ]
-    }
-  ],
-  "metadata": {
-    "kernelspec": {
-      "display_name": "Python 3",
-      "language": "python",
-      "name": "python3"
-    },
-    "language_info": {
-      "name": "python",
-      "version": "3.x"
-    }
-  },
-  "nbformat": 4,
-  "nbformat_minor": 5
-}
-""";
-    }
-
-
-    static string GetCommitHash()
-    {
-        try
+        object notebook = new
         {
-            ProcessStartInfo startInfo = new("git", "rev-parse --short HEAD")
+            cells = new object[]
             {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WorkingDirectory = FindRepoRoot(),
-            };
-            using Process process = Process.Start(startInfo);
-            if (process == null)
-                return "UNKNOWN";
+                new
+                {
+                    cell_type = "markdown",
+                    metadata = new { },
+                    source = new[]
+                    {
+                        "# Quantile SwiGLU EV Comparison\n",
+                        "This notebook loads the live quantile run, prints the latest checkpoint, and overlays EV-MSE against the original scalar 192/l2 run.\n",
+                    }
+                },
+                new
+                {
+                    cell_type = "code",
+                    execution_count = (int?)null,
+                    metadata = new { },
+                    outputs = Array.Empty<object>(),
+                    source = new[]
+                    {
+                        "import csv\n",
+                        "from pathlib import Path\n",
+                        "import matplotlib.pyplot as plt\n",
+                        "\n",
+                        "current_path = Path('analysis.csv')\n",
+                        $"baseline_path = Path('../{BaselineExperimentName}/analysis.csv')\n",
+                        "\n",
+                        "def load_rows(path):\n",
+                        "    rows = []\n",
+                        "    if not path.exists():\n",
+                        "        return rows\n",
+                        "    with path.open() as f:\n",
+                        "        reader = csv.DictReader(f)\n",
+                        "        for row in reader:\n",
+                        "            if row['row_type'] == 'checkpoint':\n",
+                        "                rows.append(row)\n",
+                        "    return rows\n",
+                        "\n",
+                        "current_rows = load_rows(current_path)\n",
+                        "baseline_rows = load_rows(baseline_path)\n",
+                        "\n",
+                        "print(f'quantile checkpoints: {len(current_rows)}')\n",
+                        "print(f'baseline checkpoints: {len(baseline_rows)}')\n",
+                        "if current_rows:\n",
+                        "    print('latest quantile checkpoint:')\n",
+                        "    print(current_rows[-1])\n",
+                        "\n",
+                        "fig, ax = plt.subplots(figsize=(10, 5))\n",
+                        "\n",
+                        "if baseline_rows:\n",
+                        "    baseline_steps = [int(row['global_checkpoint']) for row in baseline_rows]\n",
+                        "    baseline_train = [float(row['training_loss']) for row in baseline_rows]\n",
+                        "    baseline_val = [float(row['validation_loss']) for row in baseline_rows]\n",
+                        "    ax.plot(baseline_steps, baseline_train, label='scalar 192/l2 train mse')\n",
+                        "    ax.plot(baseline_steps, baseline_val, label='scalar 192/l2 val mse', alpha=0.25)\n",
+                        "\n",
+                        "if current_rows:\n",
+                        "    current_steps = [int(row['global_checkpoint']) for row in current_rows]\n",
+                        "    current_train = [float(row['training_ev_mse']) for row in current_rows]\n",
+                        "    current_val = [float(row['validation_ev_mse']) for row in current_rows]\n",
+                        "    ax.plot(current_steps, current_train, label='quantile 192/l2 train EV mse')\n",
+                        "    ax.plot(current_steps, current_val, label='quantile 192/l2 val EV mse', alpha=0.25)\n",
+                        "\n",
+                        "ax.set_xlabel('checkpoint')\n",
+                        "ax.set_ylabel('mse')\n",
+                        "ax.set_ylim(0, 0.002)\n",
+                        "ax.set_title('Scalar MSE vs Quantile EV MSE')\n",
+                        "ax.grid(True)\n",
+                        "ax.legend()\n",
+                        "plt.show()\n",
+                    }
+                }
+            },
+            metadata = new
+            {
+                kernelspec = new
+                {
+                    display_name = "Python 3",
+                    language = "python",
+                    name = "python3"
+                },
+                language_info = new
+                {
+                    name = "python",
+                    version = "3.11"
+                }
+            },
+            nbformat = 4,
+            nbformat_minor = 5
+        };
 
-            string output = process.StandardOutput.ReadToEnd().Trim();
-            process.WaitForExit();
-            return string.IsNullOrWhiteSpace(output) ? "UNKNOWN" : output;
-        }
-        catch
-        {
-            return "UNKNOWN";
-        }
+        return JsonSerializer.Serialize(notebook, new JsonSerializerOptions { WriteIndented = true });
     }
 
 
-    readonly record struct SuitPermutation(
-        Suit Diamond,
-        Suit Club,
-        Suit Heart,
-        Suit Spade)
+    readonly record struct EvaluationMetrics(float QuantileLoss, float EvMse);
+
+    sealed class BaseDataset
+    {
+        public readonly long[,] FullHand;
+        public readonly long[] HandsAndDiscards;
+        public readonly float[,] Score;
+        public readonly float[] Targets;
+
+        public int Count => Targets.Length;
+
+        public BaseDataset(int count)
+        {
+            FullHand = new long[count, GameData.HandSize];
+            HandsAndDiscards = new long[count];
+            Score = new float[count, 1];
+            Targets = new float[count];
+        }
+    }
+
+    readonly record struct SuitPermutation(Suit Diamond, Suit Club, Suit Heart, Suit Spade)
     {
         public Suit Map(Suit suit)
         {
@@ -725,24 +771,5 @@ public static class Program
                 _ => suit,
             };
         }
-    }
-
-
-    sealed class BaseDataset
-    {
-        public readonly long[,] FullHand;
-        public readonly long[] HandsAndDiscards;
-        public readonly float[,] Score;
-        public readonly float[] Targets;
-
-        public BaseDataset(int count)
-        {
-            FullHand = new long[count, GameData.HandSize];
-            HandsAndDiscards = new long[count];
-            Score = new float[count, 1];
-            Targets = new float[count];
-        }
-
-        public int Count => Targets.Length;
     }
 }
