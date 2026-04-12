@@ -225,13 +225,16 @@ public sealed class QuantilePaddedSwiGLUValueNetwork : Module, IValueNetwork
     readonly ModuleList<PaddedSwiGLUResidualBlock> _residualBlocks = new();
     readonly GELU _finalActivation = GELU();
     readonly Linear _outputProjection;
+    readonly ScalarType _modelDType;
     readonly int _residualWidth;
 
     public QuantilePaddedSwiGLUValueNetwork(
         float scoreThreshold = 300,
         int residualWidth = DefaultResidualWidth,
-        int residualLayerCount = 2) : base(nameof(QuantilePaddedSwiGLUValueNetwork))
+        int residualLayerCount = 2,
+        ScalarType modelDType = ScalarType.Float32) : base(nameof(QuantilePaddedSwiGLUValueNetwork))
     {
+        _modelDType = modelDType;
         _residualWidth = residualWidth;
         _scoreEmbedding = new(
             threshold: scoreThreshold,
@@ -247,6 +250,7 @@ public sealed class QuantilePaddedSwiGLUValueNetwork : Module, IValueNetwork
                 device: ValueNetwork.EvalDevice));
 
         RegisterComponents();
+        this.to(ValueNetwork.EvalDevice, _modelDType);
     }
 
 
@@ -268,11 +272,11 @@ public sealed class QuantilePaddedSwiGLUValueNetwork : Module, IValueNetwork
         Tensor embeddedHand = _handEmbedding.forward(gameStateTensors.FullHand);
         Tensor embeddedScore = _scoreEmbedding.forward(gameStateTensors.Score).squeeze(1);
         Tensor embeddedHandsAndDiscards = _handsAndDiscardsEmbedding.forward(gameStateTensors.HandsAndDiscards);
-        Tensor stateVector = cat([embeddedHand, embeddedScore, embeddedHandsAndDiscards], dim: -1);
+        Tensor stateVector = cat([embeddedHand, embeddedScore, embeddedHandsAndDiscards], dim: -1).to_type(_modelDType);
 
         Tensor zeroPadding = zeros(
             [stateVector.size(0), _residualWidth - InputWidth],
-            dtype: stateVector.dtype,
+            dtype: _modelDType,
             device: stateVector.device);
         Tensor residualStream = cat([stateVector, zeroPadding], dim: -1);
 
