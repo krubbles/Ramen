@@ -85,18 +85,39 @@ public class GameStateEmbedder
 
     public GameStateTensors ToTensors(Device device)
     {
+        long[,] fullHand = _fullHand;
+        long[,] remainingDeck = _remainingDeck;
+        long[] handsAndDiscards = _handsAndDiscards;
+        float[,] score2D = new float[_addedGameStateCount, 1];
         if (_addedGameStateCount != _handsAndDiscards.Length)
-            throw new InvalidOperationException($"Expected {_handsAndDiscards.Length} game states but only received {_addedGameStateCount}.");
+        {
+            fullHand = new long[_addedGameStateCount, GameData.HandSize];
+            remainingDeck = new long[_addedGameStateCount, 52];
+            handsAndDiscards = new long[_addedGameStateCount];
 
-        float[,] score2D = new float[_score.Length, 1];
-        for (int stateIndex = 0; stateIndex < _score.Length; ++stateIndex)
-            score2D[stateIndex, 0] = _score[stateIndex];
+            for (int stateIndex = 0; stateIndex < _addedGameStateCount; ++stateIndex)
+            {
+                for (int cardIndex = 0; cardIndex < GameData.HandSize; ++cardIndex)
+                    fullHand[stateIndex, cardIndex] = _fullHand[stateIndex, cardIndex];
+
+                for (int cardIndex = 0; cardIndex < 52; ++cardIndex)
+                    remainingDeck[stateIndex, cardIndex] = _remainingDeck[stateIndex, cardIndex];
+
+                handsAndDiscards[stateIndex] = _handsAndDiscards[stateIndex];
+                score2D[stateIndex, 0] = _score[stateIndex];
+            }
+        }
+        else
+        {
+            for (int stateIndex = 0; stateIndex < _addedGameStateCount; ++stateIndex)
+                score2D[stateIndex, 0] = _score[stateIndex];
+        }
 
         return new()
         {
-            FullHand = tensor(_fullHand, dtype: ScalarType.Int64, device: device),
-            RemainingDeck = tensor(_remainingDeck, dtype: ScalarType.Int64, device: device),
-            HandsAndDiscards = tensor(_handsAndDiscards, dtype: ScalarType.Int64, device: device),
+            FullHand = tensor(fullHand, dtype: ScalarType.Int64, device: device),
+            RemainingDeck = tensor(remainingDeck, dtype: ScalarType.Int64, device: device),
+            HandsAndDiscards = tensor(handsAndDiscards, dtype: ScalarType.Int64, device: device),
             Score = tensor(score2D, dtype: ScalarType.Float32, device: device),
         };
     }

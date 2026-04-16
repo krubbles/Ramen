@@ -225,16 +225,16 @@ public sealed class QuantilePaddedSwiGLUValueNetwork : Module, IValueNetwork
     readonly ModuleList<PaddedSwiGLUResidualBlock> _residualBlocks = new();
     readonly GELU _finalActivation = GELU();
     readonly Linear _outputProjection;
-    readonly ScalarType _modelDType;
+    readonly bool _useHalfPrecisionForward;
     readonly int _residualWidth;
 
     public QuantilePaddedSwiGLUValueNetwork(
         float scoreThreshold = 300,
         int residualWidth = DefaultResidualWidth,
         int residualLayerCount = 2,
-        ScalarType modelDType = ScalarType.Float32) : base(nameof(QuantilePaddedSwiGLUValueNetwork))
+        bool useHalfPrecisionForward = false) : base(nameof(QuantilePaddedSwiGLUValueNetwork))
     {
-        _modelDType = modelDType;
+        _useHalfPrecisionForward = useHalfPrecisionForward;
         _residualWidth = residualWidth;
         _scoreEmbedding = new(
             threshold: scoreThreshold,
@@ -250,7 +250,7 @@ public sealed class QuantilePaddedSwiGLUValueNetwork : Module, IValueNetwork
                 device: ValueNetwork.EvalDevice));
 
         RegisterComponents();
-        this.to(ValueNetwork.EvalDevice, _modelDType);
+        this.to(ValueNetwork.EvalDevice, ScalarType.Float32);
     }
 
 
@@ -272,18 +272,26 @@ public sealed class QuantilePaddedSwiGLUValueNetwork : Module, IValueNetwork
         Tensor embeddedHand = _handEmbedding.forward(gameStateTensors.FullHand);
         Tensor embeddedScore = _scoreEmbedding.forward(gameStateTensors.Score).squeeze(1);
         Tensor embeddedHandsAndDiscards = _handsAndDiscardsEmbedding.forward(gameStateTensors.HandsAndDiscards);
-        Tensor stateVector = cat([embeddedHand, embeddedScore, embeddedHandsAndDiscards], dim: -1).to_type(_modelDType);
+        Tensor stateVector = cat([embeddedHand, embeddedScore, embeddedHandsAndDiscards], dim: -1);
 
         Tensor zeroPadding = zeros(
             [stateVector.size(0), _residualWidth - InputWidth],
-            dtype: _modelDType,
+            dtype: stateVector.dtype,
             device: stateVector.device);
         Tensor residualStream = cat([stateVector, zeroPadding], dim: -1);
 
         for (int layerIndex = 0; layerIndex < _residualBlocks.Count; ++layerIndex)
-            residualStream = residualStream + _residualBlocks[layerIndex].forward(residualStream);
+        {
+            Tensor blockOutput = _useHalfPrecisionForward
+                ? ForwardResidualBlockHalfPrecision(_residualBlocks[layerIndex], residualStream)
+                : _residualBlocks[layerIndex].forward(residualStream);
+            residualStream = residualStream + blockOutput;
+        }
 
-        Tensor quantiles = _outputProjection.forward(_finalActivation.forward(residualStream));
+        Tensor activatedResidualStream = _finalActivation.forward(residualStream);
+        Tensor quantiles = _useHalfPrecisionForward
+            ? LinearHalfPrecision(_outputProjection, activatedResidualStream).to_type(ScalarType.Float32)
+            : _outputProjection.forward(activatedResidualStream);
         quantiles.MoveToOuterDisposeScope();
         return quantiles;
     }
@@ -298,6 +306,34 @@ public sealed class QuantilePaddedSwiGLUValueNetwork : Module, IValueNetwork
     public void Load(string filePath)
     {
         load(filePath);
+    }
+
+
+    Tensor ForwardResidualBlockHalfPrecision(PaddedSwiGLUResidualBlock block, Tensor input)
+    {
+        using var scope = NewDisposeScope();
+
+        Tensor normalized = block.GetLayerNorm().forward(input);
+        Tensor gate = functional.silu(LinearHalfPrecision(block.GetGateProjection(), normalized));
+        Tensor value = LinearHalfPrecision(block.GetValueProjection(), normalized);
+        Tensor projected = LinearHalfPrecision(block.GetDownProjection(), gate * value).to_type(ScalarType.Float32);
+
+        projected.MoveToOuterDisposeScope();
+        return projected;
+    }
+
+
+    static Tensor LinearHalfPrecision(Linear linear, Tensor input)
+    {
+        using var scope = NewDisposeScope();
+
+        Tensor inputHalf = input.to_type(ScalarType.Float16);
+        Tensor weightHalf = linear.weight.to_type(ScalarType.Float16);
+        Tensor biasHalf = linear.bias is null ? null : linear.bias.to_type(ScalarType.Float16);
+        Tensor output = functional.linear(inputHalf, weightHalf, biasHalf);
+
+        output.MoveToOuterDisposeScope();
+        return output;
     }
 }
 
@@ -344,6 +380,18 @@ sealed class PaddedSwiGLUResidualBlock : Module<Tensor, Tensor>
 
         RegisterComponents();
     }
+
+
+    public LayerNorm GetLayerNorm() => _layerNorm;
+
+
+    public Linear GetGateProjection() => _gateProjection;
+
+
+    public Linear GetValueProjection() => _valueProjection;
+
+
+    public Linear GetDownProjection() => _downProjection;
 
 
     public override Tensor forward(Tensor input)
