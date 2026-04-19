@@ -9,6 +9,30 @@ using static TorchSharp.torch;
 public class ScoreEmbedderTests
 {
     [Test]
+    public void BilinearOneHotScoreEmbedderInterpolatesAcrossTenPointBuckets()
+    {
+        using var scope = NewDisposeScope();
+
+        BilinearOneHotScoreEmbedder embedder = new();
+        Tensor scores = tensor(new float[,] { { 0f }, { 5f }, { 10f }, { 15f }, { 290f }, { 295f }, { 300f } });
+        Tensor output = embedder.forward(scores).to(CPU);
+
+        Assert.That(output.shape[0], Is.EqualTo(7));
+        Assert.That(output.shape[1], Is.EqualTo(1));
+        Assert.That(output.shape[2], Is.EqualTo(BilinearOneHotScoreEmbedder.BucketCount));
+
+        float[] actual = output.data<float>().ToArray();
+        AssertBucketWeights(actual, rowIndex: 0, expectedLowerIndex: 0, expectedLowerWeight: 1f, expectedUpperIndex: 0, expectedUpperWeight: 0f);
+        AssertBucketWeights(actual, rowIndex: 1, expectedLowerIndex: 0, expectedLowerWeight: 0.5f, expectedUpperIndex: 1, expectedUpperWeight: 0.5f);
+        AssertBucketWeights(actual, rowIndex: 2, expectedLowerIndex: 1, expectedLowerWeight: 1f, expectedUpperIndex: 1, expectedUpperWeight: 0f);
+        AssertBucketWeights(actual, rowIndex: 3, expectedLowerIndex: 1, expectedLowerWeight: 0.5f, expectedUpperIndex: 2, expectedUpperWeight: 0.5f);
+        AssertBucketWeights(actual, rowIndex: 4, expectedLowerIndex: 29, expectedLowerWeight: 1f, expectedUpperIndex: 29, expectedUpperWeight: 0f);
+        AssertBucketWeights(actual, rowIndex: 5, expectedLowerIndex: 29, expectedLowerWeight: 1f, expectedUpperIndex: 29, expectedUpperWeight: 0f);
+        AssertBucketWeights(actual, rowIndex: 6, expectedLowerIndex: 29, expectedLowerWeight: 1f, expectedUpperIndex: 29, expectedUpperWeight: 0f);
+    }
+
+
+    [Test]
     public void ThresholdScoreEmbeddingInterpolatesAndUsesOverflowEmbedding()
     {
         using var scope = NewDisposeScope();
@@ -62,5 +86,24 @@ public class ScoreEmbedderTests
             { 2f, 4f }
         }));
         overflowEmbedding.copy_(tensor([10f, 20f]));
+    }
+
+
+    static void AssertBucketWeights(float[] actual, int rowIndex, int expectedLowerIndex, float expectedLowerWeight, int expectedUpperIndex, float expectedUpperWeight)
+    {
+        int rowOffset = rowIndex * BilinearOneHotScoreEmbedder.BucketCount;
+        for (int bucketIndex = 0; bucketIndex < BilinearOneHotScoreEmbedder.BucketCount; ++bucketIndex)
+        {
+            float expectedWeight = 0f;
+            if (bucketIndex == expectedLowerIndex)
+                expectedWeight += expectedLowerWeight;
+            if (bucketIndex == expectedUpperIndex)
+                expectedWeight += expectedUpperWeight;
+
+            Assert.That(
+                actual[rowOffset + bucketIndex],
+                Is.EqualTo(expectedWeight).Within(1e-5f),
+                $"Mismatch for row {rowIndex}, bucket {bucketIndex}.");
+        }
     }
 }

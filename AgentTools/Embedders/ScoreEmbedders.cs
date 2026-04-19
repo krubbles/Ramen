@@ -5,6 +5,36 @@ using TorchSharp.Modules;
 using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
 
+public sealed class BilinearOneHotScoreEmbedder : Module<Tensor, Tensor>
+{
+    public const int BucketCount = 30;
+    public const float BucketWidth = 10f;
+
+    public BilinearOneHotScoreEmbedder() : base(nameof(BilinearOneHotScoreEmbedder))
+    {
+        RegisterComponents();
+    }
+
+
+    public override Tensor forward(Tensor score)
+    {
+        using var scope = NewDisposeScope();
+
+        Tensor bucketPosition = (score.to_type(ScalarType.Float32) / BucketWidth).clamp(0f, BucketCount - 1);
+        Tensor lowerIndex = bucketPosition.floor().to_type(ScalarType.Int64);
+        Tensor upperIndex = lowerIndex.add(1).clamp_max(BucketCount - 1);
+        Tensor upperWeight = bucketPosition - lowerIndex.to_type(ScalarType.Float32);
+        Tensor lowerWeight = 1f - upperWeight;
+
+        Tensor lowerOneHot = functional.one_hot(lowerIndex, BucketCount).to_type(ScalarType.Float32);
+        Tensor upperOneHot = functional.one_hot(upperIndex, BucketCount).to_type(ScalarType.Float32);
+        Tensor result = lowerOneHot * lowerWeight.unsqueeze(-1) + upperOneHot * upperWeight.unsqueeze(-1);
+
+        result.MoveToOuterDisposeScope();
+        return result;
+    }
+}
+
 public sealed class ThresholdScoreEmbedding : Module<Tensor, Tensor>
 {
     readonly Embedding _bucketEmbeddings;
