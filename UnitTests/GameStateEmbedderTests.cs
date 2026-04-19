@@ -24,6 +24,29 @@ public class GameStateEmbedderTests
 
 
     [Test]
+    public void ToTensorsEmbedsScoreAsSingleRelativeValue()
+    {
+        using var scope = NewDisposeScope();
+
+        GameState gameState = new(GameData.Default);
+        gameState.AdvanceToNextPlayerChoice();
+        SetCurrentRoundScoreMove setScoreMove = new(150f);
+        setScoreMove.Apply(gameState);
+
+        GameStateEmbedder embedder = new(1);
+        embedder.AddGameState(gameState);
+
+        GameStateTensors tensors = embedder.ToTensors();
+        Tensor score = tensors.Score.to(CPU);
+        float[] actual = score.data<float>().ToArray();
+
+        Assert.That(score.shape[0], Is.EqualTo(1));
+        Assert.That(score.shape[1], Is.EqualTo(1));
+        Assert.That(actual[0], Is.EqualTo(0.5f).Within(1e-5f));
+    }
+
+
+    [Test]
     public void ToTensorsCanIncludePlayHandScoresInStandardOrdering()
     {
         using var scope = NewDisposeScope();
