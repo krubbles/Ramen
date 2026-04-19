@@ -42,11 +42,13 @@ public class PolicyModel : Module, IPolicyModel
             Linear(RankEmbedWidth * 2, RemainingDeckCardSetWidth, device: EvalDevice)
         );
 
-    public const int HandsAndDiscardsEmbedWidth = 25;
-    readonly TorchSharp.Modules.Embedding _embedHandsAndDiscards = Embedding(25, HandsAndDiscardsEmbedWidth, device: EvalDevice);
+    public const int RemainingHandsEmbedWidth = 25;
+    public const int RemainingDiscardsEmbedWidth = 25;
+    readonly TorchSharp.Modules.Embedding _embedRemainingHands = Embedding(5, RemainingHandsEmbedWidth, device: EvalDevice);
+    readonly TorchSharp.Modules.Embedding _embedRemainingDiscards = Embedding(5, RemainingDiscardsEmbedWidth, device: EvalDevice);
 
     public const int StateScoreEmbedWidth = 1;
-    public const int StateProcessorInputWidth = RemainingDeckCardSetWidth + HandsAndDiscardsEmbedWidth + 1;
+    public const int StateProcessorInputWidth = RemainingDeckCardSetWidth + RemainingHandsEmbedWidth + 1;
     public const int StateProcessorOutputWidth = 32;
     readonly Sequential _stateProcessor = 
         Sequential(
@@ -300,8 +302,10 @@ public class PolicyModel : Module, IPolicyModel
 
     Tensor EmbedState(GameStateTensors gameState)
     {
-        Tensor handsAndDiscards = _embedHandsAndDiscards.forward(gameState.HandsAndDiscards);
-        return cat([handsAndDiscards, gameState.Score], dim: -1);
+        Tensor remainingCounts =
+            _embedRemainingHands.forward(gameState.RemainingHands) +
+            _embedRemainingDiscards.forward(gameState.RemainingDiscards);
+        return cat([remainingCounts, gameState.Score], dim: -1);
     }
     
     public Tensor GetPolicyLogits(GameStateTensors gameStateTensors, UseHandTensors useHandTensors)

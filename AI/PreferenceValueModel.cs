@@ -12,12 +12,14 @@ public sealed class PreferenceValueModel : Module
 
     public const int CardSetEmbeddingWidth = 48;
     public const int CombinedCardSetEmbeddingWidth = 96;
-    public const int HandsAndDiscardsEmbeddingWidth = 31;
+    public const int RemainingHandsEmbeddingWidth = 31;
+    public const int RemainingDiscardsEmbeddingWidth = 31;
     public const int StateWidth = 128;
 
     readonly MeanPooledCardSetEmbedding _handEmbedding = new(embeddingSize: CardSetEmbeddingWidth, device: EvalDevice);
     readonly MeanPooledCardSetEmbedding _remainingDeckEmbedding = new(embeddingSize: CardSetEmbeddingWidth, device: EvalDevice);
-    readonly TorchSharp.Modules.Embedding _handsAndDiscardsEmbedding = Embedding(25, HandsAndDiscardsEmbeddingWidth, device: EvalDevice);
+    readonly TorchSharp.Modules.Embedding _remainingHandsEmbedding = Embedding(5, RemainingHandsEmbeddingWidth, device: EvalDevice);
+    readonly TorchSharp.Modules.Embedding _remainingDiscardsEmbedding = Embedding(5, RemainingDiscardsEmbeddingWidth, device: EvalDevice);
     readonly PreferenceResidualBlock _residualBlock0 = new(width: StateWidth, hiddenWidth: StateWidth, device: EvalDevice);
     readonly PreferenceResidualBlock _residualBlock1 = new(width: StateWidth, hiddenWidth: StateWidth, device: EvalDevice);
     readonly GELU _finalActivation = GELU();
@@ -34,10 +36,12 @@ public sealed class PreferenceValueModel : Module
         // Embed each state component.
         Tensor embeddedHand = _handEmbedding.forward(gameStateTensors.FullHand);
         Tensor embeddedRemainingDeck = _remainingDeckEmbedding.forward(gameStateTensors.RemainingDeck);
-        Tensor embeddedHandsAndDiscards = _handsAndDiscardsEmbedding.forward(gameStateTensors.HandsAndDiscards);
+        Tensor embeddedCounts =
+            _remainingHandsEmbedding.forward(gameStateTensors.RemainingHands) +
+            _remainingDiscardsEmbedding.forward(gameStateTensors.RemainingDiscards);
 
         // Build the width-128 state vector the residual stack expects.
-        Tensor stateVector = cat([embeddedHand, embeddedRemainingDeck, embeddedHandsAndDiscards, gameStateTensors.Score], dim: -1);
+        Tensor stateVector = cat([embeddedHand, embeddedRemainingDeck, embeddedCounts, gameStateTensors.Score], dim: -1);
 
         // Score the state with two residual MLP blocks.
         Tensor encodedState = _residualBlock0.forward(stateVector);

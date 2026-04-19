@@ -30,9 +30,14 @@ public class GameStateTensors : ITensorGroup
     public Tensor PlayHandScores;
 
     /// <summary>
-    /// <see cref="HandState.RemainingHands"/> * 5 + <see cref="HandState.RemainingDiscards"/>
+    /// <see cref="HandState.RemainingHands"/>
     /// </summary>
-    public Tensor HandsAndDiscards;
+    public Tensor RemainingHands;
+
+    /// <summary>
+    /// <see cref="HandState.RemainingDiscards"/>
+    /// </summary>
+    public Tensor RemainingDiscards;
 }
 
 /// <summary>
@@ -55,7 +60,8 @@ public class GameStateEmbedder
 
     readonly long[,] _fullHand;
     readonly long[,] _remainingDeck;
-    readonly long[] _handsAndDiscards;
+    readonly long[] _remainingHands;
+    readonly long[] _remainingDiscards;
     readonly float[,] _playHandScores;
     readonly float[] _score;
 
@@ -65,7 +71,8 @@ public class GameStateEmbedder
     {
         _fullHand = new long[gameStateCount, GameData.HandSize];
         _remainingDeck = new long[gameStateCount, 52];
-        _handsAndDiscards = new long[gameStateCount];
+        _remainingHands = new long[gameStateCount];
+        _remainingDiscards = new long[gameStateCount];
         _playHandScores = new float[gameStateCount, PlayHandScoreCount];
         _score = new float[gameStateCount];
     }
@@ -73,7 +80,7 @@ public class GameStateEmbedder
 
     public void AddGameState(GameState gameState)
     {
-        if (_addedGameStateCount >= _handsAndDiscards.Length)
+        if (_addedGameStateCount >= _remainingHands.Length)
             throw new InvalidOperationException("GameStateEmbedder is already full.");
 
         ReadOnlySpan<Card> hand = gameState.HandState.Hand;
@@ -84,7 +91,8 @@ public class GameStateEmbedder
         for (int cardIndex = 0; cardIndex < deck.Length; ++cardIndex)
             _remainingDeck[_addedGameStateCount, cardIndex] = deck[cardIndex].ToIndex();
 
-        _handsAndDiscards[_addedGameStateCount] = GetHandsAndDiscardsValue(gameState);
+        _remainingHands[_addedGameStateCount] = gameState.HandState.RemainingHands;
+        _remainingDiscards[_addedGameStateCount] = gameState.HandState.RemainingDiscards;
         WritePlayHandScores(gameState, _addedGameStateCount);
         _score[_addedGameStateCount] = GetScoreValue(gameState);
         _addedGameStateCount++;
@@ -107,7 +115,8 @@ public class GameStateEmbedder
     {
         long[,] fullHand = new long[_addedGameStateCount, GameData.HandSize];
         long[,] remainingDeck = new long[_addedGameStateCount, 52];
-        long[] handsAndDiscards = new long[_addedGameStateCount];
+        long[] remainingHands = new long[_addedGameStateCount];
+        long[] remainingDiscards = new long[_addedGameStateCount];
         float[,] score2D = new float[_addedGameStateCount, 1];
         float[,] playHandScores = includePlayHandScores ? new float[_addedGameStateCount, PlayHandScoreCount] : null;
 
@@ -119,7 +128,8 @@ public class GameStateEmbedder
             for (int cardIndex = 0; cardIndex < 52; ++cardIndex)
                 remainingDeck[stateIndex, cardIndex] = _remainingDeck[stateIndex, cardIndex];
 
-            handsAndDiscards[stateIndex] = _handsAndDiscards[stateIndex];
+            remainingHands[stateIndex] = _remainingHands[stateIndex];
+            remainingDiscards[stateIndex] = _remainingDiscards[stateIndex];
             score2D[stateIndex, 0] = _score[stateIndex];
 
             if (!includePlayHandScores)
@@ -133,7 +143,8 @@ public class GameStateEmbedder
         {
             FullHand = tensor(fullHand, dtype: ScalarType.Int64, device: device),
             RemainingDeck = tensor(remainingDeck, dtype: ScalarType.Int64, device: device),
-            HandsAndDiscards = tensor(handsAndDiscards, dtype: ScalarType.Int64, device: device),
+            RemainingHands = tensor(remainingHands, dtype: ScalarType.Int64, device: device),
+            RemainingDiscards = tensor(remainingDiscards, dtype: ScalarType.Int64, device: device),
             PlayHandScores = includePlayHandScores ? tensor(playHandScores, dtype: ScalarType.Float32, device: device) : null,
             Score = tensor(score2D, dtype: ScalarType.Float32, device: device),
         };
@@ -144,13 +155,6 @@ public class GameStateEmbedder
     {
         return (float)gameState.ScoringState.CurrentRoundTotalChips / 300f;
     }
-
-
-    static int GetHandsAndDiscardsValue(GameState gameState)
-    {
-        return gameState.HandState.RemainingHands * 5 + gameState.HandState.RemainingDiscards;
-    }
-
 
     void WritePlayHandScores(GameState gameState, int stateIndex)
     {

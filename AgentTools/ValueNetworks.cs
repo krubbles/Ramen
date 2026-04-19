@@ -13,12 +13,14 @@ public sealed class ValueNetwork : Module, IValueNetwork
 
     public const int CardSetEmbeddingWidth = 48;
     public const int CombinedCardSetEmbeddingWidth = 96;
-    public const int HandsAndDiscardsEmbeddingWidth = 31;
+    public const int RemainingHandsEmbeddingWidth = 31;
+    public const int RemainingDiscardsEmbeddingWidth = 31;
     public const int StateWidth = 128;
 
     readonly MeanPooledCardSetEmbedding _handEmbedding = new(embeddingSize: CardSetEmbeddingWidth, device: EvalDevice);
     readonly MeanPooledCardSetEmbedding _remainingDeckEmbedding = new(embeddingSize: CardSetEmbeddingWidth, device: EvalDevice);
-    readonly TorchSharp.Modules.Embedding _handsAndDiscardsEmbedding = Embedding(25, HandsAndDiscardsEmbeddingWidth, device: EvalDevice);
+    readonly TorchSharp.Modules.Embedding _remainingHandsEmbedding = Embedding(5, RemainingHandsEmbeddingWidth, device: EvalDevice);
+    readonly TorchSharp.Modules.Embedding _remainingDiscardsEmbedding = Embedding(5, RemainingDiscardsEmbeddingWidth, device: EvalDevice);
     readonly ValueResidualBlock _residualBlock0 = new(width: StateWidth, hiddenWidth: StateWidth, device: EvalDevice);
     readonly ValueResidualBlock _residualBlock1 = new(width: StateWidth, hiddenWidth: StateWidth, device: EvalDevice);
     readonly GELU _finalActivation = GELU();
@@ -35,10 +37,12 @@ public sealed class ValueNetwork : Module, IValueNetwork
         // Embed each state component.
         Tensor embeddedHand = _handEmbedding.forward(gameStateTensors.FullHand);
         Tensor embeddedRemainingDeck = _remainingDeckEmbedding.forward(gameStateTensors.RemainingDeck);
-        Tensor embeddedHandsAndDiscards = _handsAndDiscardsEmbedding.forward(gameStateTensors.HandsAndDiscards);
+        Tensor embeddedCounts =
+            _remainingHandsEmbedding.forward(gameStateTensors.RemainingHands) +
+            _remainingDiscardsEmbedding.forward(gameStateTensors.RemainingDiscards);
 
         // Build the width-128 state vector expected by the residual stack.
-        Tensor stateVector = cat([embeddedHand, embeddedRemainingDeck, embeddedHandsAndDiscards, gameStateTensors.Score], dim: -1);
+        Tensor stateVector = cat([embeddedHand, embeddedRemainingDeck, embeddedCounts, gameStateTensors.Score], dim: -1);
 
         // Score each state with the same two-block residual MLP used by the preference model.
         Tensor encodedState = _residualBlock0.forward(stateVector);
@@ -65,12 +69,14 @@ public sealed class SimpleValueNetwork : Module, IValueNetwork
 {
     public const int ScoreEmbeddingWidth = 16;
     public const int ScoreBucketCount = 8;
-    public const int HandsAndDiscardsEmbeddingWidth = 32;
-    public const int StateWidth = StandardProcessor.OutputWidth + ScoreEmbeddingWidth + HandsAndDiscardsEmbeddingWidth;
+    public const int RemainingHandsEmbeddingWidth = 32;
+    public const int RemainingDiscardsEmbeddingWidth = 32;
+    public const int StateWidth = StandardProcessor.OutputWidth + ScoreEmbeddingWidth + RemainingHandsEmbeddingWidth;
 
     readonly StandardProcessor _handEmbedding = new();
     readonly ThresholdScoreEmbedding _scoreEmbedding;
-    readonly TorchSharp.Modules.Embedding _handsAndDiscardsEmbedding = Embedding(25, HandsAndDiscardsEmbeddingWidth, device: ValueNetwork.EvalDevice);
+    readonly TorchSharp.Modules.Embedding _remainingHandsEmbedding = Embedding(5, RemainingHandsEmbeddingWidth, device: ValueNetwork.EvalDevice);
+    readonly TorchSharp.Modules.Embedding _remainingDiscardsEmbedding = Embedding(5, RemainingDiscardsEmbeddingWidth, device: ValueNetwork.EvalDevice);
     readonly Sequential _valueHead;
 
     public SimpleValueNetwork(float scoreThreshold = 300, int hiddenWidth0 = 128, int hiddenWidth1 = 64, int hiddenWidth2 = 0) : base(nameof(SimpleValueNetwork))
@@ -113,8 +119,10 @@ public sealed class SimpleValueNetwork : Module, IValueNetwork
     {
         Tensor embeddedHand = _handEmbedding.forward(gameStateTensors.FullHand);
         Tensor embeddedScore = _scoreEmbedding.forward(gameStateTensors.Score).squeeze(1);
-        Tensor embeddedHandsAndDiscards = _handsAndDiscardsEmbedding.forward(gameStateTensors.HandsAndDiscards);
-        Tensor stateVector = cat([embeddedHand, embeddedScore, embeddedHandsAndDiscards], dim: -1);
+        Tensor embeddedCounts =
+            _remainingHandsEmbedding.forward(gameStateTensors.RemainingHands) +
+            _remainingDiscardsEmbedding.forward(gameStateTensors.RemainingDiscards);
+        Tensor stateVector = cat([embeddedHand, embeddedScore, embeddedCounts], dim: -1);
         Tensor advantages = _valueHead.forward(stateVector);
         return advantages.squeeze(-1);
     }
@@ -136,14 +144,16 @@ public sealed class PaddedSwiGLUValueNetwork : Module, IValueNetwork
 {
     public const int ScoreEmbeddingWidth = 16;
     public const int ScoreBucketCount = 8;
-    public const int HandsAndDiscardsEmbeddingWidth = 32;
-    public const int InputWidth = StandardProcessor.OutputWidth + ScoreEmbeddingWidth + HandsAndDiscardsEmbeddingWidth;
+    public const int RemainingHandsEmbeddingWidth = 32;
+    public const int RemainingDiscardsEmbeddingWidth = 32;
+    public const int InputWidth = StandardProcessor.OutputWidth + ScoreEmbeddingWidth + RemainingHandsEmbeddingWidth;
     public const int DefaultResidualWidth = 384;
     public const int SwiGLUHiddenWidth = 284;
 
     readonly StandardProcessor _handEmbedding = new();
     readonly ThresholdScoreEmbedding _scoreEmbedding;
-    readonly TorchSharp.Modules.Embedding _handsAndDiscardsEmbedding = Embedding(25, HandsAndDiscardsEmbeddingWidth, device: ValueNetwork.EvalDevice);
+    readonly TorchSharp.Modules.Embedding _remainingHandsEmbedding = Embedding(5, RemainingHandsEmbeddingWidth, device: ValueNetwork.EvalDevice);
+    readonly TorchSharp.Modules.Embedding _remainingDiscardsEmbedding = Embedding(5, RemainingDiscardsEmbeddingWidth, device: ValueNetwork.EvalDevice);
     readonly ModuleList<PaddedSwiGLUResidualBlock> _residualBlocks = new();
     readonly GELU _finalActivation = GELU();
     readonly Linear _outputProjection;
@@ -178,8 +188,10 @@ public sealed class PaddedSwiGLUValueNetwork : Module, IValueNetwork
 
         Tensor embeddedHand = _handEmbedding.forward(gameStateTensors.FullHand);
         Tensor embeddedScore = _scoreEmbedding.forward(gameStateTensors.Score).squeeze(1);
-        Tensor embeddedHandsAndDiscards = _handsAndDiscardsEmbedding.forward(gameStateTensors.HandsAndDiscards);
-        Tensor stateVector = cat([embeddedHand, embeddedScore, embeddedHandsAndDiscards], dim: -1);
+        Tensor embeddedCounts =
+            _remainingHandsEmbedding.forward(gameStateTensors.RemainingHands) +
+            _remainingDiscardsEmbedding.forward(gameStateTensors.RemainingDiscards);
+        Tensor stateVector = cat([embeddedHand, embeddedScore, embeddedCounts], dim: -1);
 
         Tensor zeroPadding = zeros(
             [stateVector.size(0), _residualWidth - InputWidth],
@@ -213,15 +225,17 @@ public sealed class QuantilePaddedSwiGLUValueNetwork : Module, IValueNetwork
 {
     public const int ScoreEmbeddingWidth = 16;
     public const int ScoreBucketCount = 8;
-    public const int HandsAndDiscardsEmbeddingWidth = 32;
-    public const int InputWidth = StandardProcessor.OutputWidth + ScoreEmbeddingWidth + HandsAndDiscardsEmbeddingWidth;
+    public const int RemainingHandsEmbeddingWidth = 32;
+    public const int RemainingDiscardsEmbeddingWidth = 32;
+    public const int InputWidth = StandardProcessor.OutputWidth + ScoreEmbeddingWidth + RemainingHandsEmbeddingWidth;
     public const int DefaultResidualWidth = 192;
     public const int SwiGLUHiddenWidth = 284;
     public const int QuantileCount = 50;
 
     readonly StandardProcessor _handEmbedding = new();
     readonly ThresholdScoreEmbedding _scoreEmbedding;
-    readonly TorchSharp.Modules.Embedding _handsAndDiscardsEmbedding = Embedding(25, HandsAndDiscardsEmbeddingWidth, device: ValueNetwork.EvalDevice);
+    readonly TorchSharp.Modules.Embedding _remainingHandsEmbedding = Embedding(5, RemainingHandsEmbeddingWidth, device: ValueNetwork.EvalDevice);
+    readonly TorchSharp.Modules.Embedding _remainingDiscardsEmbedding = Embedding(5, RemainingDiscardsEmbeddingWidth, device: ValueNetwork.EvalDevice);
     readonly ModuleList<PaddedSwiGLUResidualBlock> _residualBlocks = new();
     readonly GELU _finalActivation = GELU();
     readonly Linear _outputProjection;
@@ -271,8 +285,10 @@ public sealed class QuantilePaddedSwiGLUValueNetwork : Module, IValueNetwork
 
         Tensor embeddedHand = _handEmbedding.forward(gameStateTensors.FullHand);
         Tensor embeddedScore = _scoreEmbedding.forward(gameStateTensors.Score).squeeze(1);
-        Tensor embeddedHandsAndDiscards = _handsAndDiscardsEmbedding.forward(gameStateTensors.HandsAndDiscards);
-        Tensor stateVector = cat([embeddedHand, embeddedScore, embeddedHandsAndDiscards], dim: -1);
+        Tensor embeddedCounts =
+            _remainingHandsEmbedding.forward(gameStateTensors.RemainingHands) +
+            _remainingDiscardsEmbedding.forward(gameStateTensors.RemainingDiscards);
+        Tensor stateVector = cat([embeddedHand, embeddedScore, embeddedCounts], dim: -1);
 
         Tensor zeroPadding = zeros(
             [stateVector.size(0), _residualWidth - InputWidth],
@@ -419,7 +435,8 @@ public sealed class DiscardRewardTransformerNetwork : Module
     readonly Embedding _rankEmbedding = Embedding(Card.RankCount + 1, TokenWidth, device: ValueNetwork.EvalDevice);
     readonly Embedding _suitEmbedding = Embedding(Card.SuitCount + 1, TokenWidth, device: ValueNetwork.EvalDevice);
     readonly ThresholdScoreEmbedding _scoreEmbedding;
-    readonly Embedding _handsAndDiscardsEmbedding = Embedding(25, TokenWidth, device: ValueNetwork.EvalDevice);
+    readonly Embedding _remainingHandsEmbedding = Embedding(5, TokenWidth, device: ValueNetwork.EvalDevice);
+    readonly Embedding _remainingDiscardsEmbedding = Embedding(5, TokenWidth, device: ValueNetwork.EvalDevice);
     readonly Parameter _constantToken;
     readonly LayerNorm _attentionNorm0 = LayerNorm(TokenWidth, device: ValueNetwork.EvalDevice);
     readonly MultiheadAttention _attention0 = MultiheadAttention(TokenWidth, AttentionHeadCount);
@@ -459,11 +476,13 @@ public sealed class DiscardRewardTransformerNetwork : Module
 
         Tensor cardTokens = _rankEmbedding.forward(rankIndices) + _suitEmbedding.forward(suitIndices);
         Tensor scoreToken = _scoreEmbedding.forward(gameStateTensors.Score).squeeze(1).unsqueeze(1);
-        Tensor handsAndDiscardsToken = _handsAndDiscardsEmbedding.forward(gameStateTensors.HandsAndDiscards.to_type(ScalarType.Int64)).unsqueeze(1);
+        Tensor remainingCountsToken =
+            (_remainingHandsEmbedding.forward(gameStateTensors.RemainingHands.to_type(ScalarType.Int64)) +
+            _remainingDiscardsEmbedding.forward(gameStateTensors.RemainingDiscards.to_type(ScalarType.Int64))).unsqueeze(1);
 
         long batchSize = cardTokens.size(0);
         Tensor constantToken = _constantToken.expand(batchSize, 1, TokenWidth);
-        Tensor tokens = cat([cardTokens, scoreToken, handsAndDiscardsToken, constantToken], dim: 1);
+        Tensor tokens = cat([cardTokens, scoreToken, remainingCountsToken, constantToken], dim: 1);
 
         tokens = tokens + GetAttentionOutput(_attention0, _attentionNorm0, tokens);
         tokens = tokens + _feedForward0.forward(tokens);

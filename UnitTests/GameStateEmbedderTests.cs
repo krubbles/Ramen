@@ -47,6 +47,30 @@ public class GameStateEmbedderTests
 
 
     [Test]
+    public void ToTensorsStoresRemainingHandsAndDiscardsAsSeparateTensors()
+    {
+        using var scope = NewDisposeScope();
+
+        GameState gameState = new(GameData.Default);
+        gameState.AdvanceToNextPlayerChoice();
+        SetRemainingHandsAndDiscardsMove setCountsMove = new(remainingHands: 2, remainingDiscards: 1);
+        setCountsMove.Apply(gameState);
+
+        GameStateEmbedder embedder = new(1);
+        embedder.AddGameState(gameState);
+
+        GameStateTensors tensors = embedder.ToTensors();
+        Tensor remainingHands = tensors.RemainingHands.to(CPU);
+        Tensor remainingDiscards = tensors.RemainingDiscards.to(CPU);
+
+        Assert.That(remainingHands.shape[0], Is.EqualTo(1));
+        Assert.That(remainingDiscards.shape[0], Is.EqualTo(1));
+        Assert.That(remainingHands.data<long>().ToArray()[0], Is.EqualTo(2));
+        Assert.That(remainingDiscards.data<long>().ToArray()[0], Is.EqualTo(1));
+    }
+
+
+    [Test]
     public void ToTensorsCanIncludePlayHandScoresInStandardOrdering()
     {
         using var scope = NewDisposeScope();

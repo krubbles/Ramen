@@ -855,7 +855,8 @@ public sealed class UnplayedCardsPolicyModel : Module, IPolicyModel
         Tensor remainingDeck = gameStateTensors.RemainingDeck.to(EvalDevice);
         Tensor preScore = gameStateTensors.Score.to(EvalDevice);
         Tensor postPlayScore = useHandTensors.Score.to(EvalDevice);
-        Tensor handsAndDiscards = gameStateTensors.HandsAndDiscards.to(EvalDevice).to_type(ScalarType.Int64);
+        Tensor preHands = gameStateTensors.RemainingHands.to(EvalDevice).to_type(ScalarType.Int64);
+        Tensor preDiscards = gameStateTensors.RemainingDiscards.to(EvalDevice).to_type(ScalarType.Int64);
 
         Tensor fullHandPerCardCounts = GetPerCardSuitRankCounts(fullHand);
         Tensor fullHandEmbedding = _cardSetEmbedding.forward(fullHandPerCardCounts.sum(dim: 1));
@@ -867,8 +868,6 @@ public sealed class UnplayedCardsPolicyModel : Module, IPolicyModel
         Tensor preScoreEmbedding = ExpandAcrossMoves(_scoreEmbedding.forward(preScore).squeeze(1), moveCount);
         Tensor postPlayScoreEmbedding = _scoreEmbedding.forward(postPlayScore);
 
-        Tensor preHands = handsAndDiscards.div(CountOneHotWidth);
-        Tensor preDiscards = handsAndDiscards.remainder(CountOneHotWidth);
         Tensor postPlayHands = (preHands - 1).clamp_min(0);
         Tensor postDiscardDiscards = (preDiscards - 1).clamp_min(0);
 
@@ -900,7 +899,8 @@ public sealed class UnplayedCardsPolicyModel : Module, IPolicyModel
         Tensor remainingDeck = gameStateTensors.RemainingDeck.to(EvalDevice);
         Tensor preScore = gameStateTensors.Score.to(EvalDevice);
         Tensor postPlayScore = useHandTensors.Score.to(EvalDevice);
-        Tensor handsAndDiscards = gameStateTensors.HandsAndDiscards.to(EvalDevice).to_type(ScalarType.Int64);
+        Tensor preHands = gameStateTensors.RemainingHands.to(EvalDevice).to_type(ScalarType.Int64);
+        Tensor preDiscards = gameStateTensors.RemainingDiscards.to(EvalDevice).to_type(ScalarType.Int64);
 
         Tensor fullHandPerCardCounts = GetPerCardSuitRankCounts(fullHand);
         Tensor fullHandEmbedding = _cardSetEmbedding.forward(fullHandPerCardCounts.sum(dim: 1));
@@ -919,8 +919,6 @@ public sealed class UnplayedCardsPolicyModel : Module, IPolicyModel
         Tensor preScoreEmbedding = ExpandAcrossMoves(_scoreEmbedding.forward(preScore).squeeze(1), moveCount);
         Tensor postPlayScoreEmbedding = _scoreEmbedding.forward(selectedPostPlayScore);
 
-        Tensor preHands = handsAndDiscards.div(CountOneHotWidth);
-        Tensor preDiscards = handsAndDiscards.remainder(CountOneHotWidth);
         Tensor postPlayHands = (preHands - 1).clamp_min(0);
         Tensor postDiscardDiscards = (preDiscards - 1).clamp_min(0);
 
