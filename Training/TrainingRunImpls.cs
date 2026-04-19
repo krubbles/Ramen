@@ -2,6 +2,7 @@ namespace Ramen.Training;
 
 using System.Threading;
 using Ramen.AI;
+using Ramen.AgentTools;
 
 public class BasicGRPOTrainingRun : ITrainingRun
 {
