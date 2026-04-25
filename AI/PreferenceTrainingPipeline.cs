@@ -250,9 +250,9 @@ public sealed class PreferenceTrainingPipeline : IDisposable
 
     static float GetReward(GameState gameState)
     {
-        if (gameState.ScoringState.CurrentRoundTotalChips >= 300)
+        if (gameState.ScoringState.CurrentRoundTotalScore >= 300)
             return 1f + gameState.HandState.RemainingHands * 0.2f;
 
-        return (float)gameState.ScoringState.CurrentRoundTotalChips / 1000f;
+        return (float)gameState.ScoringState.CurrentRoundTotalScore / 1000f;
     }
 }

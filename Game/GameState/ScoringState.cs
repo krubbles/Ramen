@@ -8,21 +8,26 @@ public class ScoringState
     public readonly GameState GameState;
     readonly GameData _gameData;
 
-    double _currentRoundTotalChips;
+    double _currentRoundTotalScore;
 
     /// <summary>
     /// Total number of chips earned by all hands played in the current round.
     /// </summary>
-    public double CurrentRoundTotalChips
+    public double CurrentRoundTotalScore
     {
-        get => _currentRoundTotalChips;
+        get => _currentRoundTotalScore;
         internal set
         {
-            _currentRoundTotalChips = value;
+            _currentRoundTotalScore = value;
             GameState.MoveState.ScheduleCallback(OnCurrentRoundTotalChipsChanged);
         }
     }
 
+    public double CurrentRoundThresholdScore
+    {
+        get => _gameData.RoundScoreThresholds[GameState.Round];
+    }
+    
     /// <summary>
     /// Current hand's chip value. Not persistent state.
     /// </summary>
@@ -82,12 +87,12 @@ public class ScoringState
         }
         return 704315923 +
             handLevelsHash + 
-            CurrentRoundTotalChips.GetHashCode() * 687577043;
+            CurrentRoundTotalScore.GetHashCode() * 687577043;
     }
 
     internal void CloneFrom(in ScoringState other)
     {
-        CurrentRoundTotalChips = other.CurrentRoundTotalChips;
+        CurrentRoundTotalScore = other.CurrentRoundTotalScore;
         CurrentHandChips = other.CurrentHandChips;
         CurrentHandMult = other.CurrentHandMult;
         other._handLevels.CopyTo(_handLevels, 0);
@@ -95,7 +100,7 @@ public class ScoringState
 
     internal void ResetCurrentRoundTotalChips()
     {
-        CurrentRoundTotalChips = 0;
+        CurrentRoundTotalScore = 0;
     }
 
     internal void AddChipsToCurrentHand(int chips) => CurrentHandChips += chips;
@@ -135,7 +140,7 @@ public class ScoringState
         GameState.JokerState.OnPlayHand();
 
         double score = CurrentHandChips * CurrentHandMult;
-        CurrentRoundTotalChips += score;
+        CurrentRoundTotalScore += score;
         (CurrentHandChips, CurrentHandMult) = (0, 0);
         return score;
     }

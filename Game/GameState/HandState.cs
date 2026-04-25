@@ -210,6 +210,12 @@ public class HandState
 
         double score = GameState.ScoringState.ScoreActiveHand();
 
+
+        if (GameState.ScoringState.CurrentRoundTotalScore >= GameState.ScoringState.CurrentRoundThresholdScore) 
+            GameState.Stage = StageOfGame.EnterStore;
+        else
+            GameState.Stage = StageOfGame.InRoundAfterHandUsed;
+
         return score;
     }
 

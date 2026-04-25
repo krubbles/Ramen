@@ -9,6 +9,8 @@ public sealed class GameData
 
     public int Hands = 4, Discards = 3;
 
+    public Action<GameState> InitStartingDeck = InitStandardStartingDeck;
+    
     // When true, GameState should choose a random seed instead of using the Seed field.
     public bool RandomizeSeed = true;
 
@@ -18,7 +20,7 @@ public sealed class GameData
     {
         Jokers.Add(joker.Name, joker);
     }
-
+    
     public (int chips, int mult)[] StartingHandBaseScore =
     [
         (0, 0), // null
@@ -51,6 +53,13 @@ public sealed class GameData
         (35, 3), // 5oak
         (40, 4), // flush house
         (50, 3), // flush five
+    ];
+
+    public int[] RoundScoreThresholds =
+    [
+        300,
+        450,
+        600,
     ];
 
     public static int BaseChipsForCardRank(int rank)

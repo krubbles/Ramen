@@ -47,6 +47,11 @@ public sealed class GameState
     /// </summary>
     public StageOfGame Stage { get; internal set; }
 
+    /// <summary>
+    /// The current round of the game. First round is round 1. First store is still round 1. 
+    /// </summary>
+    public int Round {get; internal set; }
+    
     readonly List<Move> _currentLegalMovesBuffer = new();
 
     public GameState(GameData gameData)
@@ -99,9 +104,9 @@ public sealed class GameState
     }
 
     public bool GameIsDone =>
-        ScoringState.CurrentRoundTotalChips >= 1 &&
+        ScoringState.CurrentRoundTotalScore >= 1 &&
         (HandState.RemainingHands == 0 || 
-        ScoringState.CurrentRoundTotalChips >= 300);
+        ScoringState.CurrentRoundTotalScore >= 300);
 
     public bool IsPlayerChoice 
     {

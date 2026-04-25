@@ -125,7 +125,7 @@ public sealed class UseHandMove : Move
     {
         gameState.AssertIsStage(StageOfGame.InRoundPlayerChoice);
 
-        _roundTotalChipsBeforePlay = gameState.ScoringState.CurrentRoundTotalChips;
+        _roundTotalChipsBeforePlay = gameState.ScoringState.CurrentRoundTotalScore;
         _cards = new Card[CardIndices.Length];
         for (int i = 0; i < CardIndices.Length; ++i)
             _cards[i] = gameState.HandState.Hand[CardIndices[i]];
@@ -138,15 +138,13 @@ public sealed class UseHandMove : Move
         {
             gameState.HandState.PlayHand(CardIndices);
         }
-
-        gameState.Stage = StageOfGame.InRoundAfterHandUsed;
     }
 
     protected override void Revert()
     {
         for (int i = 0; i < _cards.Length; ++i)
             gameState.HandState.AddCardToHand(_cards[i]);
-        gameState.ScoringState.CurrentRoundTotalChips = _roundTotalChipsBeforePlay;
+        gameState.ScoringState.CurrentRoundTotalScore = _roundTotalChipsBeforePlay;
         if (IsDiscard)
             gameState.HandState.RemainingDiscards++;
         else
@@ -324,13 +322,13 @@ public sealed class SetCurrentRoundScoreMove : Move
 
     protected override void Apply()
     {
-        _previousScore = (float)gameState.ScoringState.CurrentRoundTotalChips;
-        gameState.ScoringState.CurrentRoundTotalChips = Score;
+        _previousScore = (float)gameState.ScoringState.CurrentRoundTotalScore;
+        gameState.ScoringState.CurrentRoundTotalScore = Score;
     }
 
     protected override void Revert()
     {
-        gameState.ScoringState.CurrentRoundTotalChips = _previousScore;
+        gameState.ScoringState.CurrentRoundTotalScore = _previousScore;
     }
 
     public override string ToString()

@@ -256,7 +256,7 @@ Commit Hash: {commitHash}
                 moveNumber++;
             }
 
-            string outcome = gameState.ScoringState.CurrentRoundTotalChips >= 300f
+            string outcome = gameState.ScoringState.CurrentRoundTotalScore >= 300f
                 ? $"win with {gameState.HandState.RemainingHands} hands remaining"
                 : "loss";
             trace.AppendLine($"Final outcome: `{outcome}`");
@@ -273,7 +273,7 @@ Commit Hash: {commitHash}
         return
             $"{gameState} | " +
             $"Stage {gameState.Stage} | " +
-            $"Score {gameState.ScoringState.CurrentRoundTotalChips:F1}";
+            $"Score {gameState.ScoringState.CurrentRoundTotalScore:F1}";
     }
 
 
@@ -568,7 +568,7 @@ Commit Hash: {commitHash}
         int winHands2Count = distribution.WinHands2Count;
         int winHands3Count = distribution.WinHands3Count;
 
-        if (gameState.ScoringState.CurrentRoundTotalChips < 300f)
+        if (gameState.ScoringState.CurrentRoundTotalScore < 300f)
         {
             lossCount++;
         }
@@ -1093,7 +1093,7 @@ for label in sorted(debug_groups.keys()):
 
     public static string DescribeState(GameState gameState)
     {
-        return $"{gameState} | Score {gameState.ScoringState.CurrentRoundTotalChips:F1} | Deck {gameState.DeckState.RemainingDeckCardCount}";
+        return $"{gameState} | Score {gameState.ScoringState.CurrentRoundTotalScore:F1} | Deck {gameState.DeckState.RemainingDeckCardCount}";
     }
 
 
@@ -1586,10 +1586,10 @@ for label in sorted(debug_groups.keys()):
 
     public static float GetStandardReward(GameState gameState)
     {
-        if (gameState.ScoringState.CurrentRoundTotalChips >= 300f)
+        if (gameState.ScoringState.CurrentRoundTotalScore >= 300f)
             return 1f + gameState.HandState.RemainingHands * 0.2f;
 
-        return (float)gameState.ScoringState.CurrentRoundTotalChips / 1000f;
+        return (float)gameState.ScoringState.CurrentRoundTotalScore / 1000f;
     }
 
 
@@ -2264,7 +2264,7 @@ public sealed class TrajectoryPruningAgent : IAgent, IDisposable
         {
             TurnIndex = turnIndex,
             StateText = Program.DescribeState(gameState),
-            Score = (float)gameState.ScoringState.CurrentRoundTotalChips,
+            Score = (float)gameState.ScoringState.CurrentRoundTotalScore,
             RemainingHands = gameState.HandState.RemainingHands,
             RemainingDiscards = gameState.HandState.RemainingDiscards,
             RemainingDeck = gameState.DeckState.RemainingDeckCardCount,
@@ -3028,7 +3028,7 @@ public sealed class TrajectoryPosition
 
         RemainingHands = gameState.HandState.RemainingHands;
         RemainingDiscards = gameState.HandState.RemainingDiscards;
-        Score = (float)gameState.ScoringState.CurrentRoundTotalChips / 300f;
+        Score = (float)gameState.ScoringState.CurrentRoundTotalScore / 300f;
 
         WriteUseHandScores(gameState, UseHandScores);
 
@@ -3041,7 +3041,7 @@ public sealed class TrajectoryPosition
 
     static void WriteUseHandScores(GameState gameState, float[] output)
     {
-        float scoreBefore = (float)gameState.ScoringState.CurrentRoundTotalChips;
+        float scoreBefore = (float)gameState.ScoringState.CurrentRoundTotalScore;
         int handCardCount = gameState.HandState.HandCardCount;
 
         for (int handIndex = 0; handIndex < PpoPolicyValueModel.HandCombinations.Length; ++handIndex)
@@ -3055,7 +3055,7 @@ public sealed class TrajectoryPosition
 
             UseHandMove move = new(isDiscard: false, cardIndices);
             move.Apply(gameState);
-            float scoreAfter = (float)gameState.ScoringState.CurrentRoundTotalChips;
+            float scoreAfter = (float)gameState.ScoringState.CurrentRoundTotalScore;
             output[handIndex] = scoreAfter / 300f;
             move.Revert(gameState);
         }

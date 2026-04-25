@@ -76,7 +76,7 @@ public sealed class SimpleFlushAgent : IAgent
                 return highScoreNoDiscardMoveIndex;
         }
 
-        if ((float)gameState.ScoringState.CurrentRoundTotalChips > 150f)
+        if ((float)gameState.ScoringState.CurrentRoundTotalScore > 150f)
             return FindHighestScoringPlayIndex(evaluatedMoves, preferFiveCardHands: true);
 
         int suitDrivenMoveIndex = FindSuitDrivenMoveIndex(gameState, legalMoves, evaluatedMoves);
@@ -91,14 +91,14 @@ public sealed class SimpleFlushAgent : IAgent
     {
         EvaluatedMove[] evaluatedMoves = new EvaluatedMove[legalMoves.Length];
         Card[] handSnapshot = gameState.HandState.Hand.ToArray();
-        float roundScoreBefore = (float)gameState.ScoringState.CurrentRoundTotalChips;
+        float roundScoreBefore = (float)gameState.ScoringState.CurrentRoundTotalScore;
 
         for (int moveIndex = 0; moveIndex < legalMoves.Length; ++moveIndex)
         {
             UseHandMove move = legalMoves[moveIndex];
             move.Apply(gameState);
 
-            float roundScoreAfter = (float)gameState.ScoringState.CurrentRoundTotalChips;
+            float roundScoreAfter = (float)gameState.ScoringState.CurrentRoundTotalScore;
             float handScore = roundScoreAfter - roundScoreBefore;
             HandPatterns handPatterns = gameState.HandState.ActiveHandPatterns;
             bool isWinningHand = !move.IsDiscard && roundScoreAfter >= 300f;
