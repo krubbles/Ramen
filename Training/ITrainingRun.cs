@@ -5,6 +5,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Ramen.AI;
+using Ramen.AgentTools;
 
 /// <summary>
 /// Defines a training run that can advance a policy model step-by-step.

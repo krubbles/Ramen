@@ -6,15 +6,15 @@ using static TorchSharp.torch;
 public class CountEmbedderTests
 {
     [Test]
-    public void OneHotHandsAndDiscardsEmbedderProducesTwentyFiveWayOneHotEncoding()
+    public void OneHotCountEmbedderProducesExpectedOneHotEncoding()
     {
         using var scope = NewDisposeScope();
 
         Tensor counts = tensor(new long[] { 0, 1, 7, 24 });
-        Tensor output = OneHotHandsAndDiscardsEmbedder.Embed(counts).to(CPU);
+        Tensor output = OneHotCountEmbedder.Embed(counts, embeddingWidth: 25).to(CPU);
 
         Assert.That(output.shape[0], Is.EqualTo(4));
-        Assert.That(output.shape[1], Is.EqualTo(OneHotHandsAndDiscardsEmbedder.EmbeddingWidth));
+        Assert.That(output.shape[1], Is.EqualTo(25));
 
         float[] actual = output.data<float>().ToArray();
         AssertOneHot(actual, rowIndex: 0, expectedHotIndex: 0);
@@ -26,8 +26,8 @@ public class CountEmbedderTests
 
     static void AssertOneHot(float[] actual, int rowIndex, int expectedHotIndex)
     {
-        int rowOffset = rowIndex * OneHotHandsAndDiscardsEmbedder.EmbeddingWidth;
-        for (int bucketIndex = 0; bucketIndex < OneHotHandsAndDiscardsEmbedder.EmbeddingWidth; ++bucketIndex)
+        int rowOffset = rowIndex * 25;
+        for (int bucketIndex = 0; bucketIndex < 25; ++bucketIndex)
         {
             float expectedValue = bucketIndex == expectedHotIndex ? 1f : 0f;
             Assert.That(
