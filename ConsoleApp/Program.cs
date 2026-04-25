@@ -489,7 +489,7 @@ Commit Hash: {commitHash}
             RandomizeSeed = GameData.Default.RandomizeSeed,
             StartingHandBaseScore = [.. GameData.Default.StartingHandBaseScore],
             PlanetScores = [.. GameData.Default.PlanetScores],
-            InitStartingDeck = GameData.InitializeRandomDeckWithReplacement,
+            InitStartingDeck = GameData.InitErraticStartingDeck,
         };
 
         foreach ((string jokerName, Joker joker) in GameData.Default.Jokers)
@@ -1240,7 +1240,7 @@ for label in sorted(debug_groups.keys()):
             RandomizeSeed = GameData.Default.RandomizeSeed,
             StartingHandBaseScore = [.. GameData.Default.StartingHandBaseScore],
             PlanetScores = [.. GameData.Default.PlanetScores],
-            InitStartingDeck = config.UseRandomDeckInitializer ? GameData.InitializeRandomDeckWithReplacement : GameData.Default.InitStartingDeck,
+            InitStartingDeck = config.UseRandomDeckInitializer ? GameData.InitErraticStartingDeck : GameData.InitErraticStartingDeck,
         };
 
         foreach ((string jokerName, Joker joker) in GameData.Default.Jokers)
