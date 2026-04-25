@@ -53,17 +53,6 @@ public sealed class GameData
         (50, 3), // flush five
     ];
 
-    public Action<GameState> InitStartingDeck = (gameState) =>
-    {
-        for (int rank = 2; rank <= 14; ++rank)
-        {
-            gameState.DeckState.AddCardToFullDeck(new(rank, Suit.Spade));
-            gameState.DeckState.AddCardToFullDeck(new(rank, Suit.Heart));
-            gameState.DeckState.AddCardToFullDeck(new(rank, Suit.Club));
-            gameState.DeckState.AddCardToFullDeck(new(rank, Suit.Diamond));
-        }
-    };
-
     public static int BaseChipsForCardRank(int rank)
     {
         if (rank <= 10)
@@ -78,15 +67,37 @@ public sealed class GameData
         return (chips + planetChips * (level - 1), mult + planetMult * (level - 1));
     }
 
-    public static readonly GameData Default = new();
-
-    public static readonly GameData FlushStratTest = new();
-
-    static GameData()
+    public static void InitStandardStartingDeck(GameState gameState)
     {
-        FlushStratTest.Hands = 1;
-        FlushStratTest.Discards = 4;
-        FlushStratTest.StartingHandBaseScore[(int)HandType.Straight] = (0, 0);
-        FlushStratTest.StartingHandBaseScore[(int)HandType.FullHouse] = (0, 0);
+        for (int rank = 2; rank <= 14; ++rank)
+        {
+            gameState.DeckState.AddCardToFullDeck(new(rank, Suit.Spade));
+            gameState.DeckState.AddCardToFullDeck(new(rank, Suit.Heart));
+            gameState.DeckState.AddCardToFullDeck(new(rank, Suit.Club));
+            gameState.DeckState.AddCardToFullDeck(new(rank, Suit.Diamond));
+        }
     }
+
+    public static void InitCheckeredStartingDeck(GameState gameState)
+    {
+        for (int rank = 2; rank <= 14; ++rank)
+        {
+            gameState.DeckState.AddCardToFullDeck(new(rank, Suit.Spade));
+            gameState.DeckState.AddCardToFullDeck(new(rank, Suit.Heart));
+            gameState.DeckState.AddCardToFullDeck(new(rank, Suit.Spade));
+            gameState.DeckState.AddCardToFullDeck(new(rank, Suit.Heart));
+        }
+    }
+
+    public static void InitErraticStartingDeck(GameState gameState)
+    {
+        for (int cardIndex = 0; cardIndex < 52; ++cardIndex)
+        {
+            byte rank = (byte)(gameState.Random.Next(13) + 2);
+            Suit suit = (Suit)(gameState.Random.Next(4) + 1);
+            gameState.DeckState.AddCardToFullDeck(new(rank, suit));
+        }
+    }
+
+    public static readonly GameData Default = new();
 }
