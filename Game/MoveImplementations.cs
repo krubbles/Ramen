@@ -7,7 +7,6 @@ namespace Ramen.Game;
 /// </summary>
 public sealed class StartRoundMove : Move
 {
-
     public override MoveType GetMoveType() => MoveType.StartRound;
 
     protected override void Apply()
@@ -17,7 +16,10 @@ public sealed class StartRoundMove : Move
 
     protected override void Revert()
     {
-        gameState.HandState.ResetRemainingHandsAndDiscards();
+        gameState.DeckState.SetRemainingDeck([]);
+        gameState.ScoringState.CurrentRoundTotalScore = 0;
+        gameState.HandState.RemainingHands = 0;
+        gameState.HandState.RemainingDiscards = 0;
     }
 
     public override string ToString()
