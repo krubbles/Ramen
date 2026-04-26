@@ -163,6 +163,8 @@ public sealed class ConsoleBalatroApp
         WriteGeneratedLine();
         WriteCardsLine("Hand: ", _gameState.HandState.Hand);
         WriteGeneratedLine();
+        WriteJokers();
+        WriteGeneratedLine();
         WriteGeneratedLine("Use 'play [hand]' to play a hand.");
         if (_gameState.HandState.RemainingDiscards > 0)
             WriteGeneratedLine("Use 'discard [hand]' to discard a hand.");
@@ -175,6 +177,8 @@ public sealed class ConsoleBalatroApp
         WriteGeneratedLine($"Money: {_gameState.ShopState.Money}");
         WriteGeneratedLine();
         WriteGeneratedLine($"Current reroll cost: {_gameState.ShopState.CurrentRerollCost}");
+        WriteGeneratedLine();
+        WriteJokers();
         WriteGeneratedLine();
         WriteGeneratedLine("Shop offerings:");
         for (int offeringIndex = 0; offeringIndex < _gameState.ShopState.ShopOfferings.Count; ++offeringIndex)
@@ -395,6 +399,22 @@ public sealed class ConsoleBalatroApp
         WriteGeneratedLine($"Blind reward: ${blindRewardMoney}");
         WriteGeneratedLine($"Remaining hands: ${remainingHandMoney}");
         WriteGeneratedLine($"Interest: ${interestMoney}");
+    }
+
+    void WriteJokers()
+    {
+        WriteGeneratedLine("Jokers:");
+        if (_gameState.JokerState.Jokers.Count == 0)
+        {
+            WriteGeneratedLine("- None.");
+            return;
+        }
+
+        for (int jokerIndex = 0; jokerIndex < _gameState.JokerState.Jokers.Count; ++jokerIndex)
+        {
+            JokerInstance joker = _gameState.JokerState.Jokers[jokerIndex];
+            WriteGeneratedLine($"{jokerIndex + 1}. {joker.JokerData.Name}");
+        }
     }
 
     void WriteCardsLine(string prefix, ReadOnlySpan<Card> cards)
