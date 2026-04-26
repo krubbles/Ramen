@@ -25,7 +25,7 @@ public class ScoringState
 
     public double CurrentRoundThresholdScore
     {
-        get => _gameData.RoundScoreThresholds[GameState.Round];
+        get => _gameData.GetThresholdForRound(GameState.Round);
     }
     
     /// <summary>

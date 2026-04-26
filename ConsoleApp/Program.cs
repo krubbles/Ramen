@@ -48,7 +48,7 @@ public static class Program
 
     const float PpoContinuationLearningRate = 3e-5f;
 
-    public static void Main()
+    public static void Main(string[] args)
     {
         ConsoleBalatroApp app = new();
         app.Run();

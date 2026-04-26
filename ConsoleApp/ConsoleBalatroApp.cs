@@ -8,37 +8,50 @@ public sealed class ConsoleBalatroApp
     const ConsoleColor GeneratedTextColor = ConsoleColor.Gray;
 
     readonly GameState _gameState;
+    readonly bool _saveGameOnExit;
+    bool _gameSaved;
 
-    public ConsoleBalatroApp()
+    public const string TempGameDatabaseName = "ConsoleAppTemp";
+
+    public ConsoleBalatroApp(bool saveGameOnExit = true)
     {
         _gameState = new(new());
+        _saveGameOnExit = saveGameOnExit;
     }
 
     public void Run()
     {
-        while (true)
+        try
         {
-            if (!ApplyAutomaticMoves())
-                return;
-
-            if (_gameState.Stage == StageOfGame.InRoundPlayerChoice)
+            while (true)
             {
-                if (_gameState.HandState.RemainingHands == 0 &&
-                    _gameState.HandState.RemainingDiscards == 0 &&
-                    _gameState.ScoringState.CurrentRoundTotalScore < _gameState.ScoringState.CurrentRoundThresholdScore)
+                if (!ApplyAutomaticMoves())
+                    return;
+
+                if (_gameState.Stage == StageOfGame.InRoundPlayerChoice)
                 {
-                    WriteGeneratedLine("Round lost.");
-                    return;
-                }
+                    if (_gameState.HandState.RemainingHands == 0 &&
+                        _gameState.HandState.RemainingDiscards == 0 &&
+                        _gameState.ScoringState.CurrentRoundTotalScore < _gameState.ScoringState.CurrentRoundThresholdScore)
+                    {
+                        WriteGeneratedLine("Round lost.");
+                        SaveGame();
+                        return;
+                    }
 
-                if (!PromptForRoundMove())
-                    return;
+                    if (!PromptForRoundMove())
+                        return;
+                }
+                else if (_gameState.Stage == StageOfGame.InShop)
+                {
+                    if (!PromptForShopMove())
+                        return;
+                }
             }
-            else if (_gameState.Stage == StageOfGame.InShop)
-            {
-                if (!PromptForShopMove())
-                    return;
-            }
+        }
+        finally
+        {
+            SaveGame();
         }
     }
 
@@ -49,7 +62,7 @@ public sealed class ConsoleBalatroApp
         {
             if (_gameState.Stage == StageOfGame.BeginRound)
             {
-                if (_gameState.Round + 1 >= _gameState.GameData.RoundScoreThresholds.Length)
+                if (GameData.GetAnteForRound(_gameState.Round + 1) >= _gameState.GameData.AnteScoreThresholds.Length)
                 {
                     WriteGeneratedLine("No more rounds configured.");
                     return false;
@@ -439,6 +452,16 @@ public sealed class ConsoleBalatroApp
     void WriteInvalidCardMessage(string cardText)
     {
         WriteGeneratedLine($"Invalid card '{cardText}'. Cards should use the format [rank][suit], for example 4H, TC.");
+    }
+
+    void SaveGame()
+    {
+        if (!_saveGameOnExit || _gameSaved)
+            return;
+
+        GameDatabase gameDatabase = new(TempGameDatabaseName);
+        gameDatabase.AddGame(_gameState);
+        _gameSaved = true;
     }
 
     static bool TryReadInput(out string input)
