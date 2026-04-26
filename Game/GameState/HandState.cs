@@ -145,6 +145,19 @@ public class HandState
         GameState.MoveState.ScheduleCallback(OnHandChanged);
     }
 
+    internal void SetHand(ReadOnlySpan<Card> cards)
+    {
+        cards.CopyTo(_handBuffer);
+        HandCardCount = cards.Length;
+        GameState.MoveState.ScheduleCallback(OnHandChanged);
+    }
+
+    internal void ClearHand()
+    {
+        HandCardCount = 0;
+        GameState.MoveState.ScheduleCallback(OnHandChanged);
+    }
+
     internal void ResetRemainingHandsAndDiscards()
     {
         RemainingHands = HandsPerRound;

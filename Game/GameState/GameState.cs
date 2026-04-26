@@ -82,12 +82,18 @@ public sealed class GameState
 
     public override int GetHashCode()
     {
-        return 562877087 ^
-            (int)Stage * 301499677 ^
-            ScoringState.GetHashCode() ^
-            HandState.GetHashCode() ^
-            DeckState.GetHashCode()
-            ;
+        int hash = 562877087 ^
+            (int)Stage * 301499677;
+
+        if (StageHasRoundState(Stage))
+        {
+            hash ^=
+                ScoringState.GetHashCode() ^
+                HandState.GetHashCode() ^
+                DeckState.GetHashCode();
+        }
+
+        return hash;
     }
 
     [Obsolete("Use rollback via MoveState.RevertToStep() instead")]
@@ -131,6 +137,7 @@ public sealed class GameState
         AssertIsStage(StageOfGame.BeginRound);
         Stage = StageOfGame.InRoundAfterHandUsed;
         Round++;
+        HandState.ClearHand();
         HandState.ResetRemainingHandsAndDiscards();
         ScoringState.ResetCurrentRoundTotalChips();
         DeckState.ResetDeck();
@@ -231,6 +238,12 @@ public sealed class GameState
     {
         if (Stage != stage)
             throw new InvalidOperationException($"GameState is not in the expected stage. Expected: {stage}, Actual: {Stage}");
+    }
+
+    static bool StageHasRoundState(StageOfGame stage)
+    {
+        return stage == StageOfGame.InRoundPlayerChoice ||
+            stage == StageOfGame.InRoundAfterHandUsed;
     }
 }
 

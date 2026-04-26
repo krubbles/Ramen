@@ -17,9 +17,11 @@ public sealed class StartRoundMove : Move
     protected override void Revert()
     {
         gameState.DeckState.SetRemainingDeck([]);
+        gameState.HandState.ClearHand();
         gameState.ScoringState.CurrentRoundTotalScore = 0;
         gameState.HandState.RemainingHands = 0;
         gameState.HandState.RemainingDiscards = 0;
+        gameState.Round--;
     }
 
     public override string ToString()
@@ -181,18 +183,34 @@ public sealed class ExitShopMove : Move
 public sealed class EndRoundMove : Move
 {
     int _money;
+    Card[] _previousHand;
+    Card[] _previousRemainingDeck;
+    double _previousScore;
+    int _previousRemainingHands;
+    int _previousRemainingDiscards;
 
     public override MoveType GetMoveType() => MoveType.EndRound;
 
     protected override void Apply()
     {
         _money = gameState.ShopState.Money;
+        _previousHand = gameState.HandState.Hand.ToArray();
+        _previousRemainingDeck = gameState.DeckState.RemainingDeck.ToArray();
+        _previousScore = gameState.ScoringState.CurrentRoundTotalScore;
+        _previousRemainingHands = gameState.HandState.RemainingHands;
+        _previousRemainingDiscards = gameState.HandState.RemainingDiscards;
+
         gameState.EndRound();
     }
 
     protected override void Revert()
     {
         gameState.ShopState.Money = _money;
+        gameState.HandState.SetHand(_previousHand);
+        gameState.DeckState.SetRemainingDeck(_previousRemainingDeck);
+        gameState.ScoringState.CurrentRoundTotalScore = _previousScore;
+        gameState.HandState.RemainingHands = _previousRemainingHands;
+        gameState.HandState.RemainingDiscards = _previousRemainingDiscards;
     }
 
     public override string ToString()
