@@ -112,6 +112,9 @@ public abstract class Move
         { MoveType.SetRemainingHandsAndDiscards, new SetRemainingHandsAndDiscardsMove.Serializer() },
         { MoveType.SetCurrentRoundScore, new SetCurrentRoundScoreMove.Serializer() },
         { MoveType.AnnotatingData, new AnnotatingDataMove.Serializer() },
+        { MoveType.BuyShopOffer, new BuyShopOfferMove.Serializer() },
+        { MoveType.ExitShop, new ExitShopMove.Serializer() },
+        { MoveType.Reroll, new RerollMove.Serializer() },
     };
 }
 
@@ -128,6 +131,9 @@ public enum MoveType : byte
     DrawSpecificHand,
     SetRemainingHandsAndDiscards,
     SetCurrentRoundScore,
+    BuyShopOffer,
+    ExitShop,
+    Reroll,
 }
 
 /// <summary>

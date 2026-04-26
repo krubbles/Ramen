@@ -492,9 +492,6 @@ Commit Hash: {commitHash}
             InitStartingDeck = GameData.InitErraticStartingDeck,
         };
 
-        foreach ((string jokerName, Joker joker) in GameData.Default.Jokers)
-            gameData.Jokers.Add(jokerName, joker);
-
         return gameData;
     }
 
@@ -512,9 +509,6 @@ Commit Hash: {commitHash}
             InitStartingDeck = GameData.Default.InitStartingDeck,
         };
 
-        foreach ((string jokerName, Joker joker) in GameData.Default.Jokers)
-            gameData.Jokers.Add(jokerName, joker);
-
         return gameData;
     }
 
@@ -531,9 +525,6 @@ Commit Hash: {commitHash}
             PlanetScores = [.. GameData.Default.PlanetScores],
             InitStartingDeck = InitializeCheckeredDeck,
         };
-
-        foreach ((string jokerName, Joker joker) in GameData.Default.Jokers)
-            gameData.Jokers.Add(jokerName, joker);
 
         return gameData;
     }
@@ -1242,9 +1233,6 @@ for label in sorted(debug_groups.keys()):
             PlanetScores = [.. GameData.Default.PlanetScores],
             InitStartingDeck = config.UseRandomDeckInitializer ? GameData.InitErraticStartingDeck : GameData.InitErraticStartingDeck,
         };
-
-        foreach ((string jokerName, Joker joker) in GameData.Default.Jokers)
-            gameData.Jokers.Add(jokerName, joker);
 
         return gameData;
     }

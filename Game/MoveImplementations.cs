@@ -87,6 +87,148 @@ public sealed class ReseedMove : Move
 }
 
 /// <summary>
+/// Move for buying an item from the current shop offerings.
+/// </summary>
+public sealed class BuyShopOfferMove : Move
+{
+    public readonly int Index;
+
+    JokerInstance _jokerInstance;
+    int _previousMoney;
+
+    public BuyShopOfferMove(int index)
+    {
+        Index = index;
+    }
+
+    public override MoveType GetMoveType() => MoveType.BuyShopOffer;
+
+    protected override void Apply()
+    {
+        _previousMoney = gameState.ShopState.Money;
+        _jokerInstance = gameState.ShopState.BuyShopOffering(Index);
+    }
+
+    protected override void Revert()
+    {
+        gameState.JokerState.RemoveJoker(_jokerInstance);
+        gameState.ShopState.ShopOfferings[Index] = _jokerInstance;
+        gameState.ShopState.Money = _previousMoney;
+    }
+
+    public override string ToString()
+    {
+        return $"Buy Shop Offer: {Index}";
+    }
+
+    internal sealed class Serializer : IMoveSerializer
+    {
+        public MoveType MoveType => MoveType.BuyShopOffer;
+
+        public void Serialize(GameStateSerializer gsSerializer, Move move)
+        {
+            BuyShopOfferMove buyMove = (BuyShopOfferMove)move;
+            gsSerializer.Stream.WriteStruct<int>(buyMove.Index);
+        }
+
+        public Move Deserialize(GameStateSerializer gsSerializer)
+        {
+            int index = gsSerializer.Stream.ReadStruct<int>();
+            return new BuyShopOfferMove(index);
+        }
+    }
+}
+
+/// <summary>
+/// Move for exiting the shop.
+/// </summary>
+public sealed class ExitShopMove : Move
+{
+    public override MoveType GetMoveType() => MoveType.ExitShop;
+
+    protected override void Apply()
+    {
+        gameState.ShopState.ExitShop();
+    }
+
+    protected override void Revert()
+    {
+    }
+
+    public override string ToString()
+    {
+        return "Exit Shop";
+    }
+
+    internal sealed class Serializer : IMoveSerializer
+    {
+        public MoveType MoveType => MoveType.ExitShop;
+
+        public void Serialize(GameStateSerializer gsSerializer, Move move)
+        {
+        }
+
+        public Move Deserialize(GameStateSerializer gsSerializer)
+        {
+            return new ExitShopMove();
+        }
+    }
+}
+
+/// <summary>
+/// Move for rerolling the shop offerings.
+/// </summary>
+public sealed class RerollMove : Move
+{
+    JokerInstance[] _previousShopOfferings;
+    bool _wasFree;
+
+    public override MoveType GetMoveType() => MoveType.Reroll;
+
+    protected override void Apply()
+    {
+        _previousShopOfferings = gameState.ShopState.ShopOfferings.ToArray();
+        _wasFree = gameState.ShopState.FreeRerollsRemaining > 0;
+
+        gameState.ShopState.Reroll();
+    }
+
+    protected override void Revert()
+    {
+        gameState.ShopState.ShopOfferings.Clear();
+        gameState.ShopState.ShopOfferings.AddRange(_previousShopOfferings);
+        if (_wasFree)
+        {
+            gameState.ShopState.FreeRerollsRemaining++;
+        }
+        else
+        {
+            gameState.ShopState.RerollsThisRoundCount--;
+            gameState.ShopState.Money += gameState.ShopState.CurrentRerollCost;
+        }
+    }
+
+    public override string ToString()
+    {
+        return "Reroll";
+    }
+
+    internal sealed class Serializer : IMoveSerializer
+    {
+        public MoveType MoveType => MoveType.Reroll;
+
+        public void Serialize(GameStateSerializer gsSerializer, Move move)
+        {
+        }
+
+        public Move Deserialize(GameStateSerializer gsSerializer)
+        {
+            return new RerollMove();
+        }
+    }
+}
+
+/// <summary>
 /// Move for playing or discarding a hand.
 /// </summary>
 public sealed class UseHandMove : Move

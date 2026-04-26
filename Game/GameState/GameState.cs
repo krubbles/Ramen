@@ -28,6 +28,11 @@ public sealed class GameState
     public readonly JokerState JokerState;
 
     /// <summary>
+    /// State related to the shop, including money.
+    /// </summary>
+    public readonly ShopState ShopState;
+
+    /// <summary>
     /// State used for matching patterns. Not a lot of state, but some flags for things like 4-card straights are stored here to be modified by jokers.
     /// </summary>
     public readonly PatternMatchingState PatternMatchingState;
@@ -63,6 +68,7 @@ public sealed class GameState
         DeckState = new(this);
         HandState = new(this);
         JokerState = new(this);
+        ShopState = new(this);
         PatternMatchingState = new(this);
         MoveState = new(this);
 
@@ -151,6 +157,9 @@ public sealed class GameState
             case StageOfGame.InRoundAfterHandUsed:
                 _currentLegalMovesBuffer.Add(new AfterHandUsedMove());
                 break;
+            case StageOfGame.InShop:
+                ShopState.AppendLegalMoves(_currentLegalMovesBuffer);
+                break;
 
         }
         return _currentLegalMovesBuffer.ToArray();
@@ -211,8 +220,8 @@ public sealed class GameState
 public enum StageOfGame : byte
 {
     Null,
-    EnterStore,
-    InStore,
+    EnterShop,
+    InShop,
     BeginRound,
     InRoundPlayerChoice,
     InRoundAfterHandUsed,

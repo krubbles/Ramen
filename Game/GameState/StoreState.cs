@@ -1,5 +1,3 @@
-using System.Linq.Expressions;
-
 namespace Ramen.Game;
 
 /// <summary>
@@ -17,12 +15,12 @@ public sealed class ShopState
     /// <summary>
     /// The number of offerings you get when the store is re-rolled.
     /// </summary>
-    public int ShopSize { get; internal set; }
+    public int ShopSize { get; internal set; } = 2;
 
     /// <summary>
     /// Current purchasable jokers/consumables in the shop. Does not include packs or vouchers.
     /// </summary>
-    public readonly List<Joker> ShopOfferings = [];
+    public readonly List<JokerInstance> ShopOfferings = [];
 
     /// <summary>
     /// The starting cost of a reroll each time the player enters the store.
@@ -44,13 +42,30 @@ public sealed class ShopState
     /// </summary>
     public int CurrentRerollCost => FreeRerollsRemaining > 0 ? 0 : StartingRerollCost + RerollsThisRoundCount;
 
+    public ShopState(GameState gameState)
+    {
+        GameState = gameState;
+    }
+
     /// <summary>
     /// Returns the price of the shop offering at the given index, or
     /// <see cref="int.MaxValue"/> if that offering has already been purchased.
     /// </summary>
     public int GetShopOfferingPrice(int index)
     {
-        return ShopOfferings[index]?.BasePrice ?? int.MaxValue;
+        return ShopOfferings[index]?.JokerData.BasePrice ?? int.MaxValue;
+    }
+
+    internal void AppendLegalMoves(List<Move> moves)
+    {
+        for (int offeringIndex = 0; offeringIndex < ShopOfferings.Count; ++offeringIndex)
+        {
+            if (GetShopOfferingPrice(offeringIndex) <= Money)
+                moves.Add(new BuyShopOfferMove(offeringIndex));
+        }
+        if (CurrentRerollCost <= Money)
+            moves.Add(new RerollMove());
+        moves.Add(new ExitShopMove());
     }
 
     internal void EnterShop()
@@ -86,8 +101,22 @@ public sealed class ShopState
             ShopOfferings.Add(GenerateShopOffering());
     }
 
-    Joker GenerateShopOffering()
+    JokerInstance GenerateShopOffering()
     {
-        return GameState.Random.NextPick(GameState.GameData.Jokers);
+        return new(GameState.Random.NextPick(GameState.GameData.Jokers));
+    }
+
+    internal JokerInstance BuyShopOffering(int index)
+    {
+        GameState.AssertIsStage(StageOfGame.InShop);
+        int price = GetShopOfferingPrice(index);
+        if (Money < price)
+            throw new InvalidOperationException($"Not enough money to buy shop offering. Price: {price}, Money: {Money}");
+
+        Money -= price;
+        JokerInstance joker = ShopOfferings[index];
+        GameState.JokerState.AddJoker(joker);
+        ShopOfferings[index] = null;
+        return joker;
     }
 }

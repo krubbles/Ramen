@@ -1,6 +1,3 @@
-using System.Linq.Expressions;
-using System.Numerics;
-
 namespace Ramen.Game;
 
 /// <summary>
@@ -213,7 +210,7 @@ public class HandState
 
 
         if (GameState.ScoringState.CurrentRoundTotalScore >= GameState.ScoringState.CurrentRoundThresholdScore)
-            GameState.Stage = StageOfGame.EnterStore;
+            GameState.Stage = StageOfGame.EnterShop;
         else
             GameState.Stage = StageOfGame.InRoundAfterHandUsed;
 
