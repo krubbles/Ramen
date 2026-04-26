@@ -52,6 +52,7 @@ public sealed class GameData
 
     public int[] RoundScoreThresholds =
     [
+        0, // round zero doesn't exist
         300,
         450,
         600,

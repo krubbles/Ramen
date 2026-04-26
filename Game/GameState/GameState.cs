@@ -55,7 +55,7 @@ public sealed class GameState
     /// <summary>
     /// The current round of the game. First round is round 1. First store is still round 1.
     /// </summary>
-    public int Round { get; internal set; }
+    public int Round { get; internal set; } = 0;
 
     readonly List<Move> _currentLegalMovesBuffer = new();
 
@@ -130,6 +130,7 @@ public sealed class GameState
     {
         AssertIsStage(StageOfGame.BeginRound);
         Stage = StageOfGame.InRoundAfterHandUsed;
+        Round++;
         HandState.ResetRemainingHandsAndDiscards();
         ScoringState.ResetCurrentRoundTotalChips();
         DeckState.ResetDeck();
