@@ -69,6 +69,12 @@ public sealed class ConsoleBalatroApp
                 if (afterHandUsedMove.Cards.Length > 0)
                     WriteCardsLine("Drew cards: ", afterHandUsedMove.Cards);
             }
+            else if (_gameState.Stage == StageOfGame.EndRound)
+            {
+                WriteRoundMoneyGained();
+                EndRoundMove endRoundMove = new();
+                endRoundMove.Apply(_gameState);
+            }
             else if (_gameState.Stage == StageOfGame.EnterShop)
             {
                 EnterShopMove enterShopMove = new();
@@ -235,7 +241,7 @@ public sealed class ConsoleBalatroApp
         {
             float handScore = (float)_gameState.ScoringState.CurrentRoundTotalScore - scoreBefore;
             WriteGeneratedLine($"Hand scored: {FormatScore(handScore)}");
-            if (_gameState.Stage == StageOfGame.EnterShop)
+            if (_gameState.Stage == StageOfGame.EndRound)
                 WriteGeneratedLine("Round won!");
         }
 
@@ -375,6 +381,20 @@ public sealed class ConsoleBalatroApp
         }
 
         return false;
+    }
+
+    void WriteRoundMoneyGained()
+    {
+        int blindRewardMoney = _gameState.GameData.GetRewardMoney(_gameState.Round);
+        int remainingHandMoney = _gameState.HandState.RemainingHands;
+        int interestMoney = Math.Min(_gameState.ShopState.Money / 5, 5);
+        int totalMoney = blindRewardMoney + remainingHandMoney + interestMoney;
+
+        WriteGeneratedLine();
+        WriteGeneratedLine($"Money gained: ${totalMoney}");
+        WriteGeneratedLine($"Blind reward: ${blindRewardMoney}");
+        WriteGeneratedLine($"Remaining hands: ${remainingHandMoney}");
+        WriteGeneratedLine($"Interest: ${interestMoney}");
     }
 
     void WriteCardsLine(string prefix, ReadOnlySpan<Card> cards)
