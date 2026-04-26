@@ -6,6 +6,7 @@ public partial class Joker // Page 1 Jokers
     {
         Name = "Joker",
         Rarity = Rarity.Common,
+        BasePrice = 2,
         OnJokerTrigger = (gameState, joker) =>
         {
             gameState.ScoringState.AddMultToCurrentHand(4);
@@ -20,6 +21,7 @@ public partial class Joker // Page 1 Jokers
     {
         Name = "GreedyJoker",
         Rarity = Rarity.Common,
+        BasePrice = 5,
         OnScoreCard = (gameState, joker, card) =>
         {
             if (gameState.PatternMatchingState.SuitsMatch(card.Suit, Suit.Diamond))
@@ -31,6 +33,7 @@ public partial class Joker // Page 1 Jokers
     {
         Name = "LustyJoker",
         Rarity = Rarity.Common,
+        BasePrice = 5,
         OnScoreCard = (gameState, joker, card) =>
         {
             if (gameState.PatternMatchingState.SuitsMatch(card.Suit, Suit.Heart))
@@ -42,6 +45,7 @@ public partial class Joker // Page 1 Jokers
     {
         Name = "WrathfulJoker",
         Rarity = Rarity.Common,
+        BasePrice = 5,
         OnScoreCard = (gameState, joker, card) =>
         {
             if (gameState.PatternMatchingState.SuitsMatch(card.Suit, Suit.Spade))
@@ -53,6 +57,7 @@ public partial class Joker // Page 1 Jokers
     {
         Name = "GluttonousJoker",
         Rarity = Rarity.Common,
+        BasePrice = 5,
         OnScoreCard = (gameState, joker, card) =>
         {
             if (gameState.PatternMatchingState.SuitsMatch(card.Suit, Suit.Club))
@@ -66,6 +71,7 @@ public partial class Joker // Page 1 Jokers
     {
         Name = "JollyJoker",
         Rarity = Rarity.Common,
+        BasePrice = 3,
         OnJokerTrigger = (gameState, joker) =>
         {
             if (gameState.HandState.ActiveHandPatterns.ContainsPair)
@@ -77,6 +83,7 @@ public partial class Joker // Page 1 Jokers
     {
         Name = "ZanyJoker",
         Rarity = Rarity.Common,
+        BasePrice = 4,
         OnJokerTrigger = (gameState, joker) =>
         {
             if (gameState.HandState.ActiveHandPatterns.Contains3OAK)
@@ -88,6 +95,7 @@ public partial class Joker // Page 1 Jokers
     {
         Name = "MadJoker",
         Rarity = Rarity.Common,
+        BasePrice = 4,
         OnJokerTrigger = (gameState, joker) =>
         {
             if (gameState.HandState.ActiveHandPatterns.ContainsTwoPair)
@@ -99,6 +107,7 @@ public partial class Joker // Page 1 Jokers
     {
         Name = "CrazyJoker",
         Rarity = Rarity.Common,
+        BasePrice = 4,
         OnJokerTrigger = (gameState, joker) =>
         {
             if (gameState.HandState.ActiveHandPatterns.ContainsStraight)
@@ -110,6 +119,7 @@ public partial class Joker // Page 1 Jokers
     {
         Name = "DrollJoker",
         Rarity = Rarity.Common,
+        BasePrice = 4,
         OnJokerTrigger = (gameState, joker) =>
         {
             if (gameState.HandState.ActiveHandPatterns.ContainsFlush)
@@ -123,6 +133,7 @@ public partial class Joker // Page 1 Jokers
     {
         Name = "SlyJoker",
         Rarity = Rarity.Common,
+        BasePrice = 3,
         OnJokerTrigger = (gameState, joker) =>
         {
             if (gameState.HandState.ActiveHandPatterns.ContainsPair)
@@ -134,6 +145,7 @@ public partial class Joker // Page 1 Jokers
     {
         Name = "WilyJoker",
         Rarity = Rarity.Common,
+        BasePrice = 4,
         OnJokerTrigger = (gameState, joker) =>
         {
             if (gameState.HandState.ActiveHandPatterns.Contains3OAK)
@@ -145,6 +157,7 @@ public partial class Joker // Page 1 Jokers
     {
         Name = "CleverJoker",
         Rarity = Rarity.Common,
+        BasePrice = 4,
         OnJokerTrigger = (gameState, joker) =>
         {
             if (gameState.HandState.ActiveHandPatterns.ContainsTwoPair)
@@ -156,6 +169,7 @@ public partial class Joker // Page 1 Jokers
     {
         Name = "DeviousJoker",
         Rarity = Rarity.Common,
+        BasePrice = 4,
         OnJokerTrigger = (gameState, joker) =>
         {
             if (gameState.HandState.ActiveHandPatterns.ContainsStraight)
@@ -167,6 +181,7 @@ public partial class Joker // Page 1 Jokers
     {
         Name = "CraftyJoker",
         Rarity = Rarity.Common,
+        BasePrice = 4,
         OnJokerTrigger = (gameState, joker) =>
         {
             if (gameState.HandState.ActiveHandPatterns.ContainsFlush)

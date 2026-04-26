@@ -37,6 +37,14 @@ public sealed class ShopState
     /// </summary>
     public int FreeRerollsRemaining { get; internal set; }
 
+    /// <summary>
+    /// Returns the price of the shop offering at the given index, or
+    /// <see cref="int.MaxValue"/> if that offering has already been purchased.
+    /// </summary>
+    public int GetShopOfferingPrice(int index)
+    {
+        return ShopOfferings[index]?.BasePrice ?? int.MaxValue;
+    }
 
     internal void EnterStore()
     {
