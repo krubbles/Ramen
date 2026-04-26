@@ -115,6 +115,7 @@ public abstract class Move
         { MoveType.BuyShopOffer, new BuyShopOfferMove.Serializer() },
         { MoveType.ExitShop, new ExitShopMove.Serializer() },
         { MoveType.Reroll, new RerollMove.Serializer() },
+        { MoveType.EnterShop, new EnterShopMove.Serializer() },
     };
 }
 
@@ -134,6 +135,7 @@ public enum MoveType : byte
     BuyShopOffer,
     ExitShop,
     Reroll,
+    EnterShop,
 }
 
 /// <summary>

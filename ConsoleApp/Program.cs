@@ -50,10 +50,8 @@ public static class Program
 
     public static void Main()
     {
-        set_default_device(mps_is_available() ? MPS : CPU);
-        TensorManager.Init();
-
-        RunDeckComparisonEvaluation();
+        ConsoleBalatroApp app = new();
+        app.Run();
     }
 
 

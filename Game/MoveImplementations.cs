@@ -176,6 +176,42 @@ public sealed class ExitShopMove : Move
 }
 
 /// <summary>
+/// Move for entering the shop after a round is won.
+/// </summary>
+public sealed class EnterShopMove : Move
+{
+    public override MoveType GetMoveType() => MoveType.EnterShop;
+
+    protected override void Apply()
+    {
+        gameState.ShopState.EnterShop();
+    }
+
+    protected override void Revert()
+    {
+    }
+
+    public override string ToString()
+    {
+        return "Enter Shop";
+    }
+
+    internal sealed class Serializer : IMoveSerializer
+    {
+        public MoveType MoveType => MoveType.EnterShop;
+
+        public void Serialize(GameStateSerializer gsSerializer, Move move)
+        {
+        }
+
+        public Move Deserialize(GameStateSerializer gsSerializer)
+        {
+            return new EnterShopMove();
+        }
+    }
+}
+
+/// <summary>
 /// Move for rerolling the shop offerings.
 /// </summary>
 public sealed class RerollMove : Move
@@ -527,6 +563,8 @@ public sealed class DrawCardsMove : Move
 public sealed class AfterHandUsedMove : Move
 {
     Card[] _cards;
+
+    public Card[] Cards => _cards ?? [];
 
     public override MoveType GetMoveType() => MoveType.AfterHandUse;
 

@@ -241,6 +241,7 @@ public class HandState
         }
         HandCardCount = writeIndex;
 
+        GameState.Stage = StageOfGame.InRoundAfterHandUsed;
     }
 
     internal Card[] RedrawAfterHandUse()

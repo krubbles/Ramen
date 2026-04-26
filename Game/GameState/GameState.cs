@@ -158,6 +158,9 @@ public sealed class GameState
             case StageOfGame.InRoundAfterHandUsed:
                 _currentLegalMovesBuffer.Add(new AfterHandUsedMove());
                 break;
+            case StageOfGame.EnterShop:
+                _currentLegalMovesBuffer.Add(new EnterShopMove());
+                break;
             case StageOfGame.InShop:
                 ShopState.AppendLegalMoves(_currentLegalMovesBuffer);
                 break;
