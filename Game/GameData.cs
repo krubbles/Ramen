@@ -25,7 +25,7 @@ public sealed class GameData
     /// Returns the reward money for the given round, not counting remaining hands, interest, or joker effects.
     /// </summary>
     public int GetRewardMoney(int round) =>
-        round % 3 switch
+        (round % 3) switch
         {
             1 => SmallBlindRewardMoney,
             2 => BigBlindRewardMoney,
