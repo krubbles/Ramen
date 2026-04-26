@@ -10,17 +10,12 @@ public sealed class GameData
     public int Hands = 4, Discards = 3;
 
     public Action<GameState> InitStartingDeck = InitStandardStartingDeck;
-    
+
     // When true, GameState should choose a random seed instead of using the Seed field.
     public bool RandomizeSeed = true;
 
-    public readonly Dictionary<string, Joker> Jokers = new();
+    public readonly Joker[] Jokers = Joker.Page1Jokers;
 
-    public void AddJoker(Joker joker)
-    {
-        Jokers.Add(joker.Name, joker);
-    }
-    
     public (int chips, int mult)[] StartingHandBaseScore =
     [
         (0, 0), // null

@@ -1,8 +1,8 @@
 ﻿namespace Ramen.Game;
 
-public static class Jokers
+public partial class Joker // Page 1 Jokers
 {
-    public static readonly Joker Joker = new()
+    public static readonly Joker Jimbo = new()
     {
         Name = "Joker",
         Rarity = Rarity.Common,
@@ -173,4 +173,23 @@ public static class Jokers
                 gameState.ScoringState.AddChipsToCurrentHand(80);
         }
     };
+
+    public static readonly Joker[] Page1Jokers =
+    [
+        Jimbo,
+        GreedyJoker,
+        LustyJoker,
+        WrathfulJoker,
+        GluttonousJoker,
+        JollyJoker,
+        ZanyJoker,
+        MadJoker,
+        CrazyJoker,
+        DrollJoker,
+        SlyJoker,
+        WilyJoker,
+        CleverJoker,
+        DeviousJoker,
+        CraftyJoker,
+    ];
 }
