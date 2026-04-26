@@ -257,3 +257,12 @@ public enum StageOfGame : byte
     InRoundPlayerChoice,
     InRoundAfterHandUsed,
 }
+
+public enum RoundType
+{
+    Null,
+    SmallBlind,
+    BigBlind,
+    BossBlind,
+    ShowdownBlind,
+}

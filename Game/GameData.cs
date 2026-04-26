@@ -21,17 +21,68 @@ public sealed class GameData
     public int BigBlindRewardMoney = 4;
     public int BossBlindRewardMoney = 5;
 
+    public static RoundType GetRoundType(int round)
+    {
+        round -= 1; // switch to zero-based round
+        if (round % 24 == 0)
+            return RoundType.ShowdownBlind;
+        return (round % 3) switch
+        {
+            0 => RoundType.SmallBlind,
+            1 => RoundType.BigBlind,
+            2 => RoundType.BossBlind,
+            _ => RoundType.Null,
+        };
+    }
+
+    public int[] RewardMoneyForRoundType =
+    [
+        0, // null
+        3, // small blind
+        4, // big blind
+        5, // boss blind
+        8, // showdown blind
+    ];
+
     /// <summary>
     /// Returns the reward money for the given round, not counting remaining hands, interest, or joker effects.
     /// </summary>
-    public int GetRewardMoney(int round) =>
-        (round % 3) switch
-        {
-            1 => SmallBlindRewardMoney,
-            2 => BigBlindRewardMoney,
-            0 => BossBlindRewardMoney,
-            _ => 0,
-        };
+    public int GetRewardMoney(RoundType roundType) => RewardMoneyForRoundType[(int)roundType];
+
+    public int GetRewardMoney(int round) => GetRewardMoney(GetRoundType(round));
+
+    public double[] ThresholdMultiplierForRoundType =
+    [
+        0.0, // null
+        1.0, // small blind
+        1.5, // big blind
+        2.0, // boss blind
+        3.0, // showdown blind
+    ];
+
+    public double[] AnteScoreThresholds =
+    [
+        100, // ante zero
+        300,
+        800,
+        2000,
+        5000,
+        11000,
+        20000,
+        35000,
+        50000,
+        100000000,
+    ];
+
+    public static int GetAnteForRound(int round) => (round - 1) / 3 + 1;
+
+    public double GetThresholdForRound(int round)
+    {
+        int ante = GetAnteForRound(round);
+        RoundType roundType = GetRoundType(round);
+        double threshold = AnteScoreThresholds[ante] * ThresholdMultiplierForRoundType[(int)roundType];
+        return threshold;
+    }
 
     public (int chips, int mult)[] StartingHandBaseScore =
     [
@@ -67,13 +118,6 @@ public sealed class GameData
         (50, 3), // flush five
     ];
 
-    public int[] RoundScoreThresholds =
-    [
-        0, // round zero doesn't exist
-        300,
-        450,
-        600,
-    ];
 
     public static int BaseChipsForCardRank(int rank)
     {
