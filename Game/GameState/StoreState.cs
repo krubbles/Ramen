@@ -46,16 +46,16 @@ public sealed class ShopState
         return ShopOfferings[index]?.BasePrice ?? int.MaxValue;
     }
 
-    internal void EnterStore()
+    internal void EnterShop()
     {
-        GameState.AssertIsStage(StageOfGame.EnterStore);
+        GameState.AssertIsStage(StageOfGame.EnterShop);
         CurrentRerollCost = StartingRerollCost;
         FreeRerollsRemaining = 1;
         Reroll();
-        GameState.Stage = StageOfGame.InStore;
+        GameState.Stage = StageOfGame.InShop;
     }
 
-    internal void ExitStore()
+    internal void ExitShop()
     {
         GameState.Stage = StageOfGame.BeginRound;
     }
