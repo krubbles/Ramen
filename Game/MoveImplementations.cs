@@ -182,7 +182,7 @@ public sealed class EndRoundMove : Move
 {
     int _money;
 
-    public override MoveType GetMoveType() => MoveType.EnterShop;
+    public override MoveType GetMoveType() => MoveType.EndRound;
 
     protected override void Apply()
     {
@@ -210,7 +210,7 @@ public sealed class EndRoundMove : Move
 
         public Move Deserialize(GameStateSerializer gsSerializer)
         {
-            return new EnterShopMove();
+            return new EndRoundMove();
         }
     }
 }
