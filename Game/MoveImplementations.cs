@@ -11,7 +11,7 @@ public sealed class StartRoundMove : Move
 
     protected override void Apply()
     {
-        gameState.StartRound();
+        gameState.BeginRound();
     }
 
     protected override void Revert()

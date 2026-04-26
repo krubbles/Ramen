@@ -126,7 +126,7 @@ public sealed class GameState
         }
     }
 
-    internal void StartRound()
+    internal void BeginRound()
     {
         AssertIsStage(StageOfGame.BeginRound);
         Stage = StageOfGame.InRoundAfterHandUsed;
