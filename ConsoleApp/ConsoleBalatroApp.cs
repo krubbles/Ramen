@@ -158,12 +158,12 @@ public sealed class ConsoleBalatroApp
     void WriteRoundStatus()
     {
         WriteGeneratedLine();
+        WriteJokers();
+        WriteGeneratedLine();
         WriteGeneratedLine($"Current Score: {FormatScore(_gameState.ScoringState.CurrentRoundTotalScore)}, Threshold Score: {FormatScore(_gameState.ScoringState.CurrentRoundThresholdScore)}");
-        WriteGeneratedLine($"Hands: {_gameState.HandState.RemainingHands}, Discards: {_gameState.HandState.RemainingDiscards}, Money: {_gameState.ShopState.Money}");
+        WriteGeneratedLine($"Hands: {_gameState.HandState.RemainingHands}, Discards: {_gameState.HandState.RemainingDiscards}, Money: {FormatMoney(_gameState.ShopState.Money)}");
         WriteGeneratedLine();
         WriteCardsLine("Hand: ", _gameState.HandState.Hand);
-        WriteGeneratedLine();
-        WriteJokers();
         WriteGeneratedLine();
         WriteGeneratedLine("Use 'play [hand]' to play a hand.");
         if (_gameState.HandState.RemainingDiscards > 0)
@@ -174,11 +174,11 @@ public sealed class ConsoleBalatroApp
     void WriteShopStatus()
     {
         WriteGeneratedLine();
-        WriteGeneratedLine($"Money: {_gameState.ShopState.Money}");
-        WriteGeneratedLine();
-        WriteGeneratedLine($"Current reroll cost: {_gameState.ShopState.CurrentRerollCost}");
-        WriteGeneratedLine();
         WriteJokers();
+        WriteGeneratedLine();
+        WriteGeneratedLine($"Money: {FormatMoney(_gameState.ShopState.Money)}");
+        WriteGeneratedLine();
+        WriteGeneratedLine($"Current reroll cost: {FormatMoney(_gameState.ShopState.CurrentRerollCost)}");
         WriteGeneratedLine();
         WriteGeneratedLine("Shop offerings:");
         for (int offeringIndex = 0; offeringIndex < _gameState.ShopState.ShopOfferings.Count; ++offeringIndex)
@@ -187,7 +187,7 @@ public sealed class ConsoleBalatroApp
             if (offering == null)
                 WriteGeneratedLine($"{offeringIndex + 1}. Empty");
             else
-                WriteGeneratedLine($"{offeringIndex + 1}. {offering.JokerData.Name}, ${offering.JokerData.BasePrice}");
+                WriteGeneratedLine($"{offeringIndex + 1}. {offering.JokerData.Name}, {FormatMoney(offering.JokerData.BasePrice)}");
         }
 
         WriteGeneratedLine();
@@ -395,10 +395,10 @@ public sealed class ConsoleBalatroApp
         int totalMoney = blindRewardMoney + remainingHandMoney + interestMoney;
 
         WriteGeneratedLine();
-        WriteGeneratedLine($"Money gained: ${totalMoney}");
-        WriteGeneratedLine($"Blind reward: ${blindRewardMoney}");
-        WriteGeneratedLine($"Remaining hands: ${remainingHandMoney}");
-        WriteGeneratedLine($"Interest: ${interestMoney}");
+        WriteGeneratedLine($"Money gained: {FormatMoney(totalMoney)}");
+        WriteGeneratedLine($"Blind reward: {FormatMoney(blindRewardMoney)}");
+        WriteGeneratedLine($"Remaining hands: {FormatMoney(remainingHandMoney)}");
+        WriteGeneratedLine($"Interest: {FormatMoney(interestMoney)}");
     }
 
     void WriteJokers()
@@ -487,6 +487,11 @@ public sealed class ConsoleBalatroApp
     static string FormatScore(double score)
     {
         return score.ToString("0", CultureInfo.InvariantCulture);
+    }
+
+    static string FormatMoney(int money)
+    {
+        return money.ToString("$0", CultureInfo.InvariantCulture);
     }
 
     static ConsoleColor GetSuitColor(Suit suit)
