@@ -16,6 +16,23 @@ public sealed class GameData
 
     public readonly Joker[] Jokers = Joker.Page1Jokers;
 
+    public int StartingMoney = 4;
+    public int SmallBlindRewardMoney = 3;
+    public int BigBlindRewardMoney = 4;
+    public int BossBlindRewardMoney = 5;
+
+    /// <summary>
+    /// Returns the reward money for the given round, not counting remaining hands, interest, or joker effects.
+    /// </summary>
+    public int GetRewardMoney(int round) =>
+        round % 3 switch
+        {
+            1 => SmallBlindRewardMoney,
+            2 => BigBlindRewardMoney,
+            0 => BossBlindRewardMoney,
+            _ => 0,
+        };
+
     public (int chips, int mult)[] StartingHandBaseScore =
     [
         (0, 0), // null
