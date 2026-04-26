@@ -1,9 +1,8 @@
 ﻿namespace Ramen.Game;
 
 using System.Text;
-
 /// <summary>
-/// Manages all state transitions for the GameState, including player choices. 
+/// Manages all state transitions for the GameState, including player choices.
 /// </summary>
 public sealed class MoveState
 {
@@ -11,7 +10,7 @@ public sealed class MoveState
     readonly GameData _gameData;
 
     public readonly List<Move> MoveHistory = new();
-    
+
     // List of callbacks triggered by the currently applied move. Move runs them after application/reversion.
     // This makes sure that each callback is only called once per move. Not persistent state.
     readonly HashSet<Action> _activatedCallbacks = new();
@@ -84,7 +83,7 @@ public sealed class MoveState
         serializer.Stream.WriteStruct<int>(MoveHistory.Count);
         foreach (Move move in MoveHistory)
         {
-            Move.Serialize(serializer, move);   
+            Move.Serialize(serializer, move);
         }
         serializer.Stream.WriteEndTag("MS");
     }
