@@ -136,11 +136,21 @@ public sealed class GameState
         DeckState.ResetDeck();
     }
 
+    internal void EndRound()
+    {
+        AssertIsStage(StageOfGame.EndRound);
+        Stage = StageOfGame.EnterShop;
+        int interest = Math.Min(ShopState.Money / 5, 5);
+        int rewardMoney = GameData.GetRewardMoney(Round);
+        int handMoney = HandState.RemainingHands;
+        ShopState.Money += interest + rewardMoney + handMoney;
+        Stage = StageOfGame.EnterShop;
+    }
+
     /// <summary>
     /// Returns a list of legal moves.
     /// If there is 1, then there is an automatic state change that must happen.
     /// If there are multiple, the player/agent has a choice to make.
-    /// <
     /// </summary>
     public Move[] GetMoveOptions()
     {
@@ -157,6 +167,9 @@ public sealed class GameState
                 break;
             case StageOfGame.InRoundAfterHandUsed:
                 _currentLegalMovesBuffer.Add(new AfterHandUsedMove());
+                break;
+            case StageOfGame.EndRound:
+                _currentLegalMovesBuffer.Add(new EndRoundMove());
                 break;
             case StageOfGame.EnterShop:
                 _currentLegalMovesBuffer.Add(new EnterShopMove());
@@ -227,6 +240,7 @@ public enum StageOfGame : byte
     EnterShop,
     InShop,
     BeginRound,
+    EndRound,
     InRoundPlayerChoice,
     InRoundAfterHandUsed,
 }

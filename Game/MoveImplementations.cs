@@ -176,6 +176,46 @@ public sealed class ExitShopMove : Move
 }
 
 /// <summary>
+/// Move that ends the round, rewarding the player with money.
+/// </summary>
+public sealed class EndRoundMove : Move
+{
+    int _money;
+
+    public override MoveType GetMoveType() => MoveType.EnterShop;
+
+    protected override void Apply()
+    {
+        _money = gameState.ShopState.Money;
+        gameState.EndRound();
+    }
+
+    protected override void Revert()
+    {
+        gameState.ShopState.Money = _money;
+    }
+
+    public override string ToString()
+    {
+        return "Enter Shop";
+    }
+
+    internal sealed class Serializer : IMoveSerializer
+    {
+        public MoveType MoveType => MoveType.EndRound;
+
+        public void Serialize(GameStateSerializer gsSerializer, Move move)
+        {
+        }
+
+        public Move Deserialize(GameStateSerializer gsSerializer)
+        {
+            return new EnterShopMove();
+        }
+    }
+}
+
+/// <summary>
 /// Move for entering the shop after a round is won.
 /// </summary>
 public sealed class EnterShopMove : Move

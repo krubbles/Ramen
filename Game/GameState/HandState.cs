@@ -210,7 +210,7 @@ public class HandState
 
 
         if (GameState.ScoringState.CurrentRoundTotalScore >= GameState.ScoringState.CurrentRoundThresholdScore)
-            GameState.Stage = StageOfGame.EnterShop;
+            GameState.Stage = StageOfGame.EndRound;
         else
             GameState.Stage = StageOfGame.InRoundAfterHandUsed;
 
