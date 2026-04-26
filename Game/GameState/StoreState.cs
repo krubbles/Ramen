@@ -1,3 +1,5 @@
+using System.Linq.Expressions;
+
 namespace Ramen.Game;
 
 /// <summary>
@@ -25,17 +27,22 @@ public sealed class ShopState
     /// <summary>
     /// The starting cost of a reroll each time the player enters the store.
     /// </summary>
-    public int StartingRerollCost { get; internal set; }
+    public int StartingRerollCost { get; internal set; } = 5;
 
     /// <summary>
-    /// The current cost of a reroll. Note that if <see cref="FreeRerollsRemaining"/> > 0, then you do not have to pay this cost.
+    /// The number of rerolls used this round.
     /// </summary>
-    public int CurrentRerollCost { get; internal set; }
+    public int RerollsThisRoundCount { get; internal set; }
 
     /// <summary>
-    /// The number of remaining free rerolls
+    /// The number of remaining free rerolls.
     /// </summary>
     public int FreeRerollsRemaining { get; internal set; }
+
+    /// <summary>
+    /// How much it would cost to reroll the store right now.
+    /// </summary>
+    public int CurrentRerollCost => FreeRerollsRemaining > 0 ? 0 : StartingRerollCost + RerollsThisRoundCount;
 
     /// <summary>
     /// Returns the price of the shop offering at the given index, or
@@ -49,7 +56,7 @@ public sealed class ShopState
     internal void EnterShop()
     {
         GameState.AssertIsStage(StageOfGame.EnterShop);
-        CurrentRerollCost = StartingRerollCost;
+        RerollsThisRoundCount = 0;
         FreeRerollsRemaining = 1;
         Reroll();
         GameState.Stage = StageOfGame.InShop;
@@ -65,6 +72,15 @@ public sealed class ShopState
     /// </summary>
     internal void Reroll()
     {
+        if (FreeRerollsRemaining > 0)
+            FreeRerollsRemaining--;
+        else
+        {
+            if (Money < CurrentRerollCost)
+                throw new InvalidOperationException($"Not enough money to reroll the store. Current cost: {CurrentRerollCost}, Money: {Money}");
+            Money -= CurrentRerollCost;
+            RerollsThisRoundCount++;
+        }
         ShopOfferings.Clear();
         while (ShopOfferings.Count < ShopSize)
             ShopOfferings.Add(GenerateShopOffering());
