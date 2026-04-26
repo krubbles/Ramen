@@ -12,24 +12,13 @@ public sealed class StartRoundMove : Move
 
     protected override void Apply()
     {
-        if (gameState.Stage != StageOfGame.BeginRound)
-            throw new InvalidOperationException("Cannot start round, gameState is not in the BeginRound GameStage");
-
-        gameState.Stage = StageOfGame.InRoundAfterHandUsed;
-
-        gameState.HandState.ResetRemainingHandsAndDiscards();
-        gameState.ScoringState.ResetCurrentRoundTotalChips();
-        gameState.DeckState.ResetDeck();
-
+        gameState.StartRound();
     }
 
     protected override void Revert()
     {
-        gameState.Stage = StageOfGame.BeginRound;
-
         gameState.HandState.ResetRemainingHandsAndDiscards();
     }
-
 
     public override string ToString()
     {
@@ -52,6 +41,9 @@ public sealed class StartRoundMove : Move
     }
 }
 
+/// <summary>
+/// Move that reseeds the game's random number generator.
+/// </summary>
 public sealed class ReseedMove : Move
 {
     public readonly ulong NewRandomState;
@@ -123,8 +115,6 @@ public sealed class UseHandMove : Move
 
     protected override void Apply()
     {
-        gameState.AssertIsStage(StageOfGame.InRoundPlayerChoice);
-
         _roundTotalChipsBeforePlay = gameState.ScoringState.CurrentRoundTotalScore;
         _cards = new Card[CardIndices.Length];
         for (int i = 0; i < CardIndices.Length; ++i)
@@ -393,21 +383,16 @@ public sealed class DrawCardsMove : Move
 public sealed class AfterHandUsedMove : Move
 {
     Card[] _cards;
-    StageOfGame _stage;
 
     public override MoveType GetMoveType() => MoveType.AfterHandUse;
 
     protected override void Apply()
     {
-        _stage = gameState.Stage;
-        int toDraw = Math.Clamp(gameState.HandState.HandSize - gameState.HandState.HandCardCount, 0, gameState.DeckState.RemainingDeckCardCount);
-        _cards = gameState.HandState.Draw(toDraw);
-        gameState.Stage = StageOfGame.InRoundPlayerChoice;
+        _cards = gameState.HandState.RedrawAfterHandUse();
     }
 
     protected override void Revert()
     {
-        gameState.Stage = _stage;
         gameState.HandState.UnDraw(_cards);
     }
 
@@ -535,7 +520,7 @@ public sealed class AnnotatingDataMove : Move
         }
     }
 
-        /// <summary>
+    /// <summary>
     /// Encodes a probability as a ushort representing the negative natural log probability times 3000.
     /// </summary>
     public static ushort EncodeProb(float prob)

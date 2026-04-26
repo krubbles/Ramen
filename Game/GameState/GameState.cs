@@ -1,7 +1,7 @@
 namespace Ramen.Game;
 
 /// <summary>
-/// Represents the state of a game of Balatro. Can also represent a played game, since the move history is serialized. 
+/// Represents the state of a game of Balatro. Can also represent a played game, since the move history is serialized.
 /// </summary>
 public sealed class GameState
 {
@@ -13,12 +13,12 @@ public sealed class GameState
     public readonly ScoringState ScoringState;
 
     /// <summary>
-    /// The player's full deck and their remaining deck for the round. 
+    /// The player's full deck and their remaining deck for the round.
     /// </summary>
     public readonly DeckState DeckState;
 
     /// <summary>
-    /// The player's hand, remaining hands, and remaining discards, and other hand-related state. Also contains <see cref="HandPatterns"/> for the active (currently scoring) hand. 
+    /// The player's hand, remaining hands, and remaining discards, and other hand-related state. Also contains <see cref="HandPatterns"/> for the active (currently scoring) hand.
     /// </summary>
     public readonly HandState HandState;
 
@@ -48,10 +48,10 @@ public sealed class GameState
     public StageOfGame Stage { get; internal set; }
 
     /// <summary>
-    /// The current round of the game. First round is round 1. First store is still round 1. 
+    /// The current round of the game. First round is round 1. First store is still round 1.
     /// </summary>
-    public int Round {get; internal set; }
-    
+    public int Round { get; internal set; }
+
     readonly List<Move> _currentLegalMovesBuffer = new();
 
     public GameState(GameData gameData)
@@ -105,12 +105,12 @@ public sealed class GameState
 
     public bool GameIsDone =>
         ScoringState.CurrentRoundTotalScore >= 1 &&
-        (HandState.RemainingHands == 0 || 
+        (HandState.RemainingHands == 0 ||
         ScoringState.CurrentRoundTotalScore >= 300);
 
-    public bool IsPlayerChoice 
+    public bool IsPlayerChoice
     {
-        get 
+        get
         {
             if (GameIsDone)
                 return false;
@@ -120,10 +120,19 @@ public sealed class GameState
         }
     }
 
+    internal void StartRound()
+    {
+        AssertIsStage(StageOfGame.BeginRound);
+        Stage = StageOfGame.InRoundAfterHandUsed;
+        HandState.ResetRemainingHandsAndDiscards();
+        ScoringState.ResetCurrentRoundTotalChips();
+        DeckState.ResetDeck();
+    }
+
     /// <summary>
     /// Returns a list of legal moves.
-    /// If there is 1, then there is an automatic state change that must happen. 
-    /// If there are multiple, the player/agent has a choice to make. 
+    /// If there is 1, then there is an automatic state change that must happen.
+    /// If there are multiple, the player/agent has a choice to make.
     /// <
     /// </summary>
     public Move[] GetMoveOptions()
@@ -201,7 +210,7 @@ public sealed class GameState
 
 public enum StageOfGame : byte
 {
-    None,
+    Null,
     EnterStore,
     InStore,
     BeginRound,

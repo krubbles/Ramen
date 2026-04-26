@@ -181,6 +181,7 @@ public class HandState
 
     internal double PlayHand(ReadOnlySpan<byte> cardIndices)
     {
+        GameState.AssertIsStage(StageOfGame.InRoundPlayerChoice);
         if (RemainingHands < 1)
             throw new Exception("Cannot play hand, out of hands.");
         RemainingHands--;
@@ -211,7 +212,7 @@ public class HandState
         double score = GameState.ScoringState.ScoreActiveHand();
 
 
-        if (GameState.ScoringState.CurrentRoundTotalScore >= GameState.ScoringState.CurrentRoundThresholdScore) 
+        if (GameState.ScoringState.CurrentRoundTotalScore >= GameState.ScoringState.CurrentRoundThresholdScore)
             GameState.Stage = StageOfGame.EnterStore;
         else
             GameState.Stage = StageOfGame.InRoundAfterHandUsed;
@@ -221,6 +222,7 @@ public class HandState
 
     internal void DiscardHand(ReadOnlySpan<byte> cardIndices)
     {
+        GameState.AssertIsStage(StageOfGame.InRoundPlayerChoice);
         if (RemainingDiscards < 1)
             throw new Exception("Cannot discard, out of discards");
         RemainingDiscards--;
@@ -242,6 +244,14 @@ public class HandState
         }
         HandCardCount = writeIndex;
 
+    }
+
+    internal Card[] RedrawAfterHandUse()
+    {
+        int toDraw = Math.Clamp(GameState.HandState.HandSize - GameState.HandState.HandCardCount, 0, GameState.DeckState.RemainingDeckCardCount);
+        Card[] cards = GameState.HandState.Draw(toDraw);
+        GameState.Stage = StageOfGame.InRoundPlayerChoice;
+        return cards;
     }
 
     internal void SetActiveHand(ReadOnlySpan<Card> hand)

@@ -47,6 +47,11 @@ public sealed class ShopState
         GameState.Stage = StageOfGame.InStore;
     }
 
+    internal void ExitStore()
+    {
+        GameState.Stage = StageOfGame.BeginRound;
+    }
+
     /// <summary>
     /// Rerolls the store.
     /// </summary>

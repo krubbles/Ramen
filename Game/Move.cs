@@ -10,10 +10,11 @@ public abstract class Move
     // State set during move application and used to properly revert moves
     protected GameState gameState;
     ulong _rngState;
+    StageOfGame _stage;
     int _moveStep = -1;
 
     /// <summary>
-    /// Applies this move to the given <paramref name="gameState"/>. Throws if the move has already been applied. 
+    /// Applies this move to the given <paramref name="gameState"/>. Throws if the move has already been applied.
     /// The move gets added to the <see cref="GameState.MoveState.MoveHistory"/> of the given <paramref name="gameState"/>.
     /// </summary>
     public void Apply(GameState gameState)
@@ -23,6 +24,7 @@ public abstract class Move
 
         this.gameState = gameState;
         _rngState = gameState.Random.GetState();
+        _stage = gameState.Stage;
         _moveStep = gameState.MoveState.MoveHistory.Count;
         gameState.MoveState.MoveHistory.Add(this);
         Apply();
@@ -32,7 +34,7 @@ public abstract class Move
 
     /// <summary>
     /// Restores the gameState to before the move was made. Throws if this move isn't in <paramref name="gameState"/>'s move history, or if the move hasn't been applied.
-    /// Will revert all moves applied after this move before reverting this move. 
+    /// Will revert all moves applied after this move before reverting this move.
     /// </summary>
     public void Revert(GameState gameState)
     {
@@ -48,9 +50,11 @@ public abstract class Move
         this.gameState.Random.SetState(_rngState);
         Revert();
         this.gameState.Random.SetState(_rngState);
+        gameState.Stage = _stage;
 
         this.gameState = null;
-        this._moveStep = -1;
+        _moveStep = -1;
+        _stage = StageOfGame.Null;
         _rngState = default;
         gameState.MoveState.MoveHistory.RemoveAt(gameState.MoveState.MoveHistory.Count - 1);
 
@@ -129,7 +133,7 @@ public enum MoveType : byte
 /// <summary>
 /// An interface for writing classes that serialize and deserialize a specific implementation of <see cref="Move"/>.
 /// Each implementation should have a singular corresponding <see cref="IMoveSerializer"/>.
-/// The serializer should NOT serialize data used to revert the move. 
+/// The serializer should NOT serialize data used to revert the move.
 /// </summary>
 public interface IMoveSerializer
 {
