@@ -184,10 +184,8 @@ public sealed class ValueNetworkTrainingPipeline : IDisposable
 
     static float GetReward(GameState gameState)
     {
-        if (gameState.ScoringState.CurrentRoundTotalScore >= 300)
-            return 1f + gameState.HandState.RemainingHands * 0.2f;
-
-        return (float)gameState.ScoringState.CurrentRoundTotalScore / 1000f;
+        float roundsSurvived = gameState.Round / 3f;
+        return roundsSurvived * roundsSurvived;
     }
 
 

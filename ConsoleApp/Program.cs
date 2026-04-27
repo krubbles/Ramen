@@ -700,9 +700,6 @@ win_hands_3,{distribution.WinHands3Count},{GetFractionText(distribution.WinHands
             weight_decay: PpoConfig.WeightDecay,
             beta1: PpoConfig.AdamBeta1,
             beta2: PpoConfig.AdamBeta2);
-        using PpoMiniBatchBuffers batchBuffers = new(
-            batchSize: PpoConfig.BatchSize,
-            sampledSoftmaxCount: PpoConfig.SampledSoftmaxCount);
         Random rolloutRandom = new(PpoConfig.RandomSeed);
         Random shuffleRandom = new(PpoConfig.RandomSeed + 1);
 
@@ -720,7 +717,6 @@ win_hands_3,{distribution.WinHands3Count},{GetFractionText(distribution.WinHands
                 model: model,
                 optimizer: optimizer,
                 rollout: rollout,
-                batchBuffers: batchBuffers,
                 shuffleRandom: shuffleRandom,
                 config: PpoConfig);
             StepMetrics stepMetrics = new(
@@ -1150,7 +1146,7 @@ Commit Hash: {commitHash}
 13. Total PPO steps: `{config.StepCount}`
 14. Sampled softmax candidates: `{config.SampledSoftmaxCount}`
 15. Policy/value update pattern: `1 policy batch, 1 value batch, then optimizer step`
-16. Reward function: `standard game reward`
+16. Reward function: `reward = (rounds survived / 3)^2`
 17. Value target: `average of later position value predictions, with terminal position assigned true reward`
 18. Value head: `Linear(512 -> 1)` attached to the trunk residual stream
 19. Snapshot frequency: every `{config.SnapshotFrequency}` step(s)
