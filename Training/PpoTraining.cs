@@ -183,6 +183,13 @@ public static class PpoTraining
                     RemainingDeck = batchBuffers.Batch.StateTensors.RemainingDeck.to(PpoPolicyValueModel.EvalDevice),
                     RemainingHands = batchBuffers.Batch.StateTensors.RemainingHands.to(PpoPolicyValueModel.EvalDevice),
                     RemainingDiscards = batchBuffers.Batch.StateTensors.RemainingDiscards.to(PpoPolicyValueModel.EvalDevice),
+                    OwnedJokers = batchBuffers.Batch.StateTensors.OwnedJokers.to(PpoPolicyValueModel.EvalDevice),
+                    StoreJokers = batchBuffers.Batch.StateTensors.StoreJokers.to(PpoPolicyValueModel.EvalDevice),
+                    StorePrices = batchBuffers.Batch.StateTensors.StorePrices.to(PpoPolicyValueModel.EvalDevice),
+                    RerollPrice = batchBuffers.Batch.StateTensors.RerollPrice.to(PpoPolicyValueModel.EvalDevice),
+                    Money = batchBuffers.Batch.StateTensors.Money.to(PpoPolicyValueModel.EvalDevice),
+                    Round = batchBuffers.Batch.StateTensors.Round.to(PpoPolicyValueModel.EvalDevice),
+                    Stage = batchBuffers.Batch.StateTensors.Stage.to(PpoPolicyValueModel.EvalDevice),
                     Score = batchBuffers.Batch.StateTensors.Score.to(PpoPolicyValueModel.EvalDevice),
                 };
                 UseHandTensors useHandTensors = new()
@@ -379,6 +386,13 @@ public static class PpoTraining
         long[,] remainingDeck = new long[positions.Count, 52];
         long[] remainingHands = new long[positions.Count];
         long[] remainingDiscards = new long[positions.Count];
+        long[,] ownedJokers = new long[positions.Count, GameStateEmbedder.MaxOwnedJokerCount];
+        long[,] storeJokers = new long[positions.Count, GameStateEmbedder.MaxStoreJokerCount];
+        long[,] storePrices = new long[positions.Count, GameStateEmbedder.MaxStoreJokerCount];
+        long[] rerollPrice = new long[positions.Count];
+        long[] money = new long[positions.Count];
+        long[] round = new long[positions.Count];
+        long[] stage = new long[positions.Count];
         float[,] score = new float[positions.Count, 1];
         float[,] useHandScores = new float[positions.Count, PpoPolicyValueModel.UseableHandCount];
 
@@ -393,7 +407,20 @@ public static class PpoTraining
 
             remainingHands[batchIndex] = position.RemainingHands;
             remainingDiscards[batchIndex] = position.RemainingDiscards;
+            rerollPrice[batchIndex] = position.RerollPrice;
+            money[batchIndex] = position.Money;
+            round[batchIndex] = position.Round;
+            stage[batchIndex] = position.Stage;
             score[batchIndex, 0] = position.Score;
+
+            for (int jokerIndex = 0; jokerIndex < GameStateEmbedder.MaxOwnedJokerCount; ++jokerIndex)
+                ownedJokers[batchIndex, jokerIndex] = position.OwnedJokers[jokerIndex];
+
+            for (int jokerIndex = 0; jokerIndex < GameStateEmbedder.MaxStoreJokerCount; ++jokerIndex)
+            {
+                storeJokers[batchIndex, jokerIndex] = position.StoreJokers[jokerIndex];
+                storePrices[batchIndex, jokerIndex] = position.StorePrices[jokerIndex];
+            }
 
             for (int handIndex = 0; handIndex < PpoPolicyValueModel.UseableHandCount; ++handIndex)
                 useHandScores[batchIndex, handIndex] = position.UseHandScores[handIndex];
@@ -406,6 +433,13 @@ public static class PpoTraining
                 RemainingDeck = tensor(remainingDeck, dtype: ScalarType.Int64),
                 RemainingHands = tensor(remainingHands, dtype: ScalarType.Int64),
                 RemainingDiscards = tensor(remainingDiscards, dtype: ScalarType.Int64),
+                OwnedJokers = tensor(ownedJokers, dtype: ScalarType.Int64),
+                StoreJokers = tensor(storeJokers, dtype: ScalarType.Int64),
+                StorePrices = tensor(storePrices, dtype: ScalarType.Int64),
+                RerollPrice = tensor(rerollPrice, dtype: ScalarType.Int64),
+                Money = tensor(money, dtype: ScalarType.Int64),
+                Round = tensor(round, dtype: ScalarType.Int64),
+                Stage = tensor(stage, dtype: ScalarType.Int64),
                 Score = tensor(score, dtype: ScalarType.Float32),
             },
             useHandTensors: new()
@@ -576,6 +610,13 @@ public sealed class PpoRolloutDataset : IDisposable
     readonly byte[,] _remainingDeck;
     readonly byte[] _remainingHands;
     readonly byte[] _remainingDiscards;
+    readonly long[,] _ownedJokers;
+    readonly long[,] _storeJokers;
+    readonly long[,] _storePrices;
+    readonly long[] _rerollPrice;
+    readonly long[] _money;
+    readonly long[] _round;
+    readonly long[] _stage;
     readonly float[] _score;
     readonly float[,] _useHandScores;
     readonly long[,] _sampledMoveIndices;
@@ -601,6 +642,13 @@ public sealed class PpoRolloutDataset : IDisposable
         _remainingDeck = new byte[capacity, 52];
         _remainingHands = new byte[capacity];
         _remainingDiscards = new byte[capacity];
+        _ownedJokers = new long[capacity, GameStateEmbedder.MaxOwnedJokerCount];
+        _storeJokers = new long[capacity, GameStateEmbedder.MaxStoreJokerCount];
+        _storePrices = new long[capacity, GameStateEmbedder.MaxStoreJokerCount];
+        _rerollPrice = new long[capacity];
+        _money = new long[capacity];
+        _round = new long[capacity];
+        _stage = new long[capacity];
         _score = new float[capacity];
         _useHandScores = new float[capacity, PpoPolicyValueModel.UseableHandCount];
         _sampledMoveIndices = new long[capacity, sampledSoftmaxCount];
@@ -627,8 +675,21 @@ public sealed class PpoRolloutDataset : IDisposable
 
         _remainingHands[sampleIndex] = (byte)position.RemainingHands;
         _remainingDiscards[sampleIndex] = (byte)position.RemainingDiscards;
+        _rerollPrice[sampleIndex] = position.RerollPrice;
+        _money[sampleIndex] = position.Money;
+        _round[sampleIndex] = position.Round;
+        _stage[sampleIndex] = position.Stage;
         _score[sampleIndex] = position.Score;
         _valueTargets[sampleIndex] = valueTarget;
+
+        for (int jokerIndex = 0; jokerIndex < GameStateEmbedder.MaxOwnedJokerCount; ++jokerIndex)
+            _ownedJokers[sampleIndex, jokerIndex] = position.OwnedJokers[jokerIndex];
+
+        for (int jokerIndex = 0; jokerIndex < GameStateEmbedder.MaxStoreJokerCount; ++jokerIndex)
+        {
+            _storeJokers[sampleIndex, jokerIndex] = position.StoreJokers[jokerIndex];
+            _storePrices[sampleIndex, jokerIndex] = position.StorePrices[jokerIndex];
+        }
 
         for (int handIndex = 0; handIndex < PpoPolicyValueModel.UseableHandCount; ++handIndex)
             _useHandScores[sampleIndex, handIndex] = position.UseHandScores[handIndex];
@@ -667,8 +728,21 @@ public sealed class PpoRolloutDataset : IDisposable
 
             batchBuffers.RemainingHands[batchIndex] = _remainingHands[sampleIndex];
             batchBuffers.RemainingDiscards[batchIndex] = _remainingDiscards[sampleIndex];
+            batchBuffers.RerollPrice[batchIndex] = _rerollPrice[sampleIndex];
+            batchBuffers.Money[batchIndex] = _money[sampleIndex];
+            batchBuffers.Round[batchIndex] = _round[sampleIndex];
+            batchBuffers.Stage[batchIndex] = _stage[sampleIndex];
             batchBuffers.Score[batchIndex, 0] = _score[sampleIndex];
             batchBuffers.ValueTargets[batchIndex] = _valueTargets[sampleIndex];
+
+            for (int jokerIndex = 0; jokerIndex < GameStateEmbedder.MaxOwnedJokerCount; ++jokerIndex)
+                batchBuffers.OwnedJokers[batchIndex, jokerIndex] = _ownedJokers[sampleIndex, jokerIndex];
+
+            for (int jokerIndex = 0; jokerIndex < GameStateEmbedder.MaxStoreJokerCount; ++jokerIndex)
+            {
+                batchBuffers.StoreJokers[batchIndex, jokerIndex] = _storeJokers[sampleIndex, jokerIndex];
+                batchBuffers.StorePrices[batchIndex, jokerIndex] = _storePrices[sampleIndex, jokerIndex];
+            }
 
             for (int handIndex = 0; handIndex < PpoPolicyValueModel.UseableHandCount; ++handIndex)
                 batchBuffers.UseHandScores[batchIndex, handIndex] = _useHandScores[sampleIndex, handIndex];
@@ -694,6 +768,13 @@ public sealed class PpoMiniBatchBuffers : IDisposable
     public readonly long[,] RemainingDeck;
     public readonly long[] RemainingHands;
     public readonly long[] RemainingDiscards;
+    public readonly long[,] OwnedJokers;
+    public readonly long[,] StoreJokers;
+    public readonly long[,] StorePrices;
+    public readonly long[] RerollPrice;
+    public readonly long[] Money;
+    public readonly long[] Round;
+    public readonly long[] Stage;
     public readonly float[,] Score;
     public readonly float[,] UseHandScores;
     public readonly long[,] SampledMoveIndices;
@@ -716,6 +797,13 @@ public sealed class PpoMiniBatchBuffers : IDisposable
         RemainingDeck = new long[_batchSize, 52];
         RemainingHands = new long[_batchSize];
         RemainingDiscards = new long[_batchSize];
+        OwnedJokers = new long[_batchSize, GameStateEmbedder.MaxOwnedJokerCount];
+        StoreJokers = new long[_batchSize, GameStateEmbedder.MaxStoreJokerCount];
+        StorePrices = new long[_batchSize, GameStateEmbedder.MaxStoreJokerCount];
+        RerollPrice = new long[_batchSize];
+        Money = new long[_batchSize];
+        Round = new long[_batchSize];
+        Stage = new long[_batchSize];
         Score = new float[_batchSize, 1];
         UseHandScores = new float[_batchSize, PpoPolicyValueModel.UseableHandCount];
         SampledMoveIndices = new long[_batchSize, sampledSoftmaxCount];
@@ -745,6 +833,13 @@ public sealed class PpoMiniBatchBuffers : IDisposable
                 RemainingDeck = tensor(RemainingDeck, dtype: ScalarType.Int64),
                 RemainingHands = tensor(RemainingHands, dtype: ScalarType.Int64),
                 RemainingDiscards = tensor(RemainingDiscards, dtype: ScalarType.Int64),
+                OwnedJokers = tensor(OwnedJokers, dtype: ScalarType.Int64),
+                StoreJokers = tensor(StoreJokers, dtype: ScalarType.Int64),
+                StorePrices = tensor(StorePrices, dtype: ScalarType.Int64),
+                RerollPrice = tensor(RerollPrice, dtype: ScalarType.Int64),
+                Money = tensor(Money, dtype: ScalarType.Int64),
+                Round = tensor(Round, dtype: ScalarType.Int64),
+                Stage = tensor(Stage, dtype: ScalarType.Int64),
                 Score = tensor(Score, dtype: ScalarType.Float32),
             },
             UseHandTensors = new()
@@ -775,6 +870,9 @@ public sealed class TrajectoryPosition
 {
     public readonly long[] FullHand = new long[GameData.HandSize];
     public readonly long[] RemainingDeck = new long[52];
+    public readonly long[] OwnedJokers = new long[GameStateEmbedder.MaxOwnedJokerCount];
+    public readonly long[] StoreJokers = new long[GameStateEmbedder.MaxStoreJokerCount];
+    public readonly long[] StorePrices = new long[GameStateEmbedder.MaxStoreJokerCount];
     public readonly float[] UseHandScores = new float[PpoPolicyValueModel.UseableHandCount];
     public readonly long[] SampledMoveIndices;
     public readonly float[] OldSampledMoveProbs;
@@ -783,6 +881,10 @@ public sealed class TrajectoryPosition
 
     public readonly long RemainingHands;
     public readonly long RemainingDiscards;
+    public readonly long RerollPrice;
+    public readonly long Money;
+    public readonly long Round;
+    public readonly long Stage;
     public readonly float Score;
     public float PositionValueEstimate;
     public float PolicyEntropy;
@@ -798,14 +900,63 @@ public sealed class TrajectoryPosition
 
         RemainingHands = gameState.HandState.RemainingHands;
         RemainingDiscards = gameState.HandState.RemainingDiscards;
+        RerollPrice = gameState.ShopState.CurrentRerollCost;
+        Money = gameState.ShopState.Money;
+        Round = gameState.Round;
+        Stage = IsStoreStage(gameState.Stage) ? 1 : 0;
         Score = (float)gameState.ScoringState.CurrentRoundTotalScore / 300f;
 
+        WriteJokerSlots(gameState.JokerState.Jokers, gameState.GameData, OwnedJokers);
+        WriteJokerSlots(gameState.ShopState.ShopOfferings, gameState.GameData, StoreJokers);
+        WriteStorePrices(gameState.ShopState.ShopOfferings, StorePrices);
         WriteUseHandScores(gameState, UseHandScores);
 
         SampledMoveIndices = new long[sampledSoftmaxCount];
         OldSampledMoveProbs = new float[sampledSoftmaxCount];
         SampledMoveLogQ = new float[sampledSoftmaxCount];
         SampledMoveValidMask = new float[sampledSoftmaxCount];
+    }
+
+
+    static bool IsStoreStage(StageOfGame stage)
+    {
+        return stage == StageOfGame.EnterShop || stage == StageOfGame.InShop;
+    }
+
+
+    static void WriteJokerSlots(IReadOnlyList<JokerInstance> jokers, GameData gameData, long[] output)
+    {
+        for (int jokerListIndex = 0; jokerListIndex < jokers.Count && jokerListIndex < output.Length; ++jokerListIndex)
+        {
+            JokerInstance joker = jokers[jokerListIndex];
+            if (joker is null)
+                continue;
+
+            int jokerTypeIndex = GetJokerTypeIndex(gameData, joker.JokerData);
+            output[jokerListIndex] = jokerTypeIndex + 1;
+        }
+    }
+
+
+    static void WriteStorePrices(IReadOnlyList<JokerInstance> jokers, long[] output)
+    {
+        for (int jokerListIndex = 0; jokerListIndex < jokers.Count && jokerListIndex < output.Length; ++jokerListIndex)
+        {
+            JokerInstance joker = jokers[jokerListIndex];
+            output[jokerListIndex] = joker?.JokerData.BasePrice ?? 0;
+        }
+    }
+
+
+    static int GetJokerTypeIndex(GameData gameData, Joker joker)
+    {
+        for (int jokerIndex = 0; jokerIndex < gameData.Jokers.Length; ++jokerIndex)
+        {
+            if (ReferenceEquals(gameData.Jokers[jokerIndex], joker))
+                return jokerIndex;
+        }
+
+        throw new InvalidOperationException($"Joker {joker.Name} was not found in the current game data.");
     }
 
 

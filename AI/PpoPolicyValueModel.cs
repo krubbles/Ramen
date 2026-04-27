@@ -20,19 +20,22 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
     static readonly long[,] PlayedHandMaskData = BuildHandMaskData(playedCards: true);
     static readonly long[,] RemainingHandMaskData = BuildHandMaskData(playedCards: false);
 
-    readonly MaskedMeanCardSetEmbedding _fullHandEmbedding = new(embeddingWidth: 128, device: EvalDevice);
-    readonly MaskedMeanCardSetEmbedding _remainingDeckEmbedding = new(embeddingWidth: 64, device: EvalDevice);
-    readonly MaskedMeanCardSetEmbedding _playedHandEmbedding = new(embeddingWidth: 32, device: EvalDevice);
-    readonly MaskedMeanCardSetEmbedding _remainingHandEmbedding = new(embeddingWidth: 32, device: EvalDevice);
     readonly BilinearOneHotScoreEmbedder _scoreEmbedding = new();
     readonly Linear _stateProjection = Linear(TrunkStateFeatureWidth, TrunkWidth, device: EvalDevice);
     readonly ModuleList<GeluResidualBlock> _stateResidualBlocks = new();
     readonly Linear _compressedStateProjection = Linear(TrunkWidth, CompactWidth, device: EvalDevice);
+    readonly Linear _storeCompressedStateProjection = Linear(TrunkWidth, CompactWidth, device: EvalDevice);
     readonly GELU _stateActivation = GELU();
     readonly Linear _moveOnlyProjection = Linear(MoveOnlyFeatureWidth, CompactWidth, device: EvalDevice);
     readonly GELU _moveMergeActivation = GELU();
     readonly GeluResidualBlock _moveResidualBlock = new(width: CompactWidth, hiddenWidth: CompactWidth, device: EvalDevice);
     readonly Linear _moveOutputProjection = Linear(CompactWidth, 1, device: EvalDevice);
+    readonly Embedding _storeActionEmbedding = Embedding(StoreSpecialActionCount, CompactWidth, device: EvalDevice);
+    readonly Embedding _storeJokerEmbedding = Embedding(JokerCountWidth + 1, CompactWidth, device: EvalDevice);
+    readonly Embedding _storePriceEmbedding = Embedding(MaxStorePrice + 1, CompactWidth, device: EvalDevice);
+    readonly GELU _storeMergeActivation = GELU();
+    readonly GeluResidualBlock _storeResidualBlock = new(width: CompactWidth, hiddenWidth: CompactWidth, device: EvalDevice);
+    readonly Linear _storeOutputProjection = Linear(CompactWidth, 1, device: EvalDevice);
     readonly Linear _valueHead = Linear(TrunkWidth, 1, device: EvalDevice);
     readonly Tensor _playedHandMask;
     readonly Tensor _remainingHandMask;
@@ -40,13 +43,18 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
     const int TrunkWidth = 512;
     const int TrunkHiddenWidth = 1024;
     const int CompactWidth = 256;
-    const int ScorePaddingWidth = 32;
+    const int CardCountWidth = Card.RankCount * Card.SuitCount;
     const int CountWidth = 20;
-    const int CountPaddingWidth = 20;
+    const int MoneyEmbeddingWidth = 51;
+    const int RoundEmbeddingWidth = 25;
+    const int StageEmbeddingWidth = 2;
     const int ScoreEmbeddingWidth = BilinearOneHotScoreEmbedder.BucketCount;
-    const int TrunkStateFeatureWidth = 128 + 64 + ScoreEmbeddingWidth + ScorePaddingWidth + CountWidth + CountPaddingWidth;
-    const int MoveOnlyFeatureWidth = 32 + 32 + ScoreEmbeddingWidth + CountWidth;
+    const int MoveOnlyFeatureWidth = CardCountWidth * 2 + ScoreEmbeddingWidth + CountWidth;
     const int TrunkResidualBlockCount = 4;
+    const int MaxStorePrice = 10;
+    const int StoreSpecialActionCount = 2;
+    static readonly int JokerCountWidth = Joker.Page1Jokers.Length;
+    static readonly int TrunkStateFeatureWidth = CardCountWidth * 2 + JokerCountWidth * 2 + MoneyEmbeddingWidth + RoundEmbeddingWidth + StageEmbeddingWidth + ScoreEmbeddingWidth + CountWidth;
 
     public PpoPolicyValueModel() : base(nameof(PpoPolicyValueModel))
     {
@@ -56,6 +64,9 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
         _remainingHandMask.DetachFromScope();
         TensorManager.PersistForever(_playedHandMask);
         TensorManager.PersistForever(_remainingHandMask);
+
+        using var noGrad = no_grad();
+        _storeJokerEmbedding.weight[0].fill_(0f);
 
         for (int blockIndex = 0; blockIndex < TrunkResidualBlockCount; ++blockIndex)
         {
@@ -84,6 +95,39 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
     }
 
 
+    public Tensor GetStorePolicyLogits(GameStateTensors gameStateTensors)
+    {
+        using var scope = NewDisposeScope();
+
+        (_, Tensor trunkState) = EncodeState(gameStateTensors);
+        Tensor compactState = _stateActivation.forward(_storeCompressedStateProjection.forward(trunkState));
+        Tensor storeJokerIndices = gameStateTensors.StoreJokers.to(EvalDevice).to_type(ScalarType.Int64);
+        int batchSize = (int)storeJokerIndices.size(0);
+
+        Tensor exitIndices = zeros([batchSize], dtype: ScalarType.Int64, device: EvalDevice);
+        Tensor rerollIndices = ones([batchSize], dtype: ScalarType.Int64, device: EvalDevice);
+        Tensor exitInputs = compactState + _storeActionEmbedding.forward(exitIndices);
+        Tensor rerollInputs = compactState +
+            _storeActionEmbedding.forward(rerollIndices) +
+            EncodeStorePriceEmbeddings(gameStateTensors.RerollPrice.to(EvalDevice));
+
+        Tensor storeJokerEmbeddings = _storeJokerEmbedding.forward(storeJokerIndices);
+        Tensor storePriceEmbeddings = EncodeStorePriceEmbeddings(gameStateTensors.StorePrices.to(EvalDevice));
+        Tensor expandedCompactState = compactState
+            .unsqueeze(1)
+            .expand(batchSize, GameStateEmbedder.MaxStoreJokerCount, CompactWidth);
+        Tensor buyInputs = expandedCompactState + storeJokerEmbeddings + storePriceEmbeddings;
+
+        Tensor specialInputs = stack([exitInputs, rerollInputs], dim: 1);
+        Tensor specialLogits = ScoreStoreFeatures(specialInputs).squeeze(-1);
+        Tensor buyLogits = ScoreStoreFeatures(buyInputs).squeeze(-1);
+        Tensor nullMask = storeJokerIndices.eq(0).to_type(ScalarType.Float32) * -1e9f;
+        Tensor logits = cat([specialLogits, buyLogits + nullMask], dim: 1);
+        logits.MoveToOuterDisposeScope();
+        return logits;
+    }
+
+
     public (Tensor logits, Tensor values) GetPolicyLogitsAndValues(GameStateTensors gameStateTensors, UseHandTensors useHandTensors)
     {
         using var scope = NewDisposeScope();
@@ -91,12 +135,10 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
         (Tensor compactState, Tensor trunkState) = EncodeState(gameStateTensors);
         Tensor playedHandEmbeddings = BuildHandEmbeddings(
             fullHand: gameStateTensors.FullHand.to(EvalDevice),
-            handMask: _playedHandMask,
-            embedder: _playedHandEmbedding);
+            handMask: _playedHandMask);
         Tensor remainingHandEmbeddings = BuildHandEmbeddings(
             fullHand: gameStateTensors.FullHand.to(EvalDevice),
-            handMask: _remainingHandMask,
-            embedder: _remainingHandEmbedding);
+            handMask: _remainingHandMask);
         Tensor preScoreEmbedding = _scoreEmbedding
             .forward(gameStateTensors.Score.to(EvalDevice) * 300f)
             .squeeze(1);
@@ -153,12 +195,10 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
         Tensor selectedPlayedHandEmbeddings = BuildSelectedHandEmbeddings(
             fullHand: gameStateTensors.FullHand.to(EvalDevice),
             handMask: _playedHandMask,
-            embedder: _playedHandEmbedding,
             selectedHandIndices: selectedHandIndices);
         Tensor selectedRemainingHandEmbeddings = BuildSelectedHandEmbeddings(
             fullHand: gameStateTensors.FullHand.to(EvalDevice),
             handMask: _remainingHandMask,
-            embedder: _remainingHandEmbedding,
             selectedHandIndices: selectedHandIndices);
         Tensor preScoreEmbedding = _scoreEmbedding
             .forward(gameStateTensors.Score.to(EvalDevice) * 300f)
@@ -243,25 +283,45 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
     }
 
 
+    Tensor ScoreStoreFeatures(Tensor input)
+    {
+        using var scope = NewDisposeScope();
+
+        Tensor residualStream = _storeMergeActivation.forward(input);
+        residualStream = _storeResidualBlock.forward(residualStream);
+        Tensor output = _storeOutputProjection.forward(residualStream);
+        output.MoveToOuterDisposeScope();
+        return output;
+    }
+
+
     (Tensor compactState, Tensor trunkState) EncodeState(GameStateTensors gameStateTensors)
     {
         using var scope = NewDisposeScope();
 
-        Tensor fullHandEmbedding = _fullHandEmbedding.forward(gameStateTensors.FullHand.to(EvalDevice));
-        Tensor remainingDeckEmbedding = _remainingDeckEmbedding.forward(gameStateTensors.RemainingDeck.to(EvalDevice));
+        Tensor fullHandEmbedding = EncodeCardCounts(gameStateTensors.FullHand.to(EvalDevice));
+        Tensor remainingDeckEmbedding = EncodeCardCounts(gameStateTensors.RemainingDeck.to(EvalDevice));
+        Tensor ownedJokers = EncodeJokerCounts(gameStateTensors.OwnedJokers.to(EvalDevice));
+        Tensor storeJokers = EncodeJokerCounts(gameStateTensors.StoreJokers.to(EvalDevice));
+        Tensor moneyEmbedding = EncodeMoneyState(gameStateTensors.Money.to(EvalDevice));
+        Tensor roundEmbedding = EncodeRoundState(gameStateTensors.Round.to(EvalDevice));
+        Tensor stageEmbedding = EncodeStageState(gameStateTensors.Stage.to(EvalDevice));
         Tensor scoreEmbedding = _scoreEmbedding.forward(gameStateTensors.Score.to(EvalDevice) * 300f).squeeze(1);
         Tensor countEmbedding = EncodeCountState(
             remainingHands: gameStateTensors.RemainingHands.to(EvalDevice).to_type(ScalarType.Int64),
             remainingDiscards: gameStateTensors.RemainingDiscards.to(EvalDevice).to_type(ScalarType.Int64));
-        Tensor paddedScoreEmbedding = PadLastDimWithZeros(scoreEmbedding, ScorePaddingWidth);
-        Tensor paddedCountEmbedding = PadLastDimWithZeros(countEmbedding, CountPaddingWidth);
 
         Tensor stateFeatures = cat(
             [
                 fullHandEmbedding,
                 remainingDeckEmbedding,
-                paddedScoreEmbedding,
-                paddedCountEmbedding,
+                ownedJokers,
+                storeJokers,
+                moneyEmbedding,
+                roundEmbedding,
+                stageEmbedding,
+                scoreEmbedding,
+                countEmbedding,
             ],
             dim: -1);
         Tensor trunkState = _stateProjection.forward(stateFeatures);
@@ -275,24 +335,7 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
     }
 
 
-    Tensor PadLastDimWithZeros(Tensor input, int paddingWidth)
-    {
-        using var scope = NewDisposeScope();
-
-        if (paddingWidth <= 0)
-        {
-            input.MoveToOuterDisposeScope();
-            return input;
-        }
-
-        Tensor padding = zeros([input.size(0), paddingWidth], dtype: input.dtype, device: input.device);
-        Tensor padded = cat([input, padding], dim: -1);
-        padded.MoveToOuterDisposeScope();
-        return padded;
-    }
-
-
-    Tensor BuildHandEmbeddings(Tensor fullHand, Tensor handMask, MaskedMeanCardSetEmbedding embedder)
+    Tensor BuildHandEmbeddings(Tensor fullHand, Tensor handMask)
     {
         using var scope = NewDisposeScope();
 
@@ -300,13 +343,13 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
         Tensor expandedFullHand = fullHand.unsqueeze(1).expand(batchSize, UseableHandCount, GameData.HandSize);
         Tensor expandedMask = handMask.unsqueeze(0).expand(batchSize, UseableHandCount, GameData.HandSize);
         Tensor maskedHands = expandedFullHand * expandedMask;
-        Tensor embeddings = embedder.forward(maskedHands);
+        Tensor embeddings = EncodeCardCounts(maskedHands);
         embeddings.MoveToOuterDisposeScope();
         return embeddings;
     }
 
 
-    Tensor BuildSelectedHandEmbeddings(Tensor fullHand, Tensor handMask, MaskedMeanCardSetEmbedding embedder, Tensor selectedHandIndices)
+    Tensor BuildSelectedHandEmbeddings(Tensor fullHand, Tensor handMask, Tensor selectedHandIndices)
     {
         using var scope = NewDisposeScope();
 
@@ -317,9 +360,39 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
             .index_select(dim: 0, index: selectedHandIndices.view(-1))
             .view(batchSize, selectedMoveCount, GameData.HandSize);
         Tensor maskedHands = expandedFullHand * selectedMasks;
-        Tensor embeddings = embedder.forward(maskedHands);
+        Tensor embeddings = EncodeCardCounts(maskedHands);
         embeddings.MoveToOuterDisposeScope();
         return embeddings;
+    }
+
+
+    Tensor EncodeCardCounts(Tensor cardSet)
+    {
+        using var scope = NewDisposeScope();
+
+        Tensor cardSetIndices = cardSet.to_type(ScalarType.Int64);
+        int cardDim = (int)cardSetIndices.Dimensions - 1;
+        Tensor countsWithNull = functional.one_hot(cardSetIndices, CardCountWidth + 1)
+            .to_type(ScalarType.Float32)
+            .sum(dim: cardDim);
+        Tensor counts = countsWithNull.narrow(dim: countsWithNull.Dimensions - 1, start: 1, length: CardCountWidth);
+        counts.MoveToOuterDisposeScope();
+        return counts;
+    }
+
+
+    Tensor EncodeJokerCounts(Tensor jokerSet)
+    {
+        using var scope = NewDisposeScope();
+
+        Tensor jokerIndices = jokerSet.to_type(ScalarType.Int64);
+        int jokerDim = (int)jokerIndices.Dimensions - 1;
+        Tensor countsWithNull = functional.one_hot(jokerIndices, JokerCountWidth + 1)
+            .to_type(ScalarType.Float32)
+            .sum(dim: jokerDim);
+        Tensor counts = countsWithNull.narrow(dim: countsWithNull.Dimensions - 1, start: 1, length: JokerCountWidth);
+        counts.MoveToOuterDisposeScope();
+        return counts;
     }
 
 
@@ -329,6 +402,61 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
 
         Tensor combinedIndex = remainingHands.mul(4).add(remainingDiscards).to_type(ScalarType.Int64);
         Tensor encoded = functional.one_hot(combinedIndex, CountWidth).to_type(ScalarType.Float32);
+        encoded.MoveToOuterDisposeScope();
+        return encoded;
+    }
+
+
+    Tensor EncodeStorePriceEmbeddings(Tensor price)
+    {
+        using var scope = NewDisposeScope();
+
+        Tensor clampedPrices = price.to_type(ScalarType.Int64).clamp(0, MaxStorePrice);
+        Tensor encoded = _storePriceEmbedding.forward(clampedPrices);
+        encoded.MoveToOuterDisposeScope();
+        return encoded;
+    }
+
+
+    Tensor EncodeMoneyState(Tensor money)
+    {
+        using var scope = NewDisposeScope();
+
+        Tensor moneyValues = money.to_type(ScalarType.Int64).clamp_min(0);
+        Tensor exactMask = moneyValues.le(35).to_type(ScalarType.Float32).unsqueeze(-1);
+        Tensor exactIndices = moneyValues.clamp(0, 35);
+        Tensor exactEmbedding = functional.one_hot(exactIndices, 36).to_type(ScalarType.Float32) * exactMask;
+
+        Tensor bucketMask = moneyValues.gt(35).logical_and(moneyValues.le(100)).to_type(ScalarType.Float32).unsqueeze(-1);
+        Tensor bucketIndices = moneyValues.sub(35).div(5).clamp(0, 13).to_type(ScalarType.Int64);
+        Tensor bucketEmbedding = functional.one_hot(bucketIndices, 14).to_type(ScalarType.Float32) * bucketMask;
+
+        Tensor overflowEmbedding = moneyValues.gt(100).to_type(ScalarType.Float32).unsqueeze(-1);
+        Tensor encoded = cat([exactEmbedding, bucketEmbedding, overflowEmbedding], dim: -1);
+        encoded.MoveToOuterDisposeScope();
+        return encoded;
+    }
+
+
+    Tensor EncodeRoundState(Tensor round)
+    {
+        using var scope = NewDisposeScope();
+
+        Tensor roundValues = round.to_type(ScalarType.Int64);
+        Tensor validMask = roundValues.greater_equal(1).logical_and(roundValues.le(RoundEmbeddingWidth)).to_type(ScalarType.Float32).unsqueeze(-1);
+        Tensor roundIndices = roundValues.sub(1).clamp(0, RoundEmbeddingWidth - 1);
+        Tensor encoded = functional.one_hot(roundIndices, RoundEmbeddingWidth).to_type(ScalarType.Float32) * validMask;
+        encoded.MoveToOuterDisposeScope();
+        return encoded;
+    }
+
+
+    Tensor EncodeStageState(Tensor stage)
+    {
+        using var scope = NewDisposeScope();
+
+        Tensor stageValues = stage.to_type(ScalarType.Int64).clamp(0, StageEmbeddingWidth - 1);
+        Tensor encoded = functional.one_hot(stageValues, StageEmbeddingWidth).to_type(ScalarType.Float32);
         encoded.MoveToOuterDisposeScope();
         return encoded;
     }
@@ -360,38 +488,6 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
         }
 
         return handMask;
-    }
-}
-
-sealed class MaskedMeanCardSetEmbedding : Module<Tensor, Tensor>
-{
-    readonly Embedding _cardEmbedding;
-
-    public Embedding CardEmbedding => _cardEmbedding;
-
-    public MaskedMeanCardSetEmbedding(int embeddingWidth, Device device = null) : base(nameof(MaskedMeanCardSetEmbedding))
-    {
-        Device targetDevice = device ?? CPU;
-        _cardEmbedding = Embedding(Card.RankCount * Card.SuitCount + 1, embeddingWidth, device: targetDevice);
-
-        using var noGrad = no_grad();
-        _cardEmbedding.weight[0].fill_(0f);
-        RegisterComponents();
-    }
-
-
-    public override Tensor forward(Tensor cardSet)
-    {
-        using var scope = NewDisposeScope();
-
-        Tensor cardIndices = cardSet.to_type(ScalarType.Int64);
-        Tensor validMask = cardIndices.gt(0).to_type(ScalarType.Float32).unsqueeze(-1);
-        Tensor embeddedCards = _cardEmbedding.forward(cardIndices);
-        Tensor summed = (embeddedCards * validMask).sum(dim: embeddedCards.Dimensions - 2);
-        Tensor counts = validMask.sum(dim: validMask.Dimensions - 2).clamp_min(1f);
-        Tensor pooled = summed / counts;
-        pooled.MoveToOuterDisposeScope();
-        return pooled;
     }
 }
 
