@@ -1,9 +1,10 @@
 ﻿namespace Ramen.Game;
 
-public class Joker
+public partial class Joker // Joker Definition
 {
     public string Name;
     public Rarity Rarity;
+    public int BasePrice;
 
     public Action<GameState, JokerInstance>
         OnAdd,

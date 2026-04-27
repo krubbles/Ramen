@@ -101,7 +101,7 @@ public class GameStateEmbedderTests
             minSubsetSize: 1,
             maxSubsetSize: 5);
         float[] playHandScores = new float[GameStateEmbedder.PlayHandScoreCount];
-        float roundScoreBefore = (float)gameState.ScoringState.CurrentRoundTotalChips;
+        float roundScoreBefore = (float)gameState.ScoringState.CurrentRoundTotalScore;
         int handCardCount = gameState.HandState.HandCardCount;
 
         for (int handIndex = 0; handIndex < playHandOptions.Length; ++handIndex)
@@ -112,7 +112,7 @@ public class GameStateEmbedderTests
 
             UseHandMove useHandMove = new(false, cardIndices);
             useHandMove.Apply(gameState);
-            float roundScoreAfter = (float)gameState.ScoringState.CurrentRoundTotalChips;
+            float roundScoreAfter = (float)gameState.ScoringState.CurrentRoundTotalScore;
             playHandScores[handIndex] = (roundScoreAfter - roundScoreBefore) / 300f;
             useHandMove.Revert(gameState);
         }

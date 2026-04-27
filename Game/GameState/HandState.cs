@@ -1,6 +1,3 @@
-using System.Linq.Expressions;
-using System.Numerics;
-
 namespace Ramen.Game;
 
 /// <summary>
@@ -148,6 +145,19 @@ public class HandState
         GameState.MoveState.ScheduleCallback(OnHandChanged);
     }
 
+    internal void SetHand(ReadOnlySpan<Card> cards)
+    {
+        cards.CopyTo(_handBuffer);
+        HandCardCount = cards.Length;
+        GameState.MoveState.ScheduleCallback(OnHandChanged);
+    }
+
+    internal void ClearHand()
+    {
+        HandCardCount = 0;
+        GameState.MoveState.ScheduleCallback(OnHandChanged);
+    }
+
     internal void ResetRemainingHandsAndDiscards()
     {
         RemainingHands = HandsPerRound;
@@ -181,6 +191,7 @@ public class HandState
 
     internal double PlayHand(ReadOnlySpan<byte> cardIndices)
     {
+        GameState.AssertIsStage(StageOfGame.InRoundPlayerChoice);
         if (RemainingHands < 1)
             throw new Exception("Cannot play hand, out of hands.");
         RemainingHands--;
@@ -210,11 +221,18 @@ public class HandState
 
         double score = GameState.ScoringState.ScoreActiveHand();
 
+
+        if (GameState.ScoringState.CurrentRoundTotalScore >= GameState.ScoringState.CurrentRoundThresholdScore)
+            GameState.Stage = StageOfGame.EndRound;
+        else
+            GameState.Stage = StageOfGame.InRoundAfterHandUsed;
+
         return score;
     }
 
     internal void DiscardHand(ReadOnlySpan<byte> cardIndices)
     {
+        GameState.AssertIsStage(StageOfGame.InRoundPlayerChoice);
         if (RemainingDiscards < 1)
             throw new Exception("Cannot discard, out of discards");
         RemainingDiscards--;
@@ -236,6 +254,15 @@ public class HandState
         }
         HandCardCount = writeIndex;
 
+        GameState.Stage = StageOfGame.InRoundAfterHandUsed;
+    }
+
+    internal Card[] RedrawAfterHandUse()
+    {
+        int toDraw = Math.Clamp(GameState.HandState.HandSize - GameState.HandState.HandCardCount, 0, GameState.DeckState.RemainingDeckCardCount);
+        Card[] cards = GameState.HandState.Draw(toDraw);
+        GameState.Stage = StageOfGame.InRoundPlayerChoice;
+        return cards;
     }
 
     internal void SetActiveHand(ReadOnlySpan<Card> hand)

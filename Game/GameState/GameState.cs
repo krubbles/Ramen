@@ -1,7 +1,7 @@
 namespace Ramen.Game;
 
 /// <summary>
-/// Represents the state of a game of Balatro. Can also represent a played game, since the move history is serialized. 
+/// Represents the state of a game of Balatro. Can also represent a played game, since the move history is serialized.
 /// </summary>
 public sealed class GameState
 {
@@ -13,12 +13,12 @@ public sealed class GameState
     public readonly ScoringState ScoringState;
 
     /// <summary>
-    /// The player's full deck and their remaining deck for the round. 
+    /// The player's full deck and their remaining deck for the round.
     /// </summary>
     public readonly DeckState DeckState;
 
     /// <summary>
-    /// The player's hand, remaining hands, and remaining discards, and other hand-related state. Also contains <see cref="HandPatterns"/> for the active (currently scoring) hand. 
+    /// The player's hand, remaining hands, and remaining discards, and other hand-related state. Also contains <see cref="HandPatterns"/> for the active (currently scoring) hand.
     /// </summary>
     public readonly HandState HandState;
 
@@ -26,6 +26,11 @@ public sealed class GameState
     /// The jokers the player owns and any assosiated state.
     /// </summary>
     public readonly JokerState JokerState;
+
+    /// <summary>
+    /// State related to the shop, including money.
+    /// </summary>
+    public readonly ShopState ShopState;
 
     /// <summary>
     /// State used for matching patterns. Not a lot of state, but some flags for things like 4-card straights are stored here to be modified by jokers.
@@ -47,6 +52,11 @@ public sealed class GameState
     /// </summary>
     public StageOfGame Stage { get; internal set; }
 
+    /// <summary>
+    /// The current round of the game. First round is round 1. First store is still round 1.
+    /// </summary>
+    public int Round { get; internal set; } = 0;
+
     readonly List<Move> _currentLegalMovesBuffer = new();
 
     public GameState(GameData gameData)
@@ -58,6 +68,7 @@ public sealed class GameState
         DeckState = new(this);
         HandState = new(this);
         JokerState = new(this);
+        ShopState = new(this);
         PatternMatchingState = new(this);
         MoveState = new(this);
 
@@ -71,12 +82,18 @@ public sealed class GameState
 
     public override int GetHashCode()
     {
-        return 562877087 ^
-            (int)Stage * 301499677 ^
-            ScoringState.GetHashCode() ^
-            HandState.GetHashCode() ^
-            DeckState.GetHashCode()
-            ;
+        int hash = 562877087 ^
+            (int)Stage * 301499677;
+
+        if (StageHasRoundState(Stage))
+        {
+            hash ^=
+                ScoringState.GetHashCode() ^
+                HandState.GetHashCode() ^
+                DeckState.GetHashCode();
+        }
+
+        return hash;
     }
 
     [Obsolete("Use rollback via MoveState.RevertToStep() instead")]
@@ -99,13 +116,13 @@ public sealed class GameState
     }
 
     public bool GameIsDone =>
-        ScoringState.CurrentRoundTotalChips >= 1 &&
-        (HandState.RemainingHands == 0 || 
-        ScoringState.CurrentRoundTotalChips >= 300);
+        ScoringState.CurrentRoundTotalScore >= 1 &&
+        (HandState.RemainingHands == 0 ||
+        ScoringState.CurrentRoundTotalScore >= 300);
 
-    public bool IsPlayerChoice 
+    public bool IsPlayerChoice
     {
-        get 
+        get
         {
             if (GameIsDone)
                 return false;
@@ -115,11 +132,32 @@ public sealed class GameState
         }
     }
 
+    internal void BeginRound()
+    {
+        AssertIsStage(StageOfGame.BeginRound);
+        Stage = StageOfGame.InRoundAfterHandUsed;
+        Round++;
+        HandState.ClearHand();
+        HandState.ResetRemainingHandsAndDiscards();
+        ScoringState.ResetCurrentRoundTotalChips();
+        DeckState.ResetDeck();
+    }
+
+    internal void EndRound()
+    {
+        AssertIsStage(StageOfGame.EndRound);
+        Stage = StageOfGame.EnterShop;
+        int interest = Math.Min(ShopState.Money / 5, 5);
+        int rewardMoney = GameData.GetRewardMoney(Round);
+        int handMoney = HandState.RemainingHands;
+        ShopState.Money += interest + rewardMoney + handMoney;
+        Stage = StageOfGame.EnterShop;
+    }
+
     /// <summary>
     /// Returns a list of legal moves.
-    /// If there is 1, then there is an automatic state change that must happen. 
-    /// If there are multiple, the player/agent has a choice to make. 
-    /// <
+    /// If there is 1, then there is an automatic state change that must happen.
+    /// If there are multiple, the player/agent has a choice to make.
     /// </summary>
     public Move[] GetMoveOptions()
     {
@@ -136,6 +174,15 @@ public sealed class GameState
                 break;
             case StageOfGame.InRoundAfterHandUsed:
                 _currentLegalMovesBuffer.Add(new AfterHandUsedMove());
+                break;
+            case StageOfGame.EndRound:
+                _currentLegalMovesBuffer.Add(new EndRoundMove());
+                break;
+            case StageOfGame.EnterShop:
+                _currentLegalMovesBuffer.Add(new EnterShopMove());
+                break;
+            case StageOfGame.InShop:
+                ShopState.AppendLegalMoves(_currentLegalMovesBuffer);
                 break;
 
         }
@@ -192,14 +239,30 @@ public sealed class GameState
         if (Stage != stage)
             throw new InvalidOperationException($"GameState is not in the expected stage. Expected: {stage}, Actual: {Stage}");
     }
+
+    static bool StageHasRoundState(StageOfGame stage)
+    {
+        return stage == StageOfGame.InRoundPlayerChoice ||
+            stage == StageOfGame.InRoundAfterHandUsed;
+    }
 }
 
 public enum StageOfGame : byte
 {
-    None,
-    EnterStore,
-    InStore,
+    Null,
+    EnterShop,
+    InShop,
     BeginRound,
+    EndRound,
     InRoundPlayerChoice,
     InRoundAfterHandUsed,
+}
+
+public enum RoundType
+{
+    Null,
+    SmallBlind,
+    BigBlind,
+    BossBlind,
+    ShowdownBlind,
 }

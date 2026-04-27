@@ -19,7 +19,7 @@ public class GameStateTensors : ITensorGroup
     public Tensor RemainingDeck;
 
     /// <summary>
-    /// <see cref="ScoringState.CurrentRoundTotalChips"/>
+    /// <see cref="ScoringState.CurrentRoundTotalScore"/>
     /// </summary>
     public Tensor Score;
 
@@ -46,7 +46,7 @@ public class GameStateTensors : ITensorGroup
 public class UseHandTensors : ITensorGroup
 {
     /// <summary>
-    /// <see cref="ScoringState.CurrentRoundTotalChips"/> after hand is played.
+    /// <see cref="ScoringState.CurrentRoundTotalScore"/> after hand is played.
     /// </summary>
     public Tensor Score;
 }
@@ -153,7 +153,7 @@ public class GameStateEmbedder
 
     static float GetScoreValue(GameState gameState)
     {
-        return (float)gameState.ScoringState.CurrentRoundTotalChips / 300f;
+        return (float)gameState.ScoringState.CurrentRoundTotalScore / 300f;
     }
 
     void WritePlayHandScores(GameState gameState, int stateIndex)
@@ -162,7 +162,7 @@ public class GameStateEmbedder
             setSize: GameData.HandSize,
             minSubsetSize: 1,
             maxSubsetSize: 5);
-        float roundScoreBefore = (float)gameState.ScoringState.CurrentRoundTotalChips;
+        float roundScoreBefore = (float)gameState.ScoringState.CurrentRoundTotalScore;
         int handCardCount = gameState.HandState.HandCardCount;
 
         for (int handIndex = 0; handIndex < playHandOptions.Length; ++handIndex)
@@ -176,7 +176,7 @@ public class GameStateEmbedder
 
             UseHandMove useHandMove = new(false, cardIndices);
             useHandMove.Apply(gameState);
-            float roundScoreAfter = (float)gameState.ScoringState.CurrentRoundTotalChips;
+            float roundScoreAfter = (float)gameState.ScoringState.CurrentRoundTotalScore;
             _playHandScores[stateIndex, handIndex] = (roundScoreAfter - roundScoreBefore) / 300f;
             useHandMove.Revert(gameState);
         }

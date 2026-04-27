@@ -151,7 +151,7 @@ public class PolicyOnlyAgent : IAgent, IDisposable
             {
                 UseHandMove useHandMove = new(false, cardIndicesEnumerator[i]);
                 useHandMove.Apply(gameState);
-                scores[stateIndex, move++] = (float)gameState.ScoringState.CurrentRoundTotalChips / 300f;
+                scores[stateIndex, move++] = (float)gameState.ScoringState.CurrentRoundTotalScore / 300f;
                 useHandMove.Revert(gameState);
             }
         }

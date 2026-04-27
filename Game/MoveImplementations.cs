@@ -7,29 +7,22 @@ namespace Ramen.Game;
 /// </summary>
 public sealed class StartRoundMove : Move
 {
-
     public override MoveType GetMoveType() => MoveType.StartRound;
 
     protected override void Apply()
     {
-        if (gameState.Stage != StageOfGame.BeginRound)
-            throw new InvalidOperationException("Cannot start round, gameState is not in the BeginRound GameStage");
-
-        gameState.Stage = StageOfGame.InRoundAfterHandUsed;
-
-        gameState.HandState.ResetRemainingHandsAndDiscards();
-        gameState.ScoringState.ResetCurrentRoundTotalChips();
-        gameState.DeckState.ResetDeck();
-
+        gameState.BeginRound();
     }
 
     protected override void Revert()
     {
-        gameState.Stage = StageOfGame.BeginRound;
-
-        gameState.HandState.ResetRemainingHandsAndDiscards();
+        gameState.DeckState.SetRemainingDeck([]);
+        gameState.HandState.ClearHand();
+        gameState.ScoringState.CurrentRoundTotalScore = 0;
+        gameState.HandState.RemainingHands = 0;
+        gameState.HandState.RemainingDiscards = 0;
+        gameState.Round--;
     }
-
 
     public override string ToString()
     {
@@ -52,6 +45,9 @@ public sealed class StartRoundMove : Move
     }
 }
 
+/// <summary>
+/// Move that reseeds the game's random number generator.
+/// </summary>
 public sealed class ReseedMove : Move
 {
     public readonly ulong NewRandomState;
@@ -93,6 +89,240 @@ public sealed class ReseedMove : Move
 }
 
 /// <summary>
+/// Move for buying an item from the current shop offerings.
+/// </summary>
+public sealed class BuyShopOfferMove : Move
+{
+    public readonly int Index;
+
+    JokerInstance _jokerInstance;
+    int _previousMoney;
+
+    public BuyShopOfferMove(int index)
+    {
+        Index = index;
+    }
+
+    public override MoveType GetMoveType() => MoveType.BuyShopOffer;
+
+    protected override void Apply()
+    {
+        _previousMoney = gameState.ShopState.Money;
+        _jokerInstance = gameState.ShopState.BuyShopOffering(Index);
+    }
+
+    protected override void Revert()
+    {
+        gameState.JokerState.RemoveJoker(_jokerInstance);
+        gameState.ShopState.ShopOfferings[Index] = _jokerInstance;
+        gameState.ShopState.Money = _previousMoney;
+    }
+
+    public override string ToString()
+    {
+        return $"Buy Shop Offer: {Index}";
+    }
+
+    internal sealed class Serializer : IMoveSerializer
+    {
+        public MoveType MoveType => MoveType.BuyShopOffer;
+
+        public void Serialize(GameStateSerializer gsSerializer, Move move)
+        {
+            BuyShopOfferMove buyMove = (BuyShopOfferMove)move;
+            gsSerializer.Stream.WriteStruct<int>(buyMove.Index);
+        }
+
+        public Move Deserialize(GameStateSerializer gsSerializer)
+        {
+            int index = gsSerializer.Stream.ReadStruct<int>();
+            return new BuyShopOfferMove(index);
+        }
+    }
+}
+
+/// <summary>
+/// Move for exiting the shop.
+/// </summary>
+public sealed class ExitShopMove : Move
+{
+    public override MoveType GetMoveType() => MoveType.ExitShop;
+
+    protected override void Apply()
+    {
+        gameState.ShopState.ExitShop();
+    }
+
+    protected override void Revert()
+    {
+    }
+
+    public override string ToString()
+    {
+        return "Exit Shop";
+    }
+
+    internal sealed class Serializer : IMoveSerializer
+    {
+        public MoveType MoveType => MoveType.ExitShop;
+
+        public void Serialize(GameStateSerializer gsSerializer, Move move)
+        {
+        }
+
+        public Move Deserialize(GameStateSerializer gsSerializer)
+        {
+            return new ExitShopMove();
+        }
+    }
+}
+
+/// <summary>
+/// Move that ends the round, rewarding the player with money.
+/// </summary>
+public sealed class EndRoundMove : Move
+{
+    int _money;
+    Card[] _previousHand;
+    Card[] _previousRemainingDeck;
+    double _previousScore;
+    int _previousRemainingHands;
+    int _previousRemainingDiscards;
+
+    public override MoveType GetMoveType() => MoveType.EndRound;
+
+    protected override void Apply()
+    {
+        _money = gameState.ShopState.Money;
+        _previousHand = gameState.HandState.Hand.ToArray();
+        _previousRemainingDeck = gameState.DeckState.RemainingDeck.ToArray();
+        _previousScore = gameState.ScoringState.CurrentRoundTotalScore;
+        _previousRemainingHands = gameState.HandState.RemainingHands;
+        _previousRemainingDiscards = gameState.HandState.RemainingDiscards;
+
+        gameState.EndRound();
+    }
+
+    protected override void Revert()
+    {
+        gameState.ShopState.Money = _money;
+        gameState.HandState.SetHand(_previousHand);
+        gameState.DeckState.SetRemainingDeck(_previousRemainingDeck);
+        gameState.ScoringState.CurrentRoundTotalScore = _previousScore;
+        gameState.HandState.RemainingHands = _previousRemainingHands;
+        gameState.HandState.RemainingDiscards = _previousRemainingDiscards;
+    }
+
+    public override string ToString()
+    {
+        return "Enter Shop";
+    }
+
+    internal sealed class Serializer : IMoveSerializer
+    {
+        public MoveType MoveType => MoveType.EndRound;
+
+        public void Serialize(GameStateSerializer gsSerializer, Move move)
+        {
+        }
+
+        public Move Deserialize(GameStateSerializer gsSerializer)
+        {
+            return new EndRoundMove();
+        }
+    }
+}
+
+/// <summary>
+/// Move for entering the shop after a round is won.
+/// </summary>
+public sealed class EnterShopMove : Move
+{
+    public override MoveType GetMoveType() => MoveType.EnterShop;
+
+    protected override void Apply()
+    {
+        gameState.ShopState.EnterShop();
+    }
+
+    protected override void Revert()
+    {
+    }
+
+    public override string ToString()
+    {
+        return "Enter Shop";
+    }
+
+    internal sealed class Serializer : IMoveSerializer
+    {
+        public MoveType MoveType => MoveType.EnterShop;
+
+        public void Serialize(GameStateSerializer gsSerializer, Move move)
+        {
+        }
+
+        public Move Deserialize(GameStateSerializer gsSerializer)
+        {
+            return new EnterShopMove();
+        }
+    }
+}
+
+/// <summary>
+/// Move for rerolling the shop offerings.
+/// </summary>
+public sealed class RerollMove : Move
+{
+    JokerInstance[] _previousShopOfferings;
+    bool _wasFree;
+
+    public override MoveType GetMoveType() => MoveType.Reroll;
+
+    protected override void Apply()
+    {
+        _previousShopOfferings = gameState.ShopState.ShopOfferings.ToArray();
+        _wasFree = gameState.ShopState.FreeRerollsRemaining > 0;
+
+        gameState.ShopState.Reroll();
+    }
+
+    protected override void Revert()
+    {
+        gameState.ShopState.ShopOfferings.Clear();
+        gameState.ShopState.ShopOfferings.AddRange(_previousShopOfferings);
+        if (_wasFree)
+        {
+            gameState.ShopState.FreeRerollsRemaining++;
+        }
+        else
+        {
+            gameState.ShopState.RerollsThisRoundCount--;
+            gameState.ShopState.Money += gameState.ShopState.CurrentRerollCost;
+        }
+    }
+
+    public override string ToString()
+    {
+        return "Reroll";
+    }
+
+    internal sealed class Serializer : IMoveSerializer
+    {
+        public MoveType MoveType => MoveType.Reroll;
+
+        public void Serialize(GameStateSerializer gsSerializer, Move move)
+        {
+        }
+
+        public Move Deserialize(GameStateSerializer gsSerializer)
+        {
+            return new RerollMove();
+        }
+    }
+}
+
+/// <summary>
 /// Move for playing or discarding a hand.
 /// </summary>
 public sealed class UseHandMove : Move
@@ -123,9 +353,7 @@ public sealed class UseHandMove : Move
 
     protected override void Apply()
     {
-        gameState.AssertIsStage(StageOfGame.InRoundPlayerChoice);
-
-        _roundTotalChipsBeforePlay = gameState.ScoringState.CurrentRoundTotalChips;
+        _roundTotalChipsBeforePlay = gameState.ScoringState.CurrentRoundTotalScore;
         _cards = new Card[CardIndices.Length];
         for (int i = 0; i < CardIndices.Length; ++i)
             _cards[i] = gameState.HandState.Hand[CardIndices[i]];
@@ -138,15 +366,13 @@ public sealed class UseHandMove : Move
         {
             gameState.HandState.PlayHand(CardIndices);
         }
-
-        gameState.Stage = StageOfGame.InRoundAfterHandUsed;
     }
 
     protected override void Revert()
     {
         for (int i = 0; i < _cards.Length; ++i)
             gameState.HandState.AddCardToHand(_cards[i]);
-        gameState.ScoringState.CurrentRoundTotalChips = _roundTotalChipsBeforePlay;
+        gameState.ScoringState.CurrentRoundTotalScore = _roundTotalChipsBeforePlay;
         if (IsDiscard)
             gameState.HandState.RemainingDiscards++;
         else
@@ -324,13 +550,13 @@ public sealed class SetCurrentRoundScoreMove : Move
 
     protected override void Apply()
     {
-        _previousScore = (float)gameState.ScoringState.CurrentRoundTotalChips;
-        gameState.ScoringState.CurrentRoundTotalChips = Score;
+        _previousScore = (float)gameState.ScoringState.CurrentRoundTotalScore;
+        gameState.ScoringState.CurrentRoundTotalScore = Score;
     }
 
     protected override void Revert()
     {
-        gameState.ScoringState.CurrentRoundTotalChips = _previousScore;
+        gameState.ScoringState.CurrentRoundTotalScore = _previousScore;
     }
 
     public override string ToString()
@@ -395,21 +621,18 @@ public sealed class DrawCardsMove : Move
 public sealed class AfterHandUsedMove : Move
 {
     Card[] _cards;
-    StageOfGame _stage;
+
+    public Card[] Cards => _cards ?? [];
 
     public override MoveType GetMoveType() => MoveType.AfterHandUse;
 
     protected override void Apply()
     {
-        _stage = gameState.Stage;
-        int toDraw = Math.Clamp(gameState.HandState.HandSize - gameState.HandState.HandCardCount, 0, gameState.DeckState.RemainingDeckCardCount);
-        _cards = gameState.HandState.Draw(toDraw);
-        gameState.Stage = StageOfGame.InRoundPlayerChoice;
+        _cards = gameState.HandState.RedrawAfterHandUse();
     }
 
     protected override void Revert()
     {
-        gameState.Stage = _stage;
         gameState.HandState.UnDraw(_cards);
     }
 
@@ -537,7 +760,7 @@ public sealed class AnnotatingDataMove : Move
         }
     }
 
-        /// <summary>
+    /// <summary>
     /// Encodes a probability as a ushort representing the negative natural log probability times 3000.
     /// </summary>
     public static ushort EncodeProb(float prob)

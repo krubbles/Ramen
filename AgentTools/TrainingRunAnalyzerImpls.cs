@@ -122,10 +122,10 @@ public sealed class RewardStatsTrainingRunAnalyzer : ITrainingRunAnalyzer
 
     static float GetReward(GameState gameState)
     {
-        if (gameState.ScoringState.CurrentRoundTotalChips >= 300)
+        if (gameState.ScoringState.CurrentRoundTotalScore >= 300)
             return 1f + gameState.HandState.RemainingHands * 0.2f;
 
-        return (float)gameState.ScoringState.CurrentRoundTotalChips / 1000f;
+        return (float)gameState.ScoringState.CurrentRoundTotalScore / 1000f;
     }
 }
 
@@ -276,7 +276,7 @@ public sealed class EndStateHandCountTrainingRunAnalyzer : ITrainingRunAnalyzer
         {
             gameCount++;
 
-            if (game.ScoringState.CurrentRoundTotalChips < 300)
+            if (game.ScoringState.CurrentRoundTotalScore < 300)
             {
                 loseCount++;
                 continue;

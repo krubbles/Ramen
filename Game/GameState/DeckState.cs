@@ -59,6 +59,13 @@ public sealed class DeckState
         GameState.MoveState.ScheduleCallback(OnRemainingDeckChanged);
     }
 
+    internal void SetRemainingDeck(ReadOnlySpan<Card> cards)
+    {
+        cards.CopyTo(_deckBuffer);
+        RemainingDeckCardCount = cards.Length;
+        GameState.MoveState.ScheduleCallback(OnRemainingDeckChanged);
+    }
+
     /// <summary>
     /// Randomly shuffles <see cref="RemainingDeck"/>.
     /// </summary>
