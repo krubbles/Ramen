@@ -24,7 +24,7 @@ public sealed class GameData
     public static RoundType GetRoundType(int round)
     {
         round -= 1; // switch to zero-based round
-        if (round % 24 == 0)
+        if (round % 24 == 23)
             return RoundType.ShowdownBlind;
         return (round % 3) switch
         {
