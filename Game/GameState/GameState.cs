@@ -75,7 +75,7 @@ public sealed class GameState
         int seed = gameData.RandomizeSeed ? FastRandom.SeededByClock().Next() : gameData.Seed;
         new ReseedMove(FastRandom.SeedToState((ulong)seed)).Apply(this);
 
-        GameData.InitStandardStartingDeck(this);
+        GameData.InitStartingDeck(this);
 
         Stage = StageOfGame.BeginRound;
     }
