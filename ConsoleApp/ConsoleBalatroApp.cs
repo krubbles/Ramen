@@ -1,7 +1,11 @@
 namespace Ramen.ConsoleApp;
 
 using System.Globalization;
+using Ramen.AI;
+using Ramen.AgentTools;
 using Ramen.Game;
+using Ramen.Training;
+using static TorchSharp.torch;
 
 public sealed class ConsoleBalatroApp
 {
@@ -11,6 +15,8 @@ public sealed class ConsoleBalatroApp
     readonly GameState _gameState;
     readonly bool _saveGameOnExit;
     bool _gameSaved;
+    PpoPolicyValueModel _autoModel;
+    PpoPolicyAgent _autoAgent;
 
     public const string TempGameDatabaseName = "ConsoleAppTemp";
 
@@ -122,6 +128,8 @@ public sealed class ConsoleBalatroApp
                     moveSucceeded = HandleUseHand(input, isDiscard: false);
                 else if (commandName == "discard")
                     moveSucceeded = HandleUseHand(input, isDiscard: true);
+                else if (commandName == "auto")
+                    moveSucceeded = HandleAutoRound();
                 else
                 {
                     WriteGeneratedLine("Unknown command.");
@@ -155,6 +163,8 @@ public sealed class ConsoleBalatroApp
                     moveSucceeded = HandleReroll();
                 else if (commandName == "exit")
                     moveSucceeded = HandleExitShop();
+                else if (commandName == "auto")
+                    moveSucceeded = HandleAutoShop();
                 else
                 {
                     WriteGeneratedLine("Unknown command.");
@@ -227,6 +237,157 @@ public sealed class ConsoleBalatroApp
             WriteGeneratedLine("Use 'reroll' to reroll the shop");
         WriteGeneratedLine("Use 'exit' to exit the shop");
         WriteGeneratedLine();
+    }
+
+    bool HandleAutoRound()
+    {
+        EnsureAutoModel();
+        using var scope = NewDisposeScope();
+        using var noGrad = no_grad();
+
+        GameStateEmbedder embedder = new(1);
+        embedder.AddGameState(_gameState);
+        GameStateTensors gameStateTensors = embedder.ToTensors();
+
+        int useHandCount = Combinatorics.CalculateCombinationCount(
+            setSize: _gameState.HandState.HandCardCount,
+            minSubsetSize: 1,
+            maxSubsetSize: 5);
+        int[][] combinations = Combinatorics.GetCombinations(
+            setSize: _gameState.HandState.HandCardCount,
+            minSubsetSize: 1,
+            maxSubsetSize: 5);
+
+        float[,] scores = new float[1, useHandCount];
+        for (int i = 0; i < combinations.Length; ++i)
+        {
+            UseHandMove move = new(false, combinations[i]);
+            move.Apply(_gameState);
+            scores[0, i] = (float)_gameState.ScoringState.CurrentRoundTotalScore / 300f;
+            move.Revert(_gameState);
+        }
+        UseHandTensors useHandTensors = new() { Score = tensor(scores) };
+
+        Tensor logits = _autoModel.GetPolicyLogits(gameStateTensors, useHandTensors).to(CPU);
+        // mask out discards if none remaining
+        if (_gameState.HandState.RemainingDiscards == 0)
+        {
+            float[] logitData = logits.data<float>().ToArray();
+            for (int i = 1; i < logitData.Length; i += 2)
+                logitData[i] = float.NegativeInfinity;
+            logits = tensor(logitData).reshape([1, logitData.Length]);
+        }
+
+        long bestIndex = logits[0].argmax().item<long>();
+        bool isDiscard = bestIndex % 2 == 1;
+        int[] cardIndices = Combinatorics.GetCombinations(
+            setSize: GameData.HandSize,
+            minSubsetSize: 1,
+            maxSubsetSize: 5)[(int)(bestIndex / 2)];
+
+        Card[] handArray = _gameState.HandState.Hand.ToArray();
+        string cardText = string.Join(" ", System.Linq.Enumerable.Select(cardIndices, ci => handArray[ci].ToString()));
+        string command = isDiscard ? $"discard {cardText}" : $"play {cardText}";
+        WriteGeneratedLine($"[auto] {command}");
+        return HandleUseHand(command, isDiscard);
+    }
+
+    bool HandleAutoShop()
+    {
+        EnsureAutoModel();
+        using var scope = NewDisposeScope();
+        using var noGrad = no_grad();
+
+        GameStateEmbedder embedder = new(1);
+        embedder.AddGameState(_gameState);
+        GameStateTensors gameStateTensors = embedder.ToTensors();
+
+        Tensor logits = _autoModel.GetStorePolicyLogits(gameStateTensors);
+        Tensor illegalMask = BuildAutoStoreMask(gameStateTensors);
+
+        long bestIndex = (logits + illegalMask).to(CPU)[0].argmax().item<long>();
+
+        string command = (int)bestIndex switch
+        {
+            0 => "exit",
+            1 => "reroll",
+            2 => "buy 1",
+            3 => "buy 2",
+            _ => "exit",
+        };
+        WriteGeneratedLine($"[auto] {command}");
+
+        return command switch
+        {
+            "reroll" => HandleReroll(),
+            "buy 1" => HandleBuy("buy 1"),
+            "buy 2" => HandleBuy("buy 2"),
+            _ => HandleExitShop(),
+        };
+    }
+
+    static Tensor BuildAutoStoreMask(GameStateTensors gameStateTensors)
+    {
+        using var scope = NewDisposeScope();
+        Device device = PpoPolicyValueModel.EvalDevice;
+        Tensor money = gameStateTensors.Money.to(device).to_type(ScalarType.Int64);
+        Tensor rerollPrice = gameStateTensors.RerollPrice.to(device).to_type(ScalarType.Int64);
+        Tensor storeJokers = gameStateTensors.StoreJokers.to(device).to_type(ScalarType.Int64);
+        Tensor storePrices = gameStateTensors.StorePrices.to(device).to_type(ScalarType.Int64);
+        Tensor ownedJokers = gameStateTensors.OwnedJokers.to(device).to_type(ScalarType.Int64);
+
+        Tensor exitMask = zeros([money.size(0), 1], dtype: ScalarType.Float32, device: device);
+        Tensor rerollMask = money.lt(rerollPrice).to_type(ScalarType.Float32).unsqueeze(-1);
+        Tensor nullStoreMask = storeJokers.eq(0).to_type(ScalarType.Float32);
+        Tensor unaffordableStoreMask = money.unsqueeze(-1).lt(storePrices).to_type(ScalarType.Float32);
+        Tensor ownedJokerCount = ownedJokers.ne(0).to_type(ScalarType.Int64).sum(dim: 1, keepdim: true);
+        Tensor rosterFullMask = ownedJokerCount.ge(GameStateEmbedder.MaxOwnedJokerCount).to_type(ScalarType.Float32).expand_as(nullStoreMask);
+        Tensor storeMask = (nullStoreMask + unaffordableStoreMask + rosterFullMask).clamp(0f, 1f);
+        Tensor stacked = cat([exitMask, rerollMask, storeMask], dim: 1) * -1e9f;
+        stacked.MoveToOuterDisposeScope();
+        return stacked;
+    }
+
+    void EnsureAutoModel()
+    {
+        if (_autoModel != null)
+            return;
+
+        string repoRoot = FindRepoRoot();
+        string weightsDir = System.IO.Path.Combine(
+            repoRoot, "Analysis",
+            "2026-04-27_ppo_roundsurvival_multiround_donefix_fresh_s20_randdeck52wr_r32768_b1024_e4_lr3e5_eps0p3_ent1e5_ss40",
+            "weights");
+
+        string[] bins = System.IO.Directory.GetFiles(weightsDir, "*.bin");
+        string bestPath = bins[0];
+        int bestStep = -1;
+        foreach (string path in bins)
+        {
+            string name = System.IO.Path.GetFileNameWithoutExtension(path);
+            if (int.TryParse(name, out int step) && step > bestStep)
+            {
+                bestStep = step;
+                bestPath = path;
+            }
+        }
+
+        WriteGeneratedLine($"[auto] Loading model from {bestPath}");
+        _autoModel = new();
+        _autoModel.Load(bestPath);
+        _autoAgent = new(_autoModel);
+    }
+
+    static string FindRepoRoot()
+    {
+        string dir = AppContext.BaseDirectory;
+        while (dir != null)
+        {
+            if (System.IO.File.Exists(System.IO.Path.Combine(dir, "Ramen.sln")))
+                return dir;
+            dir = System.IO.Directory.GetParent(dir)?.FullName;
+        }
+        throw new System.IO.DirectoryNotFoundException("Could not find repo root (Ramen.sln).");
     }
 
     bool HandleUseHand(string input, bool isDiscard)
