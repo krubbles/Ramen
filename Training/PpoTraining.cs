@@ -151,43 +151,64 @@ public static class PpoTraining
         {
             int[] shuffledRoundIndices = BuildShuffledIndices(rollout.RoundCount, shuffleRandom);
             int[] shuffledStoreIndices = BuildShuffledIndices(rollout.StoreCount, shuffleRandom);
-            int storeBatchSize = GetStoreBatchSize(rollout, config.BatchSize);
             int roundBatchCount = DivideRoundUp(rollout.RoundCount, config.BatchSize);
-            int storeBatchCount = DivideRoundUp(rollout.StoreCount, storeBatchSize);
-            int optimizerStepCount = Math.Max(roundBatchCount, storeBatchCount);
+            int storeBatchCount = DivideRoundUp(rollout.StoreCount, config.BatchSize);
+            int totalBatchCount = roundBatchCount + storeBatchCount;
 
-            for (int stepIndex = 0; stepIndex < optimizerStepCount; ++stepIndex)
+            // Bresenham-style dither: emit round and store batches proportionally,
+            // completing exactly once every sample from each dataset has been covered.
+            int roundBatchesEmitted = 0;
+            int storeBatchesEmitted = 0;
+            int ditherAccumulator = 0; // scaled by totalBatchCount
+
+            for (int stepIndex = 0; stepIndex < totalBatchCount; ++stepIndex)
             {
                 using var scope = NewDisposeScope();
                 optimizer.zero_grad();
-                bool hasGradients = false;
 
-                if (stepIndex < storeBatchCount)
+                // Decide whether to emit a store or round batch this step.
+                // Advance the accumulator by storeBatchCount; if it exceeds half the
+                // total we emit a store batch (and subtract totalBatchCount), otherwise
+                // a round batch. This distributes store batches evenly across the epoch.
+                bool emitStore;
+                if (storeBatchesEmitted >= storeBatchCount)
+                    emitStore = false;
+                else if (roundBatchesEmitted >= roundBatchCount)
+                    emitStore = true;
+                else
                 {
-                    int batchStart = stepIndex * storeBatchSize;
-                    int batchSize = Math.Min(storeBatchSize, rollout.StoreCount - batchStart);
-                    using PpoStoreMiniBatch batch = rollout.Store.FillBatch(shuffledStoreIndices, batchStart, batchSize);
+                    ditherAccumulator += storeBatchCount;
+                    if (ditherAccumulator >= totalBatchCount)
+                    {
+                        ditherAccumulator -= totalBatchCount;
+                        emitStore = true;
+                    }
+                    else
+                        emitStore = false;
+                }
+
+                if (emitStore)
+                {
+                    int batchStart = storeBatchesEmitted * config.BatchSize;
+                    using PpoStoreMiniBatch batch = rollout.Store.FillBatch(shuffledStoreIndices, batchStart, config.BatchSize);
                     (float policyLoss, float valueMse) = TrainStoreBatch(model, optimizer, batch, config);
                     totalPolicyLoss += policyLoss;
                     totalValueMse += valueMse;
                     metricBatchCount++;
-                    hasGradients = true;
+                    storeBatchesEmitted++;
                 }
-
-                if (stepIndex < roundBatchCount)
+                else
                 {
-                    int batchStart = stepIndex * config.BatchSize;
-                    int batchSize = Math.Min(config.BatchSize, rollout.RoundCount - batchStart);
-                    using PpoRoundMiniBatch batch = rollout.Round.FillBatch(shuffledRoundIndices, batchStart, batchSize);
+                    int batchStart = roundBatchesEmitted * config.BatchSize;
+                    using PpoRoundMiniBatch batch = rollout.Round.FillBatch(shuffledRoundIndices, batchStart, config.BatchSize);
                     (float policyLoss, float valueMse) = TrainRoundBatch(model, optimizer, batch, config);
                     totalPolicyLoss += policyLoss;
                     totalValueMse += valueMse;
                     metricBatchCount++;
-                    hasGradients = true;
+                    roundBatchesEmitted++;
                 }
 
-                if (hasGradients)
-                    optimizer.step();
+                optimizer.step();
             }
         }
 
@@ -357,6 +378,12 @@ public static class PpoTraining
 
         using var scope = NewDisposeScope();
 
+        int actualCount = roundPositions.Count;
+        int paddedCount = PadToPowerOfTwo(actualCount);
+        if (paddedCount > actualCount)
+            for (int i = actualCount; i < paddedCount; ++i)
+                roundPositions.Add(roundPositions[0]);
+
         (GameStateTensors stateTensors, UseHandTensors useHandTensors) = BuildRoundRolloutBatch(roundPositions);
         (Tensor logits, Tensor values) = model.GetPolicyLogitsAndValues(stateTensors, useHandTensors);
         Tensor illegalMask = BuildIllegalMoveMask(
@@ -366,7 +393,7 @@ public static class PpoTraining
         float[] flatProbs = [.. probs.data<float>()];
         float[] flatValues = [.. values.to(CPU).data<float>()];
 
-        for (int batchIndex = 0; batchIndex < roundPositions.Count; ++batchIndex)
+        for (int batchIndex = 0; batchIndex < actualCount; ++batchIndex)
         {
             int rowOffset = batchIndex * PpoPolicyValueModel.MoveCount;
             Span<float> rowSpan = flatProbs.AsSpan(rowOffset, PpoPolicyValueModel.MoveCount);
@@ -412,6 +439,12 @@ public static class PpoTraining
 
         using var scope = NewDisposeScope();
 
+        int actualCount = storePositions.Count;
+        int paddedCount = PadToPowerOfTwo(actualCount);
+        if (paddedCount > actualCount)
+            for (int i = actualCount; i < paddedCount; ++i)
+                storePositions.Add(storePositions[0]);
+
         GameStateTensors stateTensors = BuildStateTensorBatch(storePositions);
         Tensor logits = model.GetStorePolicyLogits(stateTensors);
         Tensor values = model.GetValues(stateTensors);
@@ -419,13 +452,14 @@ public static class PpoTraining
             money: stateTensors.Money.to(PpoPolicyValueModel.EvalDevice).to_type(ScalarType.Int64),
             rerollPrice: stateTensors.RerollPrice.to(PpoPolicyValueModel.EvalDevice).to_type(ScalarType.Int64),
             storeJokers: stateTensors.StoreJokers.to(PpoPolicyValueModel.EvalDevice).to_type(ScalarType.Int64),
-            storePrices: stateTensors.StorePrices.to(PpoPolicyValueModel.EvalDevice).to_type(ScalarType.Int64));
+            storePrices: stateTensors.StorePrices.to(PpoPolicyValueModel.EvalDevice).to_type(ScalarType.Int64),
+            ownedJokers: stateTensors.OwnedJokers.to(PpoPolicyValueModel.EvalDevice).to_type(ScalarType.Int64));
         Tensor probs = functional.softmax(logits + illegalMask, dim: 1).to(CPU);
         float[] flatProbs = [.. probs.data<float>()];
         float[] flatValues = [.. values.to(CPU).data<float>()];
         int storeMoveCount = (int)probs.size(1);
 
-        for (int batchIndex = 0; batchIndex < storePositions.Count; ++batchIndex)
+        for (int batchIndex = 0; batchIndex < actualCount; ++batchIndex)
         {
             int rowOffset = batchIndex * storeMoveCount;
             Span<float> rowSpan = flatProbs.AsSpan(rowOffset, storeMoveCount);
@@ -637,7 +671,7 @@ public static class PpoTraining
     }
 
 
-    static Tensor BuildIllegalStoreMask(Tensor money, Tensor rerollPrice, Tensor storeJokers, Tensor storePrices)
+    internal static Tensor BuildIllegalStoreMask(Tensor money, Tensor rerollPrice, Tensor storeJokers, Tensor storePrices, Tensor ownedJokers)
     {
         using var scope = NewDisposeScope();
 
@@ -645,7 +679,9 @@ public static class PpoTraining
         Tensor rerollMask = money.lt(rerollPrice).to_type(ScalarType.Float32).unsqueeze(-1);
         Tensor nullStoreMask = storeJokers.eq(0).to_type(ScalarType.Float32);
         Tensor unaffordableStoreMask = money.unsqueeze(-1).lt(storePrices).to_type(ScalarType.Float32);
-        Tensor storeMask = (nullStoreMask + unaffordableStoreMask).clamp(0f, 1f);
+        Tensor ownedJokerCount = ownedJokers.ne(0).to_type(ScalarType.Int64).sum(dim: 1, keepdim: true);
+        Tensor rosterFullMask = ownedJokerCount.ge(GameStateEmbedder.MaxOwnedJokerCount).to_type(ScalarType.Float32).expand_as(nullStoreMask);
+        Tensor storeMask = (nullStoreMask + unaffordableStoreMask + rosterFullMask).clamp(0f, 1f);
         Tensor stacked = cat([exitMask, rerollMask, storeMask], dim: 1) * -1e9f;
         stacked.MoveToOuterDisposeScope();
         return stacked;
@@ -700,6 +736,15 @@ public static class PpoTraining
     }
 
 
+    static int PadToPowerOfTwo(int value)
+    {
+        int padded = 1;
+        while (padded < value)
+            padded <<= 1;
+        return padded;
+    }
+
+
     static void AdvanceToNextDecisionState(GameState gameState)
     {
         while (!gameState.GameIsDone && !IsDecisionStage(gameState.Stage))
@@ -733,15 +778,6 @@ public static class PpoTraining
     }
 
 
-    static int GetStoreBatchSize(PpoRolloutDataset rollout, int roundBatchSize)
-    {
-        if (rollout.StoreCount == 0)
-            return 0;
-        if (rollout.RoundCount == 0)
-            return roundBatchSize;
-
-        return Math.Max(1, (int)MathF.Round(roundBatchSize * rollout.StoreCount / (float)rollout.RoundCount));
-    }
 
 
     static int DivideRoundUp(int count, int batchSize)
@@ -803,7 +839,8 @@ public static class PpoTraining
             money: stateTensors.Money.to_type(ScalarType.Int64),
             rerollPrice: stateTensors.RerollPrice.to_type(ScalarType.Int64),
             storeJokers: stateTensors.StoreJokers.to_type(ScalarType.Int64),
-            storePrices: stateTensors.StorePrices.to_type(ScalarType.Int64));
+            storePrices: stateTensors.StorePrices.to_type(ScalarType.Int64),
+            ownedJokers: stateTensors.OwnedJokers.to_type(ScalarType.Int64));
         Tensor maskedLogits = logits + illegalMask;
         Tensor logProbs = functional.log_softmax(maskedLogits, dim: 1);
         Tensor probs = exp(logProbs);
@@ -907,7 +944,7 @@ public sealed class PpoRoundRolloutDataset : IDisposable
 
         for (int batchIndex = 0; batchIndex < batchSize; ++batchIndex)
         {
-            int sampleIndex = shuffledIndices[batchStart + batchIndex];
+            int sampleIndex = shuffledIndices[(batchStart + batchIndex) % shuffledIndices.Length];
             TrajectoryPosition position = _positions[sampleIndex];
             batchPositions[batchIndex] = position;
             valueTargets[batchIndex] = _valueTargets[sampleIndex];
@@ -967,7 +1004,7 @@ public sealed class PpoStoreRolloutDataset : IDisposable
 
         for (int batchIndex = 0; batchIndex < batchSize; ++batchIndex)
         {
-            int sampleIndex = shuffledIndices[batchStart + batchIndex];
+            int sampleIndex = shuffledIndices[(batchStart + batchIndex) % shuffledIndices.Length];
             TrajectoryPosition position = _positions[sampleIndex];
             batchPositions[batchIndex] = position;
             actionIndices[batchIndex] = position.StoreActionIndex;

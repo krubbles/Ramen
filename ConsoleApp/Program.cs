@@ -30,7 +30,7 @@ public static class Program
         RolloutParallelGameCount: 64,
         BatchSize: 1024,
         TrainingEpochsPerStep: 4,
-        StepCount: 20,
+        StepCount: 1000,
         SampledSoftmaxCount: 40,
         LearningRate: 3e-5f,
         AdamBeta1: 0.9f,
@@ -44,7 +44,7 @@ public static class Program
         InitialHandsPerRound: 4,
         InitialDiscardsPerRound: 3,
         UseRandomDeckInitializer: true,
-        ResumeSourceExperimentName: "",
+        ResumeSourceExperimentName: "2026-04-27_ppo_roundsurvival_multiround_donefix_fresh_s20_randdeck52wr_r32768_b1024_e4_lr3e5_eps0p3_ent1e5_ss40",
         NotebookReferenceExperimentName: "2026-04-23_simple_flush_ppo_stdreward_resume315_randdeck52wr_r32768_b1024_e4_lr1e4_20more_eps0p3_ent3e5_ss40_trunk512_addgelu_vhead");
 
     const float PpoContinuationLearningRate = 3e-5f;
@@ -52,7 +52,8 @@ public static class Program
     public static void Main(string[] args)
     {
         TensorManager.Init();
-        RunPpoExperiment();
+        ConsoleBalatroApp app = new();
+        app.Run();
     }
 
 
@@ -1266,7 +1267,7 @@ policy_loss_mean = [row["policy_loss_mean"] for row in rows]
 completed_game_count = [row["completed_game_count"] for row in rows]
 learning_rate = [row["learning_rate"] for row in rows]
 
-rolling_window = 5
+rolling_window = 21
 rolling_reward = rolling_average(average_reward, rolling_window)
 rolling_entropy = rolling_average(average_move_entropy, rolling_window)
 rolling_value_mse = rolling_average(value_mse_mean, rolling_window)
