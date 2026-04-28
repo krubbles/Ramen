@@ -1046,8 +1046,9 @@ public sealed class TrajectoryPosition
 
     public TrajectoryPosition(GameState gameState, int sampledSoftmaxCount)
     {
+        ReadOnlySpan<Card> hand = gameState.HandState.Hand;
         for (int cardIndex = 0; cardIndex < GameData.HandSize; ++cardIndex)
-            FullHand[cardIndex] = gameState.HandState.Hand[cardIndex].ToIndex();
+            FullHand[cardIndex] = cardIndex < hand.Length ? hand[cardIndex].ToIndex() : 0;
 
         ReadOnlySpan<Card> deck = gameState.DeckState.RemainingDeck;
         for (int cardIndex = 0; cardIndex < 52; ++cardIndex)

@@ -16,6 +16,8 @@ public sealed class GameData
 
     public readonly Joker[] Jokers = Joker.Page1Jokers;
 
+    public int MaxJokers = 5;
+
     public int StartingMoney = 4;
     public int SmallBlindRewardMoney = 3;
     public int BigBlindRewardMoney = 4;

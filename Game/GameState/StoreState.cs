@@ -58,9 +58,10 @@ public sealed class ShopState
 
     internal void AppendLegalMoves(List<Move> moves)
     {
+        bool canBuyJoker = GameState.JokerState.Jokers.Count < GameState.GameData.MaxJokers;
         for (int offeringIndex = 0; offeringIndex < ShopOfferings.Count; ++offeringIndex)
         {
-            if (GetShopOfferingPrice(offeringIndex) <= Money)
+            if (canBuyJoker && GetShopOfferingPrice(offeringIndex) <= Money)
                 moves.Add(new BuyShopOfferMove(offeringIndex));
         }
         if (CurrentRerollCost <= Money)
@@ -109,6 +110,8 @@ public sealed class ShopState
     internal JokerInstance BuyShopOffering(int index)
     {
         GameState.AssertIsStage(StageOfGame.InShop);
+        if (GameState.JokerState.Jokers.Count >= GameState.GameData.MaxJokers)
+            throw new InvalidOperationException($"Cannot buy joker: already at the maximum of {GameState.GameData.MaxJokers} jokers.");
         int price = GetShopOfferingPrice(index);
         if (Money < price)
             throw new InvalidOperationException($"Not enough money to buy shop offering. Price: {price}, Money: {Money}");

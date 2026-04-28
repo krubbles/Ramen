@@ -25,12 +25,12 @@ public static class Program
     const int OutcomeEvaluationBatchSize = 500;
 
     static readonly ExperimentConfig PpoConfig = new(
-        ExperimentName: "2026-04-23_simple_flush_ppo_stdreward_resume315_randdeck52wr_r32768_b1024_e4_lr1e4_20more_eps0p3_ent3e5_ss40_trunk512_addgelu_vhead",
+        ExperimentName: "2026-04-27_ppo_roundsurvival_multiround_donefix_fresh_s20_randdeck52wr_r32768_b1024_e4_lr3e5_eps0p3_ent1e5_ss40",
         RolloutSize: 32768,
         RolloutParallelGameCount: 64,
         BatchSize: 1024,
         TrainingEpochsPerStep: 4,
-        StepCount: 355,
+        StepCount: 20,
         SampledSoftmaxCount: 40,
         LearningRate: 3e-5f,
         AdamBeta1: 0.9f,
@@ -44,15 +44,15 @@ public static class Program
         InitialHandsPerRound: 4,
         InitialDiscardsPerRound: 3,
         UseRandomDeckInitializer: true,
-        ResumeSourceExperimentName: "2026-04-23_simple_flush_ppo_stdreward_resume315_randdeck52wr_r32768_b1024_e4_lr1e4_20more_eps0p3_ent3e5_ss40_trunk512_addgelu_vhead",
-        NotebookReferenceExperimentName: "2026-04-23_simple_flush_ppo_stdreward_resume285_randdeck52wr_r32768_b1024_e4_lr1e4_30more_eps0p3_ent3e5_ss40_trunk512_addgelu_vhead");
+        ResumeSourceExperimentName: "",
+        NotebookReferenceExperimentName: "2026-04-23_simple_flush_ppo_stdreward_resume315_randdeck52wr_r32768_b1024_e4_lr1e4_20more_eps0p3_ent3e5_ss40_trunk512_addgelu_vhead");
 
     const float PpoContinuationLearningRate = 3e-5f;
 
     public static void Main(string[] args)
     {
-        ConsoleBalatroApp app = new();
-        app.Run();
+        TensorManager.Init();
+        RunPpoExperiment();
     }
 
 
@@ -1158,8 +1158,9 @@ Commit Hash: {commitHash}
 {resumeLines}
 
 # Description
-- This experiment runs PPO with the current `512`-wide GELU trunk and `add+GELU` move head architecture.
-- Rollouts are sampled on-policy from the full policy distribution, while PPO policy training uses `40`-candidate importance-corrected sampled softmax with q-adjusted old and new candidate distributions.
+- This experiment continues PPO from the step `{resume.ResumeStep}` checkpoint using the current multi-round rollout pipeline.
+- Each rollout follows games across both in-round and in-shop decision states until terminal reward, with round and store minibatches mixed into the same optimizer step.
+- Round policy training uses `40`-candidate importance-corrected sampled softmax with q-adjusted old and new candidate distributions, while store policy training uses direct PPO over the 4 store actions.
 - The value network trains on the same on-policy minibatches as the policy update, sharing the same trunk forward pass for each sample.
 - The CSV tracks cumulative wall clock time, average rollout reward, average move entropy, value-network MSE, policy loss, learning rate, and completed game count for each PPO step.
 - The notebook graphs reward, entropy, value MSE, policy loss, wall clock progress, and learning rate over the run.
@@ -1302,7 +1303,6 @@ axes[0, 0].plot(steps, rolling_reward, linewidth=2.8, color=current_colors["rewa
 axes[0, 0].set_title("Average Reward vs Step")
 axes[0, 0].set_xlabel("Step")
 axes[0, 0].set_ylabel("Average Reward")
-axes[0, 0].set_ylim(1.3, 1.55)
 style_axis(axes[0, 0])
 axes[0, 0].legend(frameon=False)
 
@@ -1311,7 +1311,6 @@ axes[0, 1].plot(wall_clock_seconds, rolling_reward, linewidth=2.8, color=current
 axes[0, 1].set_title("Average Reward vs Wall Clock")
 axes[0, 1].set_xlabel("Seconds")
 axes[0, 1].set_ylabel("Average Reward")
-axes[0, 1].set_ylim(1.3, 1.55)
 style_axis(axes[0, 1])
 axes[0, 1].legend(frameon=False)
 

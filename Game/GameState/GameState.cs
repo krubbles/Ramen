@@ -116,9 +116,8 @@ public sealed class GameState
     }
 
     public bool GameIsDone =>
-        ScoringState.CurrentRoundTotalScore >= 1 &&
-        (HandState.RemainingHands == 0 ||
-        ScoringState.CurrentRoundTotalScore >= 300);
+        HandState.RemainingHands == 0 &&
+        ScoringState.CurrentRoundTotalScore < ScoringState.CurrentRoundThresholdScore;
 
     public bool IsPlayerChoice
     {
