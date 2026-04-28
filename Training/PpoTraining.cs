@@ -24,6 +24,7 @@ public readonly record struct ExperimentConfig
     float WeightDecay,
     float PpoEpsilon,
     float EntropyCoefficient,
+    float ValueLossCoefficient,
     int ValueReplayBufferCapacity,
     int SnapshotFrequency,
     int RandomSeed,
@@ -132,6 +133,8 @@ public static class PpoTraining
             averageReward: rewardGameCount == 0 ? 0f : rewardSum / rewardGameCount,
             averageMoveEntropy: rollout.Count == 0 ? 0f : entropySum / rollout.Count,
             completedGameCount: rewardGameCount);
+        // Normalize rollout targets once so the policy and value losses stay on a stable scale.
+        rollout.NormalizeSamples();
         return rollout;
     }
 
@@ -348,7 +351,8 @@ public static class PpoTraining
             float futureValueSum = suffixValues[index + 1] + finalReward;
             int futureCount = trajectory.Count - index;
             float valueTarget = futureValueSum / futureCount;
-            rollout.AddSample(trajectory[index], valueTarget);
+            float advantage = valueTarget - trajectory[index].PositionValueEstimate;
+            rollout.AddSample(trajectory[index], valueTarget, advantage);
             entropySum += trajectory[index].PolicyEntropy;
         }
     }
@@ -812,7 +816,7 @@ public static class PpoTraining
         Tensor logPiNew = logProbs.select(1, 0);
         Tensor logPiOld = oldSampledProbs.select(1, 0).clamp_min(1e-9f).log();
         Tensor ratio = exp(logPiNew - logPiOld);
-        Tensor advantages = (valueTargets - values).detach();
+        Tensor advantages = batch.Advantages.to(PpoPolicyValueModel.EvalDevice);
         Tensor clippedRatio = clamp(
             ratio,
             min: 1f - config.PpoEpsilon,
@@ -820,7 +824,7 @@ public static class PpoTraining
         Tensor surrogate = min(ratio * advantages, clippedRatio * advantages);
         Tensor policyLoss = -surrogate.mean() - config.EntropyCoefficient * entropy;
         Tensor valueLoss = functional.mse_loss(values, valueTargets);
-        Tensor totalLoss = policyLoss + valueLoss;
+        Tensor totalLoss = policyLoss + config.ValueLossCoefficient * valueLoss;
         totalLoss.backward();
         return (policyLoss.item<float>(), valueLoss.item<float>());
     }
@@ -849,7 +853,7 @@ public static class PpoTraining
         Tensor logPiOld = oldActionProbs.clamp_min(1e-9f).log();
         Tensor ratio = exp(logPiNew - logPiOld);
         Tensor values = model.GetValues(stateTensors);
-        Tensor advantages = (valueTargets - values).detach();
+        Tensor advantages = batch.Advantages.to(PpoPolicyValueModel.EvalDevice);
         Tensor clippedRatio = clamp(
             ratio,
             min: 1f - config.PpoEpsilon,
@@ -857,7 +861,7 @@ public static class PpoTraining
         Tensor surrogate = min(ratio * advantages, clippedRatio * advantages);
         Tensor policyLoss = -surrogate.mean() - config.EntropyCoefficient * entropy;
         Tensor valueLoss = functional.mse_loss(values, valueTargets);
-        Tensor totalLoss = policyLoss + valueLoss;
+        Tensor totalLoss = policyLoss + config.ValueLossCoefficient * valueLoss;
         totalLoss.backward();
         return (policyLoss.item<float>(), valueLoss.item<float>());
     }
@@ -878,6 +882,13 @@ public sealed class PpoRolloutDataset : IDisposable
 
     public int CompletedGameCount { get; private set; }
 
+    float _valueTargetTotal;
+    float _valueTargetSquaredTotal;
+    int _valueTargetCount;
+    float _advantageTotal;
+    float _advantageSquaredTotal;
+    int _advantageCount;
+
     public PpoRolloutDataset(int capacity, int sampledSoftmaxCount)
     {
         Capacity = capacity;
@@ -893,12 +904,19 @@ public sealed class PpoRolloutDataset : IDisposable
     }
 
 
-    public void AddSample(TrajectoryPosition position, float valueTarget)
+    public void AddSample(TrajectoryPosition position, float valueTarget, float advantage)
     {
         if (position.IsStoreState)
-            Store.AddSample(position, valueTarget);
+            Store.AddSample(position, valueTarget, advantage);
         else
-            Round.AddSample(position, valueTarget);
+            Round.AddSample(position, valueTarget, advantage);
+
+        _valueTargetTotal += valueTarget;
+        _valueTargetSquaredTotal += valueTarget * valueTarget;
+        _valueTargetCount++;
+        _advantageTotal += advantage;
+        _advantageSquaredTotal += advantage * advantage;
+        _advantageCount++;
     }
 
 
@@ -908,12 +926,42 @@ public sealed class PpoRolloutDataset : IDisposable
         AverageMoveEntropy = averageMoveEntropy;
         CompletedGameCount = completedGameCount;
     }
+
+
+    public void NormalizeSamples()
+    {
+        if (_valueTargetCount == 0 || _advantageCount == 0)
+            return;
+
+        // Per-rollout z-score normalization keeps the value target and advantage scale fixed.
+        float valueTargetMean = _valueTargetTotal / _valueTargetCount;
+        float valueTargetVariance = (_valueTargetSquaredTotal / _valueTargetCount) - valueTargetMean * valueTargetMean;
+        float valueTargetStdDev = MathF.Sqrt(MathF.Max(0f, valueTargetVariance));
+        float valueTargetScale = MathF.Max(valueTargetStdDev, 1e-8f);
+
+        float advantageMean = _advantageTotal / _advantageCount;
+        float advantageVariance = (_advantageSquaredTotal / _advantageCount) - advantageMean * advantageMean;
+        float advantageStdDev = MathF.Sqrt(MathF.Max(0f, advantageVariance));
+        float advantageScale = MathF.Max(advantageStdDev, 1e-8f);
+
+        Round.NormalizeSamples(
+            valueTargetMean: valueTargetMean,
+            valueTargetScale: valueTargetScale,
+            advantageMean: advantageMean,
+            advantageScale: advantageScale);
+        Store.NormalizeSamples(
+            valueTargetMean: valueTargetMean,
+            valueTargetScale: valueTargetScale,
+            advantageMean: advantageMean,
+            advantageScale: advantageScale);
+    }
 }
 
 public sealed class PpoRoundRolloutDataset : IDisposable
 {
     readonly List<TrajectoryPosition> _positions;
     readonly List<float> _valueTargets;
+    readonly List<float> _advantages;
     readonly int _sampledSoftmaxCount;
 
     public int Count => _positions.Count;
@@ -922,14 +970,26 @@ public sealed class PpoRoundRolloutDataset : IDisposable
     {
         _positions = new(capacity);
         _valueTargets = new(capacity);
+        _advantages = new(capacity);
         _sampledSoftmaxCount = sampledSoftmaxCount;
     }
 
 
-    public void AddSample(TrajectoryPosition position, float valueTarget)
+    public void AddSample(TrajectoryPosition position, float valueTarget, float advantage)
     {
         _positions.Add(position);
         _valueTargets.Add(valueTarget);
+        _advantages.Add(advantage);
+    }
+
+
+    public void NormalizeSamples(float valueTargetMean, float valueTargetScale, float advantageMean, float advantageScale)
+    {
+        for (int index = 0; index < _valueTargets.Count; ++index)
+        {
+            _valueTargets[index] = (_valueTargets[index] - valueTargetMean) / valueTargetScale;
+            _advantages[index] = (_advantages[index] - advantageMean) / advantageScale;
+        }
     }
 
 
@@ -937,6 +997,7 @@ public sealed class PpoRoundRolloutDataset : IDisposable
     {
         TrajectoryPosition[] batchPositions = new TrajectoryPosition[batchSize];
         float[] valueTargets = new float[batchSize];
+        float[] advantages = new float[batchSize];
         long[,] sampledMoveIndices = new long[batchSize, _sampledSoftmaxCount];
         float[,] oldSampledMoveProbs = new float[batchSize, _sampledSoftmaxCount];
         float[,] sampledMoveLogQ = new float[batchSize, _sampledSoftmaxCount];
@@ -948,6 +1009,7 @@ public sealed class PpoRoundRolloutDataset : IDisposable
             TrajectoryPosition position = _positions[sampleIndex];
             batchPositions[batchIndex] = position;
             valueTargets[batchIndex] = _valueTargets[sampleIndex];
+            advantages[batchIndex] = _advantages[sampleIndex];
 
             for (int sampleMoveIndex = 0; sampleMoveIndex < _sampledSoftmaxCount; ++sampleMoveIndex)
             {
@@ -968,6 +1030,7 @@ public sealed class PpoRoundRolloutDataset : IDisposable
             SampledMoveLogQ = tensor(sampledMoveLogQ, dtype: ScalarType.Float32),
             SampledMoveValidMask = tensor(sampledMoveValidMask, dtype: ScalarType.Float32),
             ValueTargets = tensor(valueTargets, dtype: ScalarType.Float32),
+            Advantages = tensor(advantages, dtype: ScalarType.Float32),
         };
     }
 
@@ -980,6 +1043,7 @@ public sealed class PpoStoreRolloutDataset : IDisposable
 {
     readonly List<TrajectoryPosition> _positions;
     readonly List<float> _valueTargets;
+    readonly List<float> _advantages;
 
     public int Count => _positions.Count;
 
@@ -987,12 +1051,24 @@ public sealed class PpoStoreRolloutDataset : IDisposable
     {
         _positions = new(capacity);
         _valueTargets = new(capacity);
+        _advantages = new(capacity);
     }
 
-    public void AddSample(TrajectoryPosition position, float valueTarget)
+    public void AddSample(TrajectoryPosition position, float valueTarget, float advantage)
     {
         _positions.Add(position);
         _valueTargets.Add(valueTarget);
+        _advantages.Add(advantage);
+    }
+
+
+    public void NormalizeSamples(float valueTargetMean, float valueTargetScale, float advantageMean, float advantageScale)
+    {
+        for (int index = 0; index < _valueTargets.Count; ++index)
+        {
+            _valueTargets[index] = (_valueTargets[index] - valueTargetMean) / valueTargetScale;
+            _advantages[index] = (_advantages[index] - advantageMean) / advantageScale;
+        }
     }
 
     public PpoStoreMiniBatch FillBatch(int[] shuffledIndices, int batchStart, int batchSize)
@@ -1001,6 +1077,7 @@ public sealed class PpoStoreRolloutDataset : IDisposable
         long[] actionIndices = new long[batchSize];
         float[] oldActionProbs = new float[batchSize];
         float[] valueTargets = new float[batchSize];
+        float[] advantages = new float[batchSize];
 
         for (int batchIndex = 0; batchIndex < batchSize; ++batchIndex)
         {
@@ -1010,6 +1087,7 @@ public sealed class PpoStoreRolloutDataset : IDisposable
             actionIndices[batchIndex] = position.StoreActionIndex;
             oldActionProbs[batchIndex] = position.OldStoreActionProb;
             valueTargets[batchIndex] = _valueTargets[sampleIndex];
+            advantages[batchIndex] = _advantages[sampleIndex];
         }
 
         return new()
@@ -1018,6 +1096,7 @@ public sealed class PpoStoreRolloutDataset : IDisposable
             ActionIndices = tensor(actionIndices, dtype: ScalarType.Int64),
             OldActionProbs = tensor(oldActionProbs, dtype: ScalarType.Float32),
             ValueTargets = tensor(valueTargets, dtype: ScalarType.Float32),
+            Advantages = tensor(advantages, dtype: ScalarType.Float32),
         };
     }
 
@@ -1035,6 +1114,7 @@ public sealed class PpoRoundMiniBatch : Ramen.AgentTools.ITensorGroup, IDisposab
     public Tensor SampledMoveLogQ;
     public Tensor SampledMoveValidMask;
     public Tensor ValueTargets;
+    public Tensor Advantages;
 
     public void Dispose()
     {
@@ -1048,6 +1128,7 @@ public sealed class PpoStoreMiniBatch : Ramen.AgentTools.ITensorGroup, IDisposab
     public Tensor ActionIndices;
     public Tensor OldActionProbs;
     public Tensor ValueTargets;
+    public Tensor Advantages;
 
     public void Dispose()
     {
