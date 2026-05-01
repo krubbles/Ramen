@@ -20,7 +20,7 @@ public static class Program
     const string TraceEvaluationExperimentName = "2026-04-23_simple_flush_ppo_step355_temp0_randdeck_trace5_games";
     const int TraceEvaluationGameCount = 5;
     const string OutcomeEvaluationExperimentName = "2026-04-23_simple_flush_ppo_step355_temp0_randdeck_eval10k_outcomes";
-    const string OutcomeEvaluationCheckpointPath = "/Users/miles/Desktop/dev/repos/BalatroAI/Analysis/2026-04-23_simple_flush_ppo_stdreward_resume315_randdeck52wr_r32768_b1024_e4_lr1e4_20more_eps0p3_ent3e5_ss40_trunk512_addgelu_vhead/weights/355.bin";
+    const string OutcomeEvaluationCheckpointExperimentName = "2026-04-23_simple_flush_ppo_stdreward_resume315_randdeck52wr_r32768_b1024_e4_lr1e4_20more_eps0p3_ent3e5_ss40_trunk512_addgelu_vhead";
     const int OutcomeEvaluationGameCount = 10000;
     const int OutcomeEvaluationBatchSize = 500;
     const int LatestCheckpointEvaluationGameCount = 1000;
@@ -85,7 +85,8 @@ public static class Program
         }
 
         using PpoPolicyValueModel model = new();
-        model.Load(OutcomeEvaluationCheckpointPath);
+        string outcomeEvaluationCheckpointPath = GetOutcomeEvaluationCheckpointPath();
+        model.Load(outcomeEvaluationCheckpointPath);
 
         Stopwatch standardStopwatch = Stopwatch.StartNew();
         OutcomeDistribution standardDistribution = EvaluateOutcomeDistribution(
@@ -121,6 +122,7 @@ public static class Program
         string readmePath = Path.Combine(analysisDir, "README.md");
         string analysisCsvPath = Path.Combine(analysisDir, "analysis.csv");
         string copiedProgramPath = Path.Combine(analysisDir, "Program.cs");
+        string outcomeEvaluationCheckpointPath = GetOutcomeEvaluationCheckpointPath();
 
         Directory.CreateDirectory(analysisDir);
 
@@ -129,7 +131,7 @@ Date: {DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}
 Commit Hash: {commitHash}
 
 # Training Params
-1. Loaded checkpoint: `{OutcomeEvaluationCheckpointPath}`
+1. Loaded checkpoint: `{outcomeEvaluationCheckpointPath}`
 2. Evaluation games per deck: `{DeckComparisonEvaluationGameCount}`
 3. Evaluation batch size: `{OutcomeEvaluationBatchSize}`
 4. Policy temperature: `0` / greedy argmax
@@ -168,7 +170,8 @@ Commit Hash: {commitHash}
         }
 
         using PpoPolicyValueModel model = new();
-        model.Load(OutcomeEvaluationCheckpointPath);
+        string outcomeEvaluationCheckpointPath = GetOutcomeEvaluationCheckpointPath();
+        model.Load(outcomeEvaluationCheckpointPath);
 
         string traceText = TraceGreedyGames(
             model: model,
@@ -184,6 +187,7 @@ Commit Hash: {commitHash}
         string readmePath = Path.Combine(analysisDir, "README.md");
         string tracePath = Path.Combine(analysisDir, "trace.md");
         string copiedProgramPath = Path.Combine(analysisDir, "Program.cs");
+        string outcomeEvaluationCheckpointPath = GetOutcomeEvaluationCheckpointPath();
 
         Directory.CreateDirectory(analysisDir);
 
@@ -192,7 +196,7 @@ Date: {DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}
 Commit Hash: {commitHash}
 
 # Training Params
-1. Loaded checkpoint: `{OutcomeEvaluationCheckpointPath}`
+1. Loaded checkpoint: `{outcomeEvaluationCheckpointPath}`
 2. Evaluation games: `{TraceEvaluationGameCount}`
 3. Policy temperature: `0` / greedy argmax
 4. Deck initializer: `uniform random 52 cards with replacement`
@@ -228,7 +232,7 @@ Commit Hash: {commitHash}
 
         trace.AppendLine("# Step 355 Greedy Trace");
         trace.AppendLine();
-        trace.AppendLine($"Checkpoint: `{OutcomeEvaluationCheckpointPath}`");
+        trace.AppendLine($"Checkpoint: `{GetOutcomeEvaluationCheckpointPath()}`");
         trace.AppendLine($"Games: `{gameCount}`");
         trace.AppendLine($"Policy temperature: `0` / greedy argmax");
         trace.AppendLine($"Deck initializer: `uniform random 52 cards with replacement`");
@@ -358,7 +362,8 @@ Commit Hash: {commitHash}
         }
 
         using PpoPolicyValueModel model = new();
-        model.Load(OutcomeEvaluationCheckpointPath);
+        string outcomeEvaluationCheckpointPath = GetOutcomeEvaluationCheckpointPath();
+        model.Load(outcomeEvaluationCheckpointPath);
 
         Stopwatch stopwatch = Stopwatch.StartNew();
         OutcomeDistribution distribution = EvaluateOutcomeDistribution(
@@ -373,7 +378,7 @@ Commit Hash: {commitHash}
             distribution: distribution,
             wallSeconds: (float)stopwatch.Elapsed.TotalSeconds);
 
-        Console.WriteLine($"checkpoint {OutcomeEvaluationCheckpointPath}");
+        Console.WriteLine($"checkpoint {outcomeEvaluationCheckpointPath}");
         Console.WriteLine($"games {OutcomeEvaluationGameCount}");
         Console.WriteLine($"batch_size {OutcomeEvaluationBatchSize}");
         Console.WriteLine($"wall_seconds {stopwatch.Elapsed.TotalSeconds.ToString("F2", CultureInfo.InvariantCulture)}");
@@ -424,6 +429,7 @@ Commit Hash: {commitHash}
         string readmePath = Path.Combine(analysisDir, "README.md");
         string analysisCsvPath = Path.Combine(analysisDir, "analysis.csv");
         string copiedProgramPath = Path.Combine(analysisDir, "Program.cs");
+        string outcomeEvaluationCheckpointPath = GetOutcomeEvaluationCheckpointPath();
 
         Directory.CreateDirectory(analysisDir);
 
@@ -432,7 +438,7 @@ Date: {DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)}
 Commit Hash: {commitHash}
 
 # Training Params
-1. Loaded checkpoint: `{OutcomeEvaluationCheckpointPath}`
+1. Loaded checkpoint: `{outcomeEvaluationCheckpointPath}`
 2. Evaluation games: `{OutcomeEvaluationGameCount}`
 3. Evaluation batch size: `{OutcomeEvaluationBatchSize}`
 4. Policy temperature: `0` / greedy argmax
@@ -454,6 +460,18 @@ Commit Hash: {commitHash}
         return new(
             AnalysisDir: analysisDir,
             AnalysisCsvPath: analysisCsvPath);
+    }
+
+
+    static string GetOutcomeEvaluationCheckpointPath()
+    {
+        string repoRoot = FindRepoRoot();
+        return Path.Combine(
+            repoRoot,
+            "Analysis",
+            OutcomeEvaluationCheckpointExperimentName,
+            "weights",
+            "355.bin");
     }
 
 
