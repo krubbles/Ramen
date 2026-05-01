@@ -43,6 +43,7 @@ public readonly record struct StepMetrics
     float AverageMoveEntropy,
     float ValueMseMean,
     float PolicyLossMean,
+    float ClipFractionMean,
     int CompletedGameCount,
     float LearningRate,
     int ValueReplayCount
@@ -51,7 +52,8 @@ public readonly record struct StepMetrics
 public readonly record struct TrainingMetrics
 (
     float PolicyLossMean,
-    float ValueMseMean
+    float ValueMseMean,
+    float ClipFractionMean
 );
 
 public static class PpoTraining
@@ -148,6 +150,7 @@ public static class PpoTraining
     {
         float totalPolicyLoss = 0f;
         float totalValueMse = 0f;
+        float totalClipFraction = 0f;
         int metricBatchCount = 0;
 
         for (int epoch = 0; epoch < config.TrainingEpochsPerStep; ++epoch)
@@ -194,9 +197,10 @@ public static class PpoTraining
                 {
                     int batchStart = storeBatchesEmitted * config.BatchSize;
                     using PpoStoreMiniBatch batch = rollout.Store.FillBatch(shuffledStoreIndices, batchStart, config.BatchSize);
-                    (float policyLoss, float valueMse) = TrainStoreBatch(model, optimizer, batch, config);
+                    (float policyLoss, float valueMse, float clipFraction) = TrainStoreBatch(model, optimizer, batch, config);
                     totalPolicyLoss += policyLoss;
                     totalValueMse += valueMse;
+                    totalClipFraction += clipFraction;
                     metricBatchCount++;
                     storeBatchesEmitted++;
                 }
@@ -204,9 +208,10 @@ public static class PpoTraining
                 {
                     int batchStart = roundBatchesEmitted * config.BatchSize;
                     using PpoRoundMiniBatch batch = rollout.Round.FillBatch(shuffledRoundIndices, batchStart, config.BatchSize);
-                    (float policyLoss, float valueMse) = TrainRoundBatch(model, optimizer, batch, config);
+                    (float policyLoss, float valueMse, float clipFraction) = TrainRoundBatch(model, optimizer, batch, config);
                     totalPolicyLoss += policyLoss;
                     totalValueMse += valueMse;
+                    totalClipFraction += clipFraction;
                     metricBatchCount++;
                     roundBatchesEmitted++;
                 }
@@ -218,7 +223,8 @@ public static class PpoTraining
         float divisor = Math.Max(metricBatchCount, 1);
         return new(
             PolicyLossMean: totalPolicyLoss / divisor,
-            ValueMseMean: totalValueMse / divisor);
+            ValueMseMean: totalValueMse / divisor,
+            ClipFractionMean: totalClipFraction / divisor);
     }
 
 
@@ -260,6 +266,7 @@ public static class PpoTraining
                 .SetCell("average_move_entropy", metric.AverageMoveEntropy)
                 .SetCell("value_mse_mean", metric.ValueMseMean)
                 .SetCell("policy_loss_mean", metric.PolicyLossMean)
+                .SetCell("clip_fraction_mean", metric.ClipFractionMean)
                 .SetCell("completed_game_count", metric.CompletedGameCount)
                 .SetCell("learning_rate", metric.LearningRate);
         }
@@ -296,8 +303,9 @@ public static class PpoTraining
                 AverageMoveEntropy: float.Parse(cells[3], CultureInfo.InvariantCulture),
                 ValueMseMean: float.Parse(cells[4], CultureInfo.InvariantCulture),
                 PolicyLossMean: float.Parse(cells[5], CultureInfo.InvariantCulture),
-                CompletedGameCount: int.Parse(cells[6], CultureInfo.InvariantCulture),
-                LearningRate: cells.Length > 7 ? float.Parse(cells[7], CultureInfo.InvariantCulture) : 0f,
+                ClipFractionMean: cells.Length > 8 ? float.Parse(cells[6], CultureInfo.InvariantCulture) : 0f,
+                CompletedGameCount: int.Parse(cells.Length > 8 ? cells[7] : cells[6], CultureInfo.InvariantCulture),
+                LearningRate: cells.Length > 8 ? float.Parse(cells[8], CultureInfo.InvariantCulture) : (cells.Length > 7 ? float.Parse(cells[7], CultureInfo.InvariantCulture) : 0f),
                 ValueReplayCount: 0));
         }
 
@@ -793,7 +801,7 @@ public static class PpoTraining
     }
 
 
-    static (float policyLoss, float valueMse) TrainRoundBatch(PpoPolicyValueModel model, AdamW optimizer, PpoRoundMiniBatch batch, ExperimentConfig config)
+    static (float policyLoss, float valueMse, float clipFraction) TrainRoundBatch(PpoPolicyValueModel model, AdamW optimizer, PpoRoundMiniBatch batch, ExperimentConfig config)
     {
         GameStateTensors stateTensors = batch.StateTensors.ToDevice(PpoPolicyValueModel.EvalDevice);
         UseHandTensors useHandTensors = batch.UseHandTensors.ToDevice(PpoPolicyValueModel.EvalDevice);
@@ -817,20 +825,18 @@ public static class PpoTraining
         Tensor logPiOld = oldSampledProbs.select(1, 0).clamp_min(1e-9f).log();
         Tensor ratio = exp(logPiNew - logPiOld);
         Tensor advantages = batch.Advantages.to(PpoPolicyValueModel.EvalDevice);
-        Tensor clippedRatio = clamp(
-            ratio,
-            min: 1f - config.PpoEpsilon,
-            max: 1f + config.PpoEpsilon);
-        Tensor surrogate = min(ratio * advantages, clippedRatio * advantages);
-        Tensor policyLoss = -surrogate.mean() - config.EntropyCoefficient * entropy;
+        Tensor clippedRatio = clamp(ratio, max: config.PpoEpsilon);
+        Tensor clipMask = ratio.greater(config.PpoEpsilon).to_type(ScalarType.Float32);
+        Tensor weight = clippedRatio.detach();
+        Tensor policyLoss = -(weight * advantages * logPiNew).mean() - config.EntropyCoefficient * entropy;
         Tensor valueLoss = functional.mse_loss(values, valueTargets);
         Tensor totalLoss = policyLoss + config.ValueLossCoefficient * valueLoss;
         totalLoss.backward();
-        return (policyLoss.item<float>(), valueLoss.item<float>());
+        return (policyLoss.item<float>(), valueLoss.item<float>(), clipMask.mean().item<float>());
     }
 
 
-    static (float policyLoss, float valueMse) TrainStoreBatch(PpoPolicyValueModel model, AdamW optimizer, PpoStoreMiniBatch batch, ExperimentConfig config)
+    static (float policyLoss, float valueMse, float clipFraction) TrainStoreBatch(PpoPolicyValueModel model, AdamW optimizer, PpoStoreMiniBatch batch, ExperimentConfig config)
     {
         _ = optimizer;
         GameStateTensors stateTensors = batch.StateTensors.ToDevice(PpoPolicyValueModel.EvalDevice);
@@ -854,16 +860,14 @@ public static class PpoTraining
         Tensor ratio = exp(logPiNew - logPiOld);
         Tensor values = model.GetValues(stateTensors);
         Tensor advantages = batch.Advantages.to(PpoPolicyValueModel.EvalDevice);
-        Tensor clippedRatio = clamp(
-            ratio,
-            min: 1f - config.PpoEpsilon,
-            max: 1f + config.PpoEpsilon);
-        Tensor surrogate = min(ratio * advantages, clippedRatio * advantages);
-        Tensor policyLoss = -surrogate.mean() - config.EntropyCoefficient * entropy;
+        Tensor clippedRatio = clamp(ratio, max: config.PpoEpsilon);
+        Tensor clipMask = ratio.greater(config.PpoEpsilon).to_type(ScalarType.Float32);
+        Tensor weight = clippedRatio.detach();
+        Tensor policyLoss = -(weight * advantages * logPiNew).mean() - config.EntropyCoefficient * entropy;
         Tensor valueLoss = functional.mse_loss(values, valueTargets);
         Tensor totalLoss = policyLoss + config.ValueLossCoefficient * valueLoss;
         totalLoss.backward();
-        return (policyLoss.item<float>(), valueLoss.item<float>());
+        return (policyLoss.item<float>(), valueLoss.item<float>(), clipMask.mean().item<float>());
     }
 }
 
@@ -882,9 +886,6 @@ public sealed class PpoRolloutDataset : IDisposable
 
     public int CompletedGameCount { get; private set; }
 
-    float _valueTargetTotal;
-    float _valueTargetSquaredTotal;
-    int _valueTargetCount;
     float _advantageTotal;
     float _advantageSquaredTotal;
     int _advantageCount;
@@ -911,9 +912,6 @@ public sealed class PpoRolloutDataset : IDisposable
         else
             Round.AddSample(position, valueTarget, advantage);
 
-        _valueTargetTotal += valueTarget;
-        _valueTargetSquaredTotal += valueTarget * valueTarget;
-        _valueTargetCount++;
         _advantageTotal += advantage;
         _advantageSquaredTotal += advantage * advantage;
         _advantageCount++;
@@ -930,14 +928,8 @@ public sealed class PpoRolloutDataset : IDisposable
 
     public void NormalizeSamples()
     {
-        if (_valueTargetCount == 0 || _advantageCount == 0)
+        if (_advantageCount == 0)
             return;
-
-        // Per-rollout z-score normalization keeps the value target and advantage scale fixed.
-        float valueTargetMean = _valueTargetTotal / _valueTargetCount;
-        float valueTargetVariance = (_valueTargetSquaredTotal / _valueTargetCount) - valueTargetMean * valueTargetMean;
-        float valueTargetStdDev = MathF.Sqrt(MathF.Max(0f, valueTargetVariance));
-        float valueTargetScale = MathF.Max(valueTargetStdDev, 1e-8f);
 
         float advantageMean = _advantageTotal / _advantageCount;
         float advantageVariance = (_advantageSquaredTotal / _advantageCount) - advantageMean * advantageMean;
@@ -945,13 +937,9 @@ public sealed class PpoRolloutDataset : IDisposable
         float advantageScale = MathF.Max(advantageStdDev, 1e-8f);
 
         Round.NormalizeSamples(
-            valueTargetMean: valueTargetMean,
-            valueTargetScale: valueTargetScale,
             advantageMean: advantageMean,
             advantageScale: advantageScale);
         Store.NormalizeSamples(
-            valueTargetMean: valueTargetMean,
-            valueTargetScale: valueTargetScale,
             advantageMean: advantageMean,
             advantageScale: advantageScale);
     }
@@ -983,13 +971,10 @@ public sealed class PpoRoundRolloutDataset : IDisposable
     }
 
 
-    public void NormalizeSamples(float valueTargetMean, float valueTargetScale, float advantageMean, float advantageScale)
+    public void NormalizeSamples(float advantageMean, float advantageScale)
     {
-        for (int index = 0; index < _valueTargets.Count; ++index)
-        {
-            _valueTargets[index] = (_valueTargets[index] - valueTargetMean) / valueTargetScale;
+        for (int index = 0; index < _advantages.Count; ++index)
             _advantages[index] = (_advantages[index] - advantageMean) / advantageScale;
-        }
     }
 
 
@@ -1062,13 +1047,10 @@ public sealed class PpoStoreRolloutDataset : IDisposable
     }
 
 
-    public void NormalizeSamples(float valueTargetMean, float valueTargetScale, float advantageMean, float advantageScale)
+    public void NormalizeSamples(float advantageMean, float advantageScale)
     {
-        for (int index = 0; index < _valueTargets.Count; ++index)
-        {
-            _valueTargets[index] = (_valueTargets[index] - valueTargetMean) / valueTargetScale;
+        for (int index = 0; index < _advantages.Count; ++index)
             _advantages[index] = (_advantages[index] - advantageMean) / advantageScale;
-        }
     }
 
     public PpoStoreMiniBatch FillBatch(int[] shuffledIndices, int batchStart, int batchSize)

@@ -23,35 +23,48 @@ public static class Program
     const string OutcomeEvaluationCheckpointPath = "/Users/miles/Desktop/dev/repos/BalatroAI/Analysis/2026-04-23_simple_flush_ppo_stdreward_resume315_randdeck52wr_r32768_b1024_e4_lr1e4_20more_eps0p3_ent3e5_ss40_trunk512_addgelu_vhead/weights/355.bin";
     const int OutcomeEvaluationGameCount = 10000;
     const int OutcomeEvaluationBatchSize = 500;
+    const int LatestCheckpointEvaluationGameCount = 1000;
 
     static readonly ExperimentConfig PpoConfig = new(
-        ExperimentName: "2026-04-27_ppo_roundsurvival_multiround_donefix_fresh_s20_randdeck52wr_r32768_b1024_e4_lr3e5_eps0p3_ent1e5_ss40",
-        RolloutSize: 32768,
+        ExperimentName: "2026-04-30_cispo_roundsurvival_multiround_smalltrunk_fresh_s20_randdeck52wr_r4096_b1024_e2_lr1e5_clip5_ent1e5_val0p5_ss40",
+        RolloutSize: 4096,
         RolloutParallelGameCount: 64,
         BatchSize: 1024,
-        TrainingEpochsPerStep: 4,
-        StepCount: 1000,
+        TrainingEpochsPerStep: 2,
+        StepCount: 2000,
         SampledSoftmaxCount: 40,
-        LearningRate: 3e-5f,
+        LearningRate: 1e-5f,
         AdamBeta1: 0.9f,
         AdamBeta2: 0.97f,
         WeightDecay: 0f,
-        PpoEpsilon: 0.3f,
+        PpoEpsilon: 5f,
         EntropyCoefficient: 1e-5f,
+        ValueLossCoefficient: 0.5f,
         ValueReplayBufferCapacity: 0,
         SnapshotFrequency: 5,
         RandomSeed: 1337,
         InitialHandsPerRound: 4,
         InitialDiscardsPerRound: 3,
         UseRandomDeckInitializer: true,
-        ResumeSourceExperimentName: "2026-04-27_ppo_roundsurvival_multiround_donefix_fresh_s20_randdeck52wr_r32768_b1024_e4_lr3e5_eps0p3_ent1e5_ss40",
-        NotebookReferenceExperimentName: "2026-04-23_simple_flush_ppo_stdreward_resume315_randdeck52wr_r32768_b1024_e4_lr1e4_20more_eps0p3_ent3e5_ss40_trunk512_addgelu_vhead");
+        ResumeSourceExperimentName: "",
+        NotebookReferenceExperimentName: "2026-04-27_ppo_roundsurvival_multiround_donefix_fresh_s20_randdeck52wr_r32768_b1024_e4_lr3e5_eps0p3_ent1e5_ss40");
 
-    const float PpoContinuationLearningRate = 3e-5f;
+    const float PpoContinuationLearningRate = 1e-5f;
 
     public static void Main(string[] args)
     {
         TensorManager.Init();
+        if (args.Length > 0 && args[0] == "ppo-train")
+        {
+            RunPpoExperiment();
+            return;
+        }
+        if (args.Length > 0 && args[0] == "ppo-eval-latest")
+        {
+            RunLatestCheckpointRewardEvaluation();
+            return;
+        }
+
         ConsoleBalatroApp app = new();
         app.Run();
     }
@@ -372,6 +385,39 @@ Commit Hash: {commitHash}
     }
 
 
+    static void RunLatestCheckpointRewardEvaluation()
+    {
+        string repoRoot = FindRepoRoot();
+        string experimentDir = Path.Combine(repoRoot, "Analysis", PpoConfig.ExperimentName);
+        LatestCheckpointInfo checkpoint = FindLatestCheckpointInDirectory(experimentDir);
+
+        using PpoPolicyValueModel model = new();
+        model.Load(checkpoint.CheckpointPath);
+
+        Random rolloutRandom = new(PpoConfig.RandomSeed);
+        using PpoRolloutDataset rollout = PpoTraining.GenerateRollout(
+            model: model,
+            config: PpoConfig,
+            random: rolloutRandom);
+
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        float averageReward = EvaluateAverageReward(
+            model: model,
+            gameCount: LatestCheckpointEvaluationGameCount,
+            batchSize: OutcomeEvaluationBatchSize,
+            gameData: CreateOutcomeEvaluationGameData());
+        stopwatch.Stop();
+
+        Console.WriteLine($"checkpoint {checkpoint.CheckpointPath}");
+        Console.WriteLine($"experiment {checkpoint.ExperimentName}");
+        Console.WriteLine($"rollout_average_reward {rollout.AverageReward.ToString("F6", CultureInfo.InvariantCulture)}");
+        Console.WriteLine($"games {LatestCheckpointEvaluationGameCount}");
+        Console.WriteLine($"temp 0");
+        Console.WriteLine($"average_reward {averageReward.ToString("F6", CultureInfo.InvariantCulture)}");
+        Console.WriteLine($"wall_seconds {stopwatch.Elapsed.TotalSeconds.ToString("F2", CultureInfo.InvariantCulture)}");
+    }
+
+
     static PreparedOutcomeEvaluationPaths PrepareOutcomeEvaluation(string repoRoot, string commitHash)
     {
         string analysisDir = Path.Combine(repoRoot, "Analysis", OutcomeEvaluationExperimentName);
@@ -476,6 +522,42 @@ Commit Hash: {commitHash}
         }
 
         return distribution;
+    }
+
+
+    static float EvaluateAverageReward(PpoPolicyValueModel model, int gameCount, int batchSize, GameData gameData)
+    {
+        using var scope = NewDisposeScope();
+        using var noGrad = no_grad();
+
+        using PolicyOnlyAgent agent = new(model);
+        GameState[] gameStates = new GameState[gameCount];
+        float rewardSum = 0f;
+        for (int gameIndex = 0; gameIndex < gameStates.Length; ++gameIndex)
+            gameStates[gameIndex] = new(gameData);
+
+        while (true)
+        {
+            bool allGamesDone = true;
+            for (int gameIndex = 0; gameIndex < gameStates.Length; ++gameIndex)
+            {
+                if (!agent.IsGameDone(gameStates[gameIndex]))
+                {
+                    allGamesDone = false;
+                    break;
+                }
+            }
+
+            if (allGamesDone)
+                break;
+
+            agent.MakeMove(temp: 1f, annotatePolicy: false, gameStates);
+        }
+
+        for (int gameIndex = 0; gameIndex < gameStates.Length; ++gameIndex)
+            rewardSum += PpoTraining.GetStandardReward(gameStates[gameIndex]);
+
+        return rewardSum / gameCount;
     }
 
 
@@ -669,6 +751,22 @@ win_hands_3,{distribution.WinHands3Count},{GetFractionText(distribution.WinHands
     }
 
 
+    static int SampleMoveIndex(ReadOnlySpan<float> probs, Random random)
+    {
+        float sample = (float)random.NextDouble();
+        float cumulative = 0f;
+
+        for (int moveIndex = 0; moveIndex < probs.Length; ++moveIndex)
+        {
+            cumulative += probs[moveIndex];
+            if (sample <= cumulative)
+                return moveIndex;
+        }
+
+        return probs.Length - 1;
+    }
+
+
     static void RunPpoExperiment()
     {
         string repoRoot = FindRepoRoot();
@@ -727,6 +825,7 @@ win_hands_3,{distribution.WinHands3Count},{GetFractionText(distribution.WinHands
                 AverageMoveEntropy: rollout.AverageMoveEntropy,
                 ValueMseMean: trainingMetrics.ValueMseMean,
                 PolicyLossMean: trainingMetrics.PolicyLossMean,
+                ClipFractionMean: trainingMetrics.ClipFractionMean,
                 CompletedGameCount: rollout.CompletedGameCount,
                 LearningRate: learningRate,
                 ValueReplayCount: 0);
@@ -740,6 +839,7 @@ win_hands_3,{distribution.WinHands3Count},{GetFractionText(distribution.WinHands
                 $"entropy {stepMetrics.AverageMoveEntropy:F4} | " +
                 $"value_mse {stepMetrics.ValueMseMean:F4} | " +
                 $"policy_loss {stepMetrics.PolicyLossMean:F4} | " +
+                $"clip_frac {stepMetrics.ClipFractionMean:F4} | " +
                 $"lr {stepMetrics.LearningRate:0.0e0} | " +
                 $"completed_games {stepMetrics.CompletedGameCount}");
 
@@ -1054,9 +1154,15 @@ for label in sorted(debug_groups.keys()):
     static LatestCheckpointInfo FindLatestCheckpoint(string repoRoot)
     {
         string analysisRoot = Path.Combine(repoRoot, "Analysis");
-        string[] checkpointPaths = Directory.GetFiles(analysisRoot, "*.bin", SearchOption.AllDirectories);
+        return FindLatestCheckpointInDirectory(analysisRoot);
+    }
+
+
+    static LatestCheckpointInfo FindLatestCheckpointInDirectory(string searchRoot)
+    {
+        string[] checkpointPaths = Directory.GetFiles(searchRoot, "*.bin", SearchOption.AllDirectories);
         if (checkpointPaths.Length == 0)
-            throw new FileNotFoundException($"No checkpoints found beneath {analysisRoot}");
+            throw new FileNotFoundException($"No checkpoints found beneath {searchRoot}");
 
         string bestPath = checkpointPaths[0];
         DateTime bestTime = File.GetLastWriteTimeUtc(bestPath);
@@ -1123,10 +1229,23 @@ for label in sorted(debug_groups.keys()):
     static void WriteReadme(string filePath, string commitHash, ExperimentConfig config, string localWeightsDir, ResumeConfig resume)
     {
         string runDate = DateTime.Now.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        string resumeLines = string.IsNullOrWhiteSpace(resume.CheckpointPath) ? "" : $"""
-24. Resumed from checkpoint: `{resume.CheckpointPath}`
-25. Resume step: `{resume.ResumeStep}`
+        string extraTrainingLines = "";
+        if (!string.IsNullOrWhiteSpace(resume.CheckpointPath))
+            extraTrainingLines += $"""
+
+- Resumed from checkpoint: `{resume.CheckpointPath}`
+- Resume step: `{resume.ResumeStep}`
 """;
+
+        if (!string.IsNullOrWhiteSpace(config.NotebookReferenceExperimentName))
+            extraTrainingLines += $"""
+
+- Reference experiment: `{config.NotebookReferenceExperimentName}`
+""";
+
+        string descriptionText = string.IsNullOrWhiteSpace(resume.CheckpointPath)
+            ? "- This experiment starts CISPO from scratch with a fresh model initialization."
+            : $"- This experiment continues CISPO from the step `{resume.ResumeStep}` checkpoint using the current multi-round rollout pipeline.";
         string readme = $"""
 Date: {runDate}
 Commit Hash: {commitHash}
@@ -1138,30 +1257,31 @@ Commit Hash: {commitHash}
 4. Adam beta1: `{config.AdamBeta1}`
 5. Adam beta2: `{config.AdamBeta2}`
 6. Weight decay: `{config.WeightDecay}`
-7. PPO epsilon: `{config.PpoEpsilon}`
+7. CISPO clip threshold: `{config.PpoEpsilon}`
 8. Entropy coefficient: `{config.EntropyCoefficient}`
 9. Rollout size: `{config.RolloutSize}` positions
 10. Parallel rollout games: `{config.RolloutParallelGameCount}`
 11. Batch size: `{config.BatchSize}`
 12. Training epochs per step: `{config.TrainingEpochsPerStep}`
-13. Total PPO steps: `{config.StepCount}`
+13. Total training steps: `{config.StepCount}`
 14. Sampled softmax candidates: `{config.SampledSoftmaxCount}`
 15. Policy/value update pattern: `1 policy batch, 1 value batch, then optimizer step`
 16. Reward function: `reward = (rounds survived / 3)^2`
 17. Value target: `average of later position value predictions, with terminal position assigned true reward`
-18. Value head: `Linear(512 -> 1)` attached to the trunk residual stream
-19. Snapshot frequency: every `{config.SnapshotFrequency}` step(s)
-20. Snapshot weights directory: `{localWeightsDir}`
-21. Notebook: [analysis.ipynb](analysis.ipynb)
-22. Starting hands per round: `{config.InitialHandsPerRound}`
-23. Starting discards per round: `{config.InitialDiscardsPerRound}`
-24. Deck initializer: `{(config.UseRandomDeckInitializer ? "uniform random 52 cards with replacement" : "default deck")}`
-{resumeLines}
+        18. Value head: `Linear(768 -> 1)` attached to the trunk residual stream
+19. Value loss coefficient: `{config.ValueLossCoefficient}`
+20. Snapshot frequency: every `{config.SnapshotFrequency}` step(s)
+21. Snapshot weights directory: `{localWeightsDir}`
+22. Notebook: [analysis.ipynb](analysis.ipynb)
+23. Starting hands per round: `{config.InitialHandsPerRound}`
+24. Starting discards per round: `{config.InitialDiscardsPerRound}`
+25. Deck initializer: `{(config.UseRandomDeckInitializer ? "uniform random 52 cards with replacement" : "default deck")}`
+{extraTrainingLines}
 
 # Description
-- This experiment continues PPO from the step `{resume.ResumeStep}` checkpoint using the current multi-round rollout pipeline.
+- {descriptionText[2..]}
 - Each rollout follows games across both in-round and in-shop decision states until terminal reward, with round and store minibatches mixed into the same optimizer step.
-- Round policy training uses `40`-candidate importance-corrected sampled softmax with q-adjusted old and new candidate distributions, while store policy training uses direct PPO over the 4 store actions.
+- Round policy training uses `40`-candidate importance-corrected sampled softmax with q-adjusted old and new candidate distributions, while store policy training uses direct CISPO over the 4 store actions.
 - The value network trains on the same on-policy minibatches as the policy update, sharing the same trunk forward pass for each sample.
 - The CSV tracks cumulative wall clock time, average rollout reward, average move entropy, value-network MSE, policy loss, learning rate, and completed game count for each PPO step.
 - The notebook graphs reward, entropy, value MSE, policy loss, wall clock progress, and learning rate over the run.
@@ -1217,15 +1337,19 @@ Commit Hash: {commitHash}
         cells.Add(CreateMarkdownCell($"""
 # {experimentName}
 
-This notebook visualizes the PPO training metrics stored in `analysis.csv`.
+This notebook visualizes the CISPO training metrics stored in `analysis.csv`.
+{(string.IsNullOrWhiteSpace(referenceLabel) ? "" : $"It overlays the previous PPO run from `{referenceLabel}` and the split-trunk run from `2026-04-28_ppo_roundsurvival_multiround_dualtrunk_fresh_s20_randdeck52wr_r32768_b1024_e4_lr3e5_eps0p3_ent1e5_val0p5_ss40` for comparison.")}
+Step-based plots scale the current run to one eighth of the reference step axis so the 4K rollout lines up with the 32K reference runs.
 """));
 
-        cells.Add(CreateCodeCell($"""
+        cells.Add(CreateCodeCell("""
 from pathlib import Path
 import csv
 import matplotlib.pyplot as plt
 
-csv_path = Path(r"{csvPath}")
+csv_path = Path(r"__CSV_PATH__")
+previous_csv_path = Path(r"__PREVIOUS_CSV_PATH__")
+split_trunk_csv_path = Path(r"__SPLIT_TRUNK_CSV_PATH__")
 
 def load_rows(path):
     loaded_rows = []
@@ -1248,31 +1372,52 @@ def load_rows(path):
             loaded_rows.append(parsed_row)
     return loaded_rows
 
-def rolling_average(values, window_size):
+def build_series(rows):
+    steps = [int(row["step"]) for row in rows]
+    wall_clock_seconds = [row["wall_clock_seconds"] for row in rows]
+    average_reward = [row["average_reward"] for row in rows]
+    average_move_entropy = [row["average_move_entropy"] for row in rows]
+    value_mse_mean = [row["value_mse_mean"] for row in rows]
+    policy_loss_mean = [row["policy_loss_mean"] for row in rows]
+    completed_game_count = [row["completed_game_count"] for row in rows]
+    learning_rate = [row["learning_rate"] for row in rows]
+    rolling_window = 3
+    return {
+        "steps": steps,
+        "wall_clock_seconds": wall_clock_seconds,
+        "average_reward": average_reward,
+        "average_move_entropy": average_move_entropy,
+        "value_mse_mean": value_mse_mean,
+        "policy_loss_mean": policy_loss_mean,
+        "completed_game_count": completed_game_count,
+        "learning_rate": learning_rate,
+        "rolling_reward": centered_average(average_reward, rolling_window),
+        "rolling_entropy": centered_average(average_move_entropy, rolling_window),
+        "rolling_value_mse": centered_average(value_mse_mean, rolling_window),
+        "rolling_learning_rate": centered_average(learning_rate, rolling_window),
+    }
+
+def centered_average(values, window_size):
     output = []
+    half_window = window_size // 2
     for index in range(len(values)):
-        start = max(0, index - window_size + 1)
-        window_values = values[start:index + 1]
+        start = max(0, index - half_window)
+        end = min(len(values), index + half_window + 1)
+        window_values = values[start:end]
         output.append(sum(window_values) / len(window_values))
     return output
 
 rows = load_rows(csv_path)
-
-steps = [int(row["step"]) for row in rows]
-wall_clock_seconds = [row["wall_clock_seconds"] for row in rows]
-average_reward = [row["average_reward"] for row in rows]
-average_move_entropy = [row["average_move_entropy"] for row in rows]
-value_mse_mean = [row["value_mse_mean"] for row in rows]
-policy_loss_mean = [row["policy_loss_mean"] for row in rows]
-completed_game_count = [row["completed_game_count"] for row in rows]
-learning_rate = [row["learning_rate"] for row in rows]
-
-rolling_window = 21
-rolling_reward = rolling_average(average_reward, rolling_window)
-rolling_entropy = rolling_average(average_move_entropy, rolling_window)
-rolling_value_mse = rolling_average(value_mse_mean, rolling_window)
-rolling_learning_rate = rolling_average(learning_rate, rolling_window)
-"""));
+previous_rows = [row for row in load_rows(previous_csv_path) if int(row["step"]) <= 700]
+split_trunk_rows = [row for row in load_rows(split_trunk_csv_path) if int(row["step"]) <= 700]
+current = build_series(rows)
+current_step_scale = 0.125
+current["scaled_steps"] = [step * current_step_scale for step in current["steps"]]
+previous = build_series(previous_rows) if previous_rows else None
+split_trunk = build_series(split_trunk_rows) if split_trunk_rows else None
+""".Replace("__CSV_PATH__", csvPath, StringComparison.Ordinal)
+            .Replace("__PREVIOUS_CSV_PATH__", referenceCsvPath, StringComparison.Ordinal)
+            .Replace("__SPLIT_TRUNK_CSV_PATH__", Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(referenceCsvPath)!)!, "2026-04-28_ppo_roundsurvival_multiround_dualtrunk_fresh_s20_randdeck52wr_r32768_b1024_e4_lr3e5_eps0p3_ent1e5_val0p5_ss40", "analysis.csv"), StringComparison.Ordinal)));
 
         cells.Add(CreateCodeCell("""
 plt.style.use("seaborn-v0_8-whitegrid")
@@ -1286,8 +1431,9 @@ current_colors = {
     "games": "#7a5530",
     "lr": "#1d8fa3",
 }
-reference_raw_color = "#a0a7b4"
-reference_trend_color = "#3b4252"
+previous_raw_color = "#a0a7b4"
+previous_trend_color = "#3b4252"
+split_trunk_trend_color = "#b45d5d"
 
 def style_axis(axis):
     axis.grid(True, alpha=0.22, linewidth=0.8)
@@ -1296,73 +1442,153 @@ def style_axis(axis):
     axis.spines["left"].set_alpha(0.35)
     axis.spines["bottom"].set_alpha(0.35)
 
-figure, axes = plt.subplots(4, 2, figsize=(15, 17), constrained_layout=True)
+def plot_current_and_reference(axis, current_x_key, reference_x_key, y_key, trend_key, raw_label, trend_label, color):
+    axis.plot(current[current_x_key], current[y_key], linewidth=1.15, color=color, alpha=0.24, label=f"Current {raw_label}")
+    axis.plot(current[current_x_key], current[trend_key], linewidth=2.8, color=color, label=f"Current centered trend")
+    if previous is not None:
+        axis.plot(previous[reference_x_key], previous[y_key], linewidth=1.0, color=previous_raw_color, alpha=0.22, label=f"Previous {raw_label}")
+        axis.plot(previous[reference_x_key], previous[trend_key], linewidth=2.2, color=previous_trend_color, alpha=0.92, label=f"Previous centered trend")
+
+def plot_split_trunk_trend(axis, x_key, trend_key, color):
+    if split_trunk is None:
+        return
+    axis.plot(split_trunk[x_key], split_trunk[trend_key], linewidth=2.0, color=color, alpha=0.9, linestyle="--", label="Split trunk centered trend")
+
+def clip_x_axis(axis):
+    x_values = []
+    for line in axis.lines:
+        x_values.extend(line.get_xdata())
+    if not x_values:
+        return
+    axis.set_xlim(min(x_values), max(x_values))
+
+def clip_visible_y_max(axis):
+    x_min, x_max = axis.get_xlim()
+    visible_values = []
+    for line in axis.lines:
+        x_values = line.get_xdata()
+        y_values = line.get_ydata()
+        for x_value, y_value in zip(x_values, y_values):
+            if x_value < x_min or x_value > x_max:
+                continue
+            visible_values.append(y_value)
+    if not visible_values:
+        return
+    upper_value = max(visible_values)
+    if upper_value > 0:
+        upper_value *= 1.05
+    else:
+        upper_value *= 0.95
+    axis.set_ylim(top=upper_value)
+
+figure, axes = plt.subplots(5, 2, figsize=(15, 21), constrained_layout=True)
 figure.patch.set_facecolor("white")
 
-axes[0, 0].plot(steps, average_reward, linewidth=1.15, color=current_colors["reward"], alpha=0.24, label="Current raw")
-axes[0, 0].plot(steps, rolling_reward, linewidth=2.8, color=current_colors["reward"], label="Current 5-step trend")
+plot_current_and_reference(axes[0, 0], "scaled_steps", "steps", "average_reward", "rolling_reward", "raw", "trend", current_colors["reward"])
+plot_split_trunk_trend(axes[0, 0], "steps", "rolling_reward", split_trunk_trend_color)
 axes[0, 0].set_title("Average Reward vs Step")
-axes[0, 0].set_xlabel("Step")
+axes[0, 0].set_xlabel("Reference-Equivalent Step")
 axes[0, 0].set_ylabel("Average Reward")
 style_axis(axes[0, 0])
+clip_x_axis(axes[0, 0])
+clip_visible_y_max(axes[0, 0])
 axes[0, 0].legend(frameon=False)
 
-axes[0, 1].plot(wall_clock_seconds, average_reward, linewidth=1.15, color=current_colors["reward"], alpha=0.24, label="Current raw")
-axes[0, 1].plot(wall_clock_seconds, rolling_reward, linewidth=2.8, color=current_colors["reward"], label="Current 5-step trend")
+plot_current_and_reference(axes[0, 1], "wall_clock_seconds", "wall_clock_seconds", "average_reward", "rolling_reward", "raw", "trend", current_colors["reward"])
+plot_split_trunk_trend(axes[0, 1], "wall_clock_seconds", "rolling_reward", split_trunk_trend_color)
 axes[0, 1].set_title("Average Reward vs Wall Clock")
 axes[0, 1].set_xlabel("Seconds")
 axes[0, 1].set_ylabel("Average Reward")
 style_axis(axes[0, 1])
+clip_x_axis(axes[0, 1])
+clip_visible_y_max(axes[0, 1])
 axes[0, 1].legend(frameon=False)
 
-axes[1, 0].plot(steps, average_move_entropy, linewidth=1.15, color=current_colors["entropy"], alpha=0.24, label="Current raw")
-axes[1, 0].plot(steps, rolling_entropy, linewidth=2.8, color=current_colors["entropy"], label="Current 5-step trend")
+plot_current_and_reference(axes[1, 0], "scaled_steps", "steps", "average_move_entropy", "rolling_entropy", "raw", "trend", current_colors["entropy"])
+plot_split_trunk_trend(axes[1, 0], "steps", "rolling_entropy", split_trunk_trend_color)
 axes[1, 0].set_title("Average Move Entropy vs Step")
-axes[1, 0].set_xlabel("Step")
+axes[1, 0].set_xlabel("Reference-Equivalent Step")
 axes[1, 0].set_ylabel("Entropy")
 style_axis(axes[1, 0])
+clip_x_axis(axes[1, 0])
+clip_visible_y_max(axes[1, 0])
 axes[1, 0].legend(frameon=False)
 
-axes[1, 1].plot(steps, value_mse_mean, linewidth=1.15, color=current_colors["value"], alpha=0.24, label="Current raw")
-axes[1, 1].plot(steps, rolling_value_mse, linewidth=2.8, color=current_colors["value"], label="Current 5-step trend")
+plot_current_and_reference(axes[1, 1], "scaled_steps", "steps", "value_mse_mean", "rolling_value_mse", "raw", "trend", current_colors["value"])
+plot_split_trunk_trend(axes[1, 1], "steps", "rolling_value_mse", split_trunk_trend_color)
 axes[1, 1].set_title("Value MSE vs Step")
-axes[1, 1].set_xlabel("Step")
+axes[1, 1].set_xlabel("Reference-Equivalent Step")
 axes[1, 1].set_ylabel("MSE")
 axes[1, 1].set_yscale("log")
 style_axis(axes[1, 1])
+clip_x_axis(axes[1, 1])
+clip_visible_y_max(axes[1, 1])
 axes[1, 1].legend(frameon=False)
 
-axes[2, 0].plot(steps, policy_loss_mean, linewidth=2.2, color=current_colors["loss"], label="Current")
+axes[2, 0].plot(current["scaled_steps"], current["policy_loss_mean"], linewidth=2.2, color=current_colors["loss"], label="Current")
+if previous is not None:
+    axes[2, 0].plot(previous["steps"], previous["policy_loss_mean"], linewidth=2.0, color=previous_trend_color, label="Previous")
+if split_trunk is not None:
+    axes[2, 0].plot(split_trunk["steps"], split_trunk["policy_loss_mean"], linewidth=2.0, color=split_trunk_trend_color, linestyle="--", label="Split trunk")
 axes[2, 0].set_title("Policy Loss vs Step")
-axes[2, 0].set_xlabel("Step")
+axes[2, 0].set_xlabel("Reference-Equivalent Step")
 axes[2, 0].set_ylabel("Loss")
 style_axis(axes[2, 0])
+clip_x_axis(axes[2, 0])
+clip_visible_y_max(axes[2, 0])
 axes[2, 0].legend(frameon=False)
 
-axes[2, 1].plot(steps, wall_clock_seconds, linewidth=2.2, color=current_colors["wall"], label="Current wall")
-axes[2, 1].plot(steps, completed_game_count, linewidth=2.2, color=current_colors["games"], label="Current games")
+axes[2, 1].plot(current["scaled_steps"], current["wall_clock_seconds"], linewidth=2.2, color=current_colors["wall"], label="Current wall")
+axes[2, 1].plot(current["scaled_steps"], current["completed_game_count"], linewidth=2.2, color=current_colors["games"], label="Current games")
+if previous is not None:
+    axes[2, 1].plot(previous["steps"], previous["wall_clock_seconds"], linewidth=1.8, color=previous_raw_color, alpha=0.75, label="Previous wall")
+    axes[2, 1].plot(previous["steps"], previous["completed_game_count"], linewidth=1.8, color=previous_trend_color, alpha=0.75, label="Previous games")
+if split_trunk is not None:
+    axes[2, 1].plot(split_trunk["steps"], split_trunk["wall_clock_seconds"], linewidth=1.8, color=split_trunk_trend_color, alpha=0.6, linestyle="--", label="Split trunk wall")
+    axes[2, 1].plot(split_trunk["steps"], split_trunk["completed_game_count"], linewidth=1.8, color=split_trunk_trend_color, alpha=0.85, linestyle="--", label="Split trunk games")
 axes[2, 1].set_title("Wall Clock and Completed Games")
-axes[2, 1].set_xlabel("Step")
+axes[2, 1].set_xlabel("Reference-Equivalent Step")
 style_axis(axes[2, 1])
+clip_x_axis(axes[2, 1])
+clip_visible_y_max(axes[2, 1])
 axes[2, 1].legend(frameon=False, ncol=2)
 
-axes[3, 0].plot(steps, learning_rate, linewidth=1.15, color=current_colors["lr"], alpha=0.24, label="Current raw")
-axes[3, 0].plot(steps, rolling_learning_rate, linewidth=2.8, color=current_colors["lr"], label="Current 5-step trend")
+plot_current_and_reference(axes[3, 0], "scaled_steps", "steps", "learning_rate", "rolling_learning_rate", "raw", "trend", current_colors["lr"])
+plot_split_trunk_trend(axes[3, 0], "steps", "rolling_learning_rate", split_trunk_trend_color)
 axes[3, 0].set_title("Learning Rate vs Step")
-axes[3, 0].set_xlabel("Step")
+axes[3, 0].set_xlabel("Reference-Equivalent Step")
 axes[3, 0].set_ylabel("Learning Rate")
 style_axis(axes[3, 0])
+clip_x_axis(axes[3, 0])
+clip_visible_y_max(axes[3, 0])
 axes[3, 0].legend(frameon=False)
 
-axes[3, 1].plot(wall_clock_seconds, learning_rate, linewidth=1.15, color=current_colors["lr"], alpha=0.24, label="Current raw")
-axes[3, 1].plot(wall_clock_seconds, rolling_learning_rate, linewidth=2.8, color=current_colors["lr"], label="Current 5-step trend")
+plot_current_and_reference(axes[3, 1], "wall_clock_seconds", "wall_clock_seconds", "learning_rate", "rolling_learning_rate", "raw", "trend", current_colors["lr"])
+plot_split_trunk_trend(axes[3, 1], "wall_clock_seconds", "rolling_learning_rate", split_trunk_trend_color)
 axes[3, 1].set_title("Learning Rate vs Wall Clock")
 axes[3, 1].set_xlabel("Seconds")
 axes[3, 1].set_ylabel("Learning Rate")
 style_axis(axes[3, 1])
+clip_x_axis(axes[3, 1])
+clip_visible_y_max(axes[3, 1])
 axes[3, 1].legend(frameon=False)
 
-figure.suptitle("PPO Training Overview", fontsize=16, y=1.02)
+axes[4, 0].plot(current["average_move_entropy"], current["average_reward"], linewidth=1.15, color=current_colors["reward"], alpha=0.24, label="Current raw")
+axes[4, 0].plot(current["rolling_entropy"], current["rolling_reward"], linewidth=2.8, color=current_colors["reward"], label="Current centered trend")
+if previous is not None:
+    axes[4, 0].plot(previous["average_move_entropy"], previous["average_reward"], linewidth=1.0, color=previous_raw_color, alpha=0.22, label="Previous raw")
+    axes[4, 0].plot(previous["rolling_entropy"], previous["rolling_reward"], linewidth=2.2, color=previous_trend_color, alpha=0.92, label="Previous centered trend")
+if split_trunk is not None:
+    axes[4, 0].plot(split_trunk["rolling_entropy"], split_trunk["rolling_reward"], linewidth=2.0, color=split_trunk_trend_color, alpha=0.9, linestyle="--", label="Split trunk centered trend")
+axes[4, 0].set_title("Average Reward vs Entropy")
+axes[4, 0].set_xlabel("Entropy")
+axes[4, 0].set_ylabel("Average Reward")
+style_axis(axes[4, 0])
+axes[4, 0].legend(frameon=False)
+
+axes[4, 1].axis("off")
+
+figure.suptitle("CISPO Training Overview", fontsize=16, y=1.02)
 plt.show()
 """));
 

@@ -20,28 +20,33 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
     static readonly long[,] PlayedHandMaskData = BuildHandMaskData(playedCards: true);
     static readonly long[,] RemainingHandMaskData = BuildHandMaskData(playedCards: false);
 
-    readonly BilinearOneHotScoreEmbedder _scoreEmbedding = new();
-    readonly Linear _stateProjection = Linear(TrunkStateFeatureWidth, TrunkWidth, device: EvalDevice);
-    readonly ModuleList<GeluResidualBlock> _stateResidualBlocks = new();
-    readonly Linear _compressedStateProjection = Linear(TrunkWidth, CompactWidth, device: EvalDevice);
+    readonly BilinearOneHotScoreEmbedder _roundScoreEmbedding = new();
+    readonly Linear _roundStateProjection = Linear(TrunkStateFeatureWidth, TrunkWidth, device: EvalDevice);
+    readonly ModuleList<GeluResidualBlock> _roundStateResidualBlocks = new();
+    readonly Linear _roundCompressedStateProjection = Linear(TrunkWidth, CompactWidth, device: EvalDevice);
+    readonly GELU _roundStateActivation = GELU();
+    readonly Linear _roundMoveOnlyProjection = Linear(MoveOnlyFeatureWidth, CompactWidth, device: EvalDevice);
+    readonly GELU _roundMoveMergeActivation = GELU();
+    readonly GeluResidualBlock _roundMoveResidualBlock = new(width: CompactWidth, hiddenWidth: CompactWidth, device: EvalDevice);
+    readonly Linear _roundMoveOutputProjection = Linear(CompactWidth, 1, device: EvalDevice);
+    readonly Linear _roundValueHead = Linear(TrunkWidth, 1, device: EvalDevice);
+    readonly BilinearOneHotScoreEmbedder _storeScoreEmbedding = new();
+    readonly Linear _storeStateProjection = Linear(TrunkStateFeatureWidth, TrunkWidth, device: EvalDevice);
+    readonly ModuleList<GeluResidualBlock> _storeStateResidualBlocks = new();
     readonly Linear _storeCompressedStateProjection = Linear(TrunkWidth, CompactWidth, device: EvalDevice);
-    readonly GELU _stateActivation = GELU();
-    readonly Linear _moveOnlyProjection = Linear(MoveOnlyFeatureWidth, CompactWidth, device: EvalDevice);
-    readonly GELU _moveMergeActivation = GELU();
-    readonly GeluResidualBlock _moveResidualBlock = new(width: CompactWidth, hiddenWidth: CompactWidth, device: EvalDevice);
-    readonly Linear _moveOutputProjection = Linear(CompactWidth, 1, device: EvalDevice);
+    readonly GELU _storeStateActivation = GELU();
     readonly Embedding _storeActionEmbedding = Embedding(StoreSpecialActionCount, CompactWidth, device: EvalDevice);
     readonly Embedding _storeJokerEmbedding = Embedding(JokerCountWidth + 1, CompactWidth, device: EvalDevice);
     readonly Embedding _storePriceEmbedding = Embedding(MaxStorePrice + 1, CompactWidth, device: EvalDevice);
     readonly GELU _storeMergeActivation = GELU();
     readonly GeluResidualBlock _storeResidualBlock = new(width: CompactWidth, hiddenWidth: CompactWidth, device: EvalDevice);
     readonly Linear _storeOutputProjection = Linear(CompactWidth, 1, device: EvalDevice);
-    readonly Linear _valueHead = Linear(TrunkWidth, 1, device: EvalDevice);
+    readonly Linear _storeValueHead = Linear(TrunkWidth, 1, device: EvalDevice);
     readonly Tensor _playedHandMask;
     readonly Tensor _remainingHandMask;
 
-    const int TrunkWidth = 512;
-    const int TrunkHiddenWidth = 1024;
+    const int TrunkWidth = 768;
+    const int TrunkHiddenWidth = 2000;
     const int CompactWidth = 256;
     const int CardCountWidth = Card.RankCount * Card.SuitCount;
     const int CountWidth = 20;
@@ -70,7 +75,11 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
 
         for (int blockIndex = 0; blockIndex < TrunkResidualBlockCount; ++blockIndex)
         {
-            _stateResidualBlocks.append(new GeluResidualBlock(
+            _roundStateResidualBlocks.append(new GeluResidualBlock(
+                width: TrunkWidth,
+                hiddenWidth: TrunkHiddenWidth,
+                device: EvalDevice));
+            _storeStateResidualBlocks.append(new GeluResidualBlock(
                 width: TrunkWidth,
                 hiddenWidth: TrunkHiddenWidth,
                 device: EvalDevice));
@@ -97,30 +106,135 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
 
     public Tensor GetStorePolicyLogits(GameStateTensors gameStateTensors)
     {
+        return GetStorePolicyLogits(
+            gameStateTensors: gameStateTensors,
+            scoreEmbedding: _storeScoreEmbedding,
+            stateProjection: _storeStateProjection,
+            stateResidualBlocks: _storeStateResidualBlocks,
+            compressedStateProjection: _storeCompressedStateProjection,
+            stateActivation: _storeStateActivation,
+            storeActionEmbedding: _storeActionEmbedding,
+            storeJokerEmbedding: _storeJokerEmbedding,
+            storePriceEmbedding: _storePriceEmbedding,
+            storeMergeActivation: _storeMergeActivation,
+            storeResidualBlock: _storeResidualBlock,
+            storeOutputProjection: _storeOutputProjection);
+    }
+
+
+    public (Tensor logits, Tensor values) GetPolicyLogitsAndValues(GameStateTensors gameStateTensors, UseHandTensors useHandTensors)
+    {
+        return GetPolicyLogitsAndValues(
+            gameStateTensors: gameStateTensors,
+            useHandTensors: useHandTensors,
+            playedHandMask: _playedHandMask,
+            remainingHandMask: _remainingHandMask,
+            scoreEmbedding: _roundScoreEmbedding,
+            stateProjection: _roundStateProjection,
+            stateResidualBlocks: _roundStateResidualBlocks,
+            compressedStateProjection: _roundCompressedStateProjection,
+            stateActivation: _roundStateActivation,
+            moveOnlyProjection: _roundMoveOnlyProjection,
+            moveMergeActivation: _roundMoveMergeActivation,
+            moveResidualBlock: _roundMoveResidualBlock,
+            moveOutputProjection: _roundMoveOutputProjection,
+            valueHead: _roundValueHead);
+    }
+
+
+    public (Tensor logits, Tensor values) GetSelectedPolicyLogitsAndValues(GameStateTensors gameStateTensors, UseHandTensors useHandTensors, Tensor moveIndices)
+    {
+        return GetSelectedPolicyLogitsAndValues(
+            gameStateTensors: gameStateTensors,
+            useHandTensors: useHandTensors,
+            moveIndices: moveIndices,
+            playedHandMask: _playedHandMask,
+            remainingHandMask: _remainingHandMask,
+            scoreEmbedding: _roundScoreEmbedding,
+            stateProjection: _roundStateProjection,
+            stateResidualBlocks: _roundStateResidualBlocks,
+            compressedStateProjection: _roundCompressedStateProjection,
+            stateActivation: _roundStateActivation,
+            moveOnlyProjection: _roundMoveOnlyProjection,
+            moveMergeActivation: _roundMoveMergeActivation,
+            moveResidualBlock: _roundMoveResidualBlock,
+            moveOutputProjection: _roundMoveOutputProjection,
+            valueHead: _roundValueHead);
+    }
+
+
+    public Tensor GetValues(GameStateTensors gameStateTensors)
+    {
         using var scope = NewDisposeScope();
 
-        (_, Tensor trunkState) = EncodeState(gameStateTensors);
-        Tensor compactState = _stateActivation.forward(_storeCompressedStateProjection.forward(trunkState));
+        Tensor roundValues = GetValues(
+            gameStateTensors: gameStateTensors,
+            scoreEmbedding: _roundScoreEmbedding,
+            stateProjection: _roundStateProjection,
+            stateResidualBlocks: _roundStateResidualBlocks,
+            compressedStateProjection: _roundCompressedStateProjection,
+            stateActivation: _roundStateActivation,
+            valueHead: _roundValueHead);
+        Tensor storeValues = GetValues(
+            gameStateTensors: gameStateTensors,
+            scoreEmbedding: _storeScoreEmbedding,
+            stateProjection: _storeStateProjection,
+            stateResidualBlocks: _storeStateResidualBlocks,
+            compressedStateProjection: _storeCompressedStateProjection,
+            stateActivation: _storeStateActivation,
+            valueHead: _storeValueHead);
+        Tensor stageValues = gameStateTensors.Stage.to(EvalDevice).to_type(ScalarType.Int64);
+        Tensor storeMask = stageValues.eq((long)StageOfGame.InShop).to_type(ScalarType.Float32);
+        Tensor values = roundValues * (1f - storeMask) + storeValues * storeMask;
+        values.MoveToOuterDisposeScope();
+        return values;
+    }
+
+
+    static Tensor GetStorePolicyLogits(
+        GameStateTensors gameStateTensors,
+        BilinearOneHotScoreEmbedder scoreEmbedding,
+        Linear stateProjection,
+        ModuleList<GeluResidualBlock> stateResidualBlocks,
+        Linear compressedStateProjection,
+        GELU stateActivation,
+        Embedding storeActionEmbedding,
+        Embedding storeJokerEmbedding,
+        Embedding storePriceEmbedding,
+        GELU storeMergeActivation,
+        GeluResidualBlock storeResidualBlock,
+        Linear storeOutputProjection)
+    {
+        using var scope = NewDisposeScope();
+
+        (_, Tensor trunkState) = EncodeState(
+            gameStateTensors: gameStateTensors,
+            scoreEmbedding: scoreEmbedding,
+            stateProjection: stateProjection,
+            stateResidualBlocks: stateResidualBlocks,
+            compressedStateProjection: compressedStateProjection,
+            stateActivation: stateActivation);
+        Tensor compactState = stateActivation.forward(compressedStateProjection.forward(trunkState));
         Tensor storeJokerIndices = gameStateTensors.StoreJokers.to(EvalDevice).to_type(ScalarType.Int64);
         int batchSize = (int)storeJokerIndices.size(0);
 
         Tensor exitIndices = zeros([batchSize], dtype: ScalarType.Int64, device: EvalDevice);
         Tensor rerollIndices = ones([batchSize], dtype: ScalarType.Int64, device: EvalDevice);
-        Tensor exitInputs = compactState + _storeActionEmbedding.forward(exitIndices);
+        Tensor exitInputs = compactState + storeActionEmbedding.forward(exitIndices);
         Tensor rerollInputs = compactState +
-            _storeActionEmbedding.forward(rerollIndices) +
-            EncodeStorePriceEmbeddings(gameStateTensors.RerollPrice.to(EvalDevice));
+            storeActionEmbedding.forward(rerollIndices) +
+            EncodeStorePriceEmbeddings(gameStateTensors.RerollPrice.to(EvalDevice), storePriceEmbedding);
 
-        Tensor storeJokerEmbeddings = _storeJokerEmbedding.forward(storeJokerIndices);
-        Tensor storePriceEmbeddings = EncodeStorePriceEmbeddings(gameStateTensors.StorePrices.to(EvalDevice));
+        Tensor storeJokerEmbeddings = storeJokerEmbedding.forward(storeJokerIndices);
+        Tensor storePriceEmbeddings = EncodeStorePriceEmbeddings(gameStateTensors.StorePrices.to(EvalDevice), storePriceEmbedding);
         Tensor expandedCompactState = compactState
             .unsqueeze(1)
             .expand(batchSize, GameStateEmbedder.MaxStoreJokerCount, CompactWidth);
         Tensor buyInputs = expandedCompactState + storeJokerEmbeddings + storePriceEmbeddings;
 
         Tensor specialInputs = stack([exitInputs, rerollInputs], dim: 1);
-        Tensor specialLogits = ScoreStoreFeatures(specialInputs).squeeze(-1);
-        Tensor buyLogits = ScoreStoreFeatures(buyInputs).squeeze(-1);
+        Tensor specialLogits = ScoreStoreFeatures(specialInputs, storeMergeActivation, storeResidualBlock, storeOutputProjection).squeeze(-1);
+        Tensor buyLogits = ScoreStoreFeatures(buyInputs, storeMergeActivation, storeResidualBlock, storeOutputProjection).squeeze(-1);
         Tensor nullMask = storeJokerIndices.eq(0).to_type(ScalarType.Float32) * -1e9f;
         Tensor logits = cat([specialLogits, buyLogits + nullMask], dim: 1);
         logits.MoveToOuterDisposeScope();
@@ -128,21 +242,41 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
     }
 
 
-    public (Tensor logits, Tensor values) GetPolicyLogitsAndValues(GameStateTensors gameStateTensors, UseHandTensors useHandTensors)
+    static (Tensor logits, Tensor values) GetPolicyLogitsAndValues(
+        GameStateTensors gameStateTensors,
+        UseHandTensors useHandTensors,
+        Tensor playedHandMask,
+        Tensor remainingHandMask,
+        BilinearOneHotScoreEmbedder scoreEmbedding,
+        Linear stateProjection,
+        ModuleList<GeluResidualBlock> stateResidualBlocks,
+        Linear compressedStateProjection,
+        GELU stateActivation,
+        Linear moveOnlyProjection,
+        GELU moveMergeActivation,
+        GeluResidualBlock moveResidualBlock,
+        Linear moveOutputProjection,
+        Linear valueHead)
     {
         using var scope = NewDisposeScope();
 
-        (Tensor compactState, Tensor trunkState) = EncodeState(gameStateTensors);
+        (Tensor compactState, Tensor trunkState) = EncodeState(
+            gameStateTensors: gameStateTensors,
+            scoreEmbedding: scoreEmbedding,
+            stateProjection: stateProjection,
+            stateResidualBlocks: stateResidualBlocks,
+            compressedStateProjection: compressedStateProjection,
+            stateActivation: stateActivation);
         Tensor playedHandEmbeddings = BuildHandEmbeddings(
             fullHand: gameStateTensors.FullHand.to(EvalDevice),
-            handMask: _playedHandMask);
+            handMask: playedHandMask);
         Tensor remainingHandEmbeddings = BuildHandEmbeddings(
             fullHand: gameStateTensors.FullHand.to(EvalDevice),
-            handMask: _remainingHandMask);
-        Tensor preScoreEmbedding = _scoreEmbedding
+            handMask: remainingHandMask);
+        Tensor preScoreEmbedding = scoreEmbedding
             .forward(gameStateTensors.Score.to(EvalDevice) * 300f)
             .squeeze(1);
-        Tensor postPlayScoreEmbedding = _scoreEmbedding.forward(useHandTensors.Score.to(EvalDevice) * 300f);
+        Tensor postPlayScoreEmbedding = scoreEmbedding.forward(useHandTensors.Score.to(EvalDevice) * 300f);
         Tensor remainingHands = gameStateTensors.RemainingHands.to(EvalDevice).to_type(ScalarType.Int64);
         Tensor remainingDiscards = gameStateTensors.RemainingDiscards.to(EvalDevice).to_type(ScalarType.Int64);
         Tensor playPostCountEmbedding = ExpandAcrossMoves(
@@ -172,17 +306,32 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
                 discardPostCountEmbedding,
             ],
             dim: -1);
-        Tensor playLogits = ScoreMoveFeatures(playFeatures).squeeze(-1);
-        Tensor discardLogits = ScoreMoveFeatures(discardFeatures).squeeze(-1);
+        Tensor playLogits = ScoreMoveFeatures(playFeatures, moveOnlyProjection, moveMergeActivation, moveResidualBlock, moveOutputProjection).squeeze(-1);
+        Tensor discardLogits = ScoreMoveFeatures(discardFeatures, moveOnlyProjection, moveMergeActivation, moveResidualBlock, moveOutputProjection).squeeze(-1);
         Tensor logits = stack([playLogits, discardLogits], dim: 2).view([playLogits.size(0), MoveCount]);
-        Tensor values = _valueHead.forward(trunkState).squeeze(-1);
+        Tensor values = valueHead.forward(trunkState).squeeze(-1);
         logits.MoveToOuterDisposeScope();
         values.MoveToOuterDisposeScope();
         return (logits, values);
     }
 
 
-    public (Tensor logits, Tensor values) GetSelectedPolicyLogitsAndValues(GameStateTensors gameStateTensors, UseHandTensors useHandTensors, Tensor moveIndices)
+    static (Tensor logits, Tensor values) GetSelectedPolicyLogitsAndValues(
+        GameStateTensors gameStateTensors,
+        UseHandTensors useHandTensors,
+        Tensor moveIndices,
+        Tensor playedHandMask,
+        Tensor remainingHandMask,
+        BilinearOneHotScoreEmbedder scoreEmbedding,
+        Linear stateProjection,
+        ModuleList<GeluResidualBlock> stateResidualBlocks,
+        Linear compressedStateProjection,
+        GELU stateActivation,
+        Linear moveOnlyProjection,
+        GELU moveMergeActivation,
+        GeluResidualBlock moveResidualBlock,
+        Linear moveOutputProjection,
+        Linear valueHead)
     {
         using var scope = NewDisposeScope();
 
@@ -191,19 +340,25 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
         Tensor selectedActionIndices = selectedMoveIndices.remainder(2).to_type(ScalarType.Int64);
         int selectedMoveCount = (int)selectedMoveIndices.size(1);
 
-        (Tensor compactState, Tensor trunkState) = EncodeState(gameStateTensors);
+        (Tensor compactState, Tensor trunkState) = EncodeState(
+            gameStateTensors: gameStateTensors,
+            scoreEmbedding: scoreEmbedding,
+            stateProjection: stateProjection,
+            stateResidualBlocks: stateResidualBlocks,
+            compressedStateProjection: compressedStateProjection,
+            stateActivation: stateActivation);
         Tensor selectedPlayedHandEmbeddings = BuildSelectedHandEmbeddings(
             fullHand: gameStateTensors.FullHand.to(EvalDevice),
-            handMask: _playedHandMask,
+            handMask: playedHandMask,
             selectedHandIndices: selectedHandIndices);
         Tensor selectedRemainingHandEmbeddings = BuildSelectedHandEmbeddings(
             fullHand: gameStateTensors.FullHand.to(EvalDevice),
-            handMask: _remainingHandMask,
+            handMask: remainingHandMask,
             selectedHandIndices: selectedHandIndices);
-        Tensor preScoreEmbedding = _scoreEmbedding
+        Tensor preScoreEmbedding = scoreEmbedding
             .forward(gameStateTensors.Score.to(EvalDevice) * 300f)
             .squeeze(1);
-        Tensor selectedPostPlayScoreEmbedding = _scoreEmbedding
+        Tensor selectedPostPlayScoreEmbedding = scoreEmbedding
             .forward(useHandTensors.Score.to(EvalDevice).gather(dim: 1, index: selectedHandIndices) * 300f);
         Tensor remainingHands = gameStateTensors.RemainingHands.to(EvalDevice).to_type(ScalarType.Int64);
         Tensor remainingDiscards = gameStateTensors.RemainingDiscards.to(EvalDevice).to_type(ScalarType.Int64);
@@ -236,8 +391,8 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
             dim: -1);
         Tensor discardActionMask = selectedActionIndices.to_type(ScalarType.Float32).unsqueeze(-1);
         Tensor mixedFeatures = playFeatures * (1f - discardActionMask) + discardFeatures * discardActionMask;
-        Tensor selectedLogits = ScoreMoveFeatures(mixedFeatures).squeeze(-1);
-        Tensor values = _valueHead.forward(trunkState).squeeze(-1);
+        Tensor selectedLogits = ScoreMoveFeatures(mixedFeatures, moveOnlyProjection, moveMergeActivation, moveResidualBlock, moveOutputProjection).squeeze(-1);
+        Tensor values = valueHead.forward(trunkState).squeeze(-1);
 
         selectedLogits.MoveToOuterDisposeScope();
         values.MoveToOuterDisposeScope();
@@ -245,12 +400,25 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
     }
 
 
-    public Tensor GetValues(GameStateTensors gameStateTensors)
+    static Tensor GetValues(
+        GameStateTensors gameStateTensors,
+        BilinearOneHotScoreEmbedder scoreEmbedding,
+        Linear stateProjection,
+        ModuleList<GeluResidualBlock> stateResidualBlocks,
+        Linear compressedStateProjection,
+        GELU stateActivation,
+        Linear valueHead)
     {
         using var scope = NewDisposeScope();
 
-        (_, Tensor trunkState) = EncodeState(gameStateTensors);
-        Tensor values = _valueHead.forward(trunkState).squeeze(-1);
+        (_, Tensor trunkState) = EncodeState(
+            gameStateTensors: gameStateTensors,
+            scoreEmbedding: scoreEmbedding,
+            stateProjection: stateProjection,
+            stateResidualBlocks: stateResidualBlocks,
+            compressedStateProjection: compressedStateProjection,
+            stateActivation: stateActivation);
+        Tensor values = valueHead.forward(trunkState).squeeze(-1);
         values.MoveToOuterDisposeScope();
         return values;
     }
@@ -268,34 +436,40 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
     }
 
 
-    Tensor ScoreMoveFeatures(Tensor input)
+    static Tensor ScoreMoveFeatures(Tensor input, Linear moveOnlyProjection, GELU moveMergeActivation, GeluResidualBlock moveResidualBlock, Linear moveOutputProjection)
     {
         using var scope = NewDisposeScope();
 
         Tensor compactStream = input[.., .., ..CompactWidth];
         Tensor moveOnlyFeatures = input[.., .., CompactWidth..];
-        Tensor residualStream = compactStream + _moveOnlyProjection.forward(moveOnlyFeatures);
-        residualStream = _moveMergeActivation.forward(residualStream);
-        residualStream = _moveResidualBlock.forward(residualStream);
-        Tensor output = _moveOutputProjection.forward(residualStream);
+        Tensor residualStream = compactStream + moveOnlyProjection.forward(moveOnlyFeatures);
+        residualStream = moveResidualBlock.forward(residualStream);
+        residualStream = moveMergeActivation.forward(residualStream);
+        Tensor output = moveOutputProjection.forward(residualStream);
         output.MoveToOuterDisposeScope();
         return output;
     }
 
 
-    Tensor ScoreStoreFeatures(Tensor input)
+    static Tensor ScoreStoreFeatures(Tensor input, GELU storeMergeActivation, GeluResidualBlock storeResidualBlock, Linear storeOutputProjection)
     {
         using var scope = NewDisposeScope();
 
-        Tensor residualStream = _storeMergeActivation.forward(input);
-        residualStream = _storeResidualBlock.forward(residualStream);
-        Tensor output = _storeOutputProjection.forward(residualStream);
+        Tensor residualStream = storeMergeActivation.forward(input);
+        residualStream = storeResidualBlock.forward(residualStream);
+        Tensor output = storeOutputProjection.forward(residualStream);
         output.MoveToOuterDisposeScope();
         return output;
     }
 
 
-    (Tensor compactState, Tensor trunkState) EncodeState(GameStateTensors gameStateTensors)
+    static (Tensor compactState, Tensor trunkState) EncodeState(
+        GameStateTensors gameStateTensors,
+        BilinearOneHotScoreEmbedder scoreEmbedding,
+        Linear stateProjection,
+        ModuleList<GeluResidualBlock> stateResidualBlocks,
+        Linear compressedStateProjection,
+        GELU stateActivation)
     {
         using var scope = NewDisposeScope();
 
@@ -306,7 +480,7 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
         Tensor moneyEmbedding = EncodeMoneyState(gameStateTensors.Money.to(EvalDevice));
         Tensor roundEmbedding = EncodeRoundState(gameStateTensors.Round.to(EvalDevice));
         Tensor stageEmbedding = EncodeStageState(gameStateTensors.Stage.to(EvalDevice));
-        Tensor scoreEmbedding = _scoreEmbedding.forward(gameStateTensors.Score.to(EvalDevice) * 300f).squeeze(1);
+        Tensor scoreEmbeddingValue = scoreEmbedding.forward(gameStateTensors.Score.to(EvalDevice) * 300f).squeeze(1);
         Tensor countEmbedding = EncodeCountState(
             remainingHands: gameStateTensors.RemainingHands.to(EvalDevice).to_type(ScalarType.Int64),
             remainingDiscards: gameStateTensors.RemainingDiscards.to(EvalDevice).to_type(ScalarType.Int64));
@@ -320,22 +494,22 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
                 moneyEmbedding,
                 roundEmbedding,
                 stageEmbedding,
-                scoreEmbedding,
+                scoreEmbeddingValue,
                 countEmbedding,
             ],
             dim: -1);
-        Tensor trunkState = _stateProjection.forward(stateFeatures);
-        for (int blockIndex = 0; blockIndex < _stateResidualBlocks.Count; ++blockIndex)
-            trunkState = _stateResidualBlocks[blockIndex].forward(trunkState);
+        Tensor trunkState = stateProjection.forward(stateFeatures);
+        for (int blockIndex = 0; blockIndex < stateResidualBlocks.Count; ++blockIndex)
+            trunkState = stateResidualBlocks[blockIndex].forward(trunkState);
 
-        Tensor compactState = _stateActivation.forward(_compressedStateProjection.forward(trunkState));
+        Tensor compactState = stateActivation.forward(compressedStateProjection.forward(trunkState));
         compactState.MoveToOuterDisposeScope();
         trunkState.MoveToOuterDisposeScope();
         return (compactState, trunkState);
     }
 
 
-    Tensor BuildHandEmbeddings(Tensor fullHand, Tensor handMask)
+    static Tensor BuildHandEmbeddings(Tensor fullHand, Tensor handMask)
     {
         using var scope = NewDisposeScope();
 
@@ -349,7 +523,7 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
     }
 
 
-    Tensor BuildSelectedHandEmbeddings(Tensor fullHand, Tensor handMask, Tensor selectedHandIndices)
+    static Tensor BuildSelectedHandEmbeddings(Tensor fullHand, Tensor handMask, Tensor selectedHandIndices)
     {
         using var scope = NewDisposeScope();
 
@@ -366,7 +540,7 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
     }
 
 
-    Tensor EncodeCardCounts(Tensor cardSet)
+    static Tensor EncodeCardCounts(Tensor cardSet)
     {
         using var scope = NewDisposeScope();
 
@@ -381,7 +555,7 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
     }
 
 
-    Tensor EncodeJokerCounts(Tensor jokerSet)
+    static Tensor EncodeJokerCounts(Tensor jokerSet)
     {
         using var scope = NewDisposeScope();
 
@@ -396,7 +570,7 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
     }
 
 
-    Tensor EncodeCountState(Tensor remainingHands, Tensor remainingDiscards)
+    static Tensor EncodeCountState(Tensor remainingHands, Tensor remainingDiscards)
     {
         using var scope = NewDisposeScope();
 
@@ -407,18 +581,18 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
     }
 
 
-    Tensor EncodeStorePriceEmbeddings(Tensor price)
+    static Tensor EncodeStorePriceEmbeddings(Tensor price, Embedding storePriceEmbedding)
     {
         using var scope = NewDisposeScope();
 
         Tensor clampedPrices = price.to_type(ScalarType.Int64).clamp(0, MaxStorePrice);
-        Tensor encoded = _storePriceEmbedding.forward(clampedPrices);
+        Tensor encoded = storePriceEmbedding.forward(clampedPrices);
         encoded.MoveToOuterDisposeScope();
         return encoded;
     }
 
 
-    Tensor EncodeMoneyState(Tensor money)
+    static Tensor EncodeMoneyState(Tensor money)
     {
         using var scope = NewDisposeScope();
 
@@ -438,7 +612,7 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
     }
 
 
-    Tensor EncodeRoundState(Tensor round)
+    static Tensor EncodeRoundState(Tensor round)
     {
         using var scope = NewDisposeScope();
 
@@ -451,7 +625,7 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
     }
 
 
-    Tensor EncodeStageState(Tensor stage)
+    static Tensor EncodeStageState(Tensor stage)
     {
         using var scope = NewDisposeScope();
 
