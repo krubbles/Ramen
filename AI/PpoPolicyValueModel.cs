@@ -26,6 +26,8 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
     readonly Linear _roundCompressedStateProjection = Linear(TrunkWidth, CompactWidth, device: EvalDevice);
     readonly GELU _roundStateActivation = GELU();
     readonly Linear _roundMoveOnlyProjection = Linear(MoveOnlyFeatureWidth, CompactWidth, device: EvalDevice);
+    readonly LayerNorm _roundCompactStateLayerNorm = LayerNorm(CompactWidth, device: EvalDevice);
+    readonly LayerNorm _roundMoveOnlyLayerNorm = LayerNorm(CompactWidth, device: EvalDevice);
     readonly GELU _roundMoveMergeActivation = GELU();
     readonly GeluResidualBlock _roundMoveResidualBlock = new(width: CompactWidth, hiddenWidth: CompactWidth, device: EvalDevice);
     readonly Linear _roundMoveOutputProjection = Linear(CompactWidth, 1, device: EvalDevice);
@@ -135,6 +137,8 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
             compressedStateProjection: _roundCompressedStateProjection,
             stateActivation: _roundStateActivation,
             moveOnlyProjection: _roundMoveOnlyProjection,
+            compactStateLayerNorm: _roundCompactStateLayerNorm,
+            moveOnlyLayerNorm: _roundMoveOnlyLayerNorm,
             moveMergeActivation: _roundMoveMergeActivation,
             moveResidualBlock: _roundMoveResidualBlock,
             moveOutputProjection: _roundMoveOutputProjection,
@@ -156,6 +160,8 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
             compressedStateProjection: _roundCompressedStateProjection,
             stateActivation: _roundStateActivation,
             moveOnlyProjection: _roundMoveOnlyProjection,
+            compactStateLayerNorm: _roundCompactStateLayerNorm,
+            moveOnlyLayerNorm: _roundMoveOnlyLayerNorm,
             moveMergeActivation: _roundMoveMergeActivation,
             moveResidualBlock: _roundMoveResidualBlock,
             moveOutputProjection: _roundMoveOutputProjection,
@@ -253,6 +259,8 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
         Linear compressedStateProjection,
         GELU stateActivation,
         Linear moveOnlyProjection,
+        LayerNorm compactStateLayerNorm,
+        LayerNorm moveOnlyLayerNorm,
         GELU moveMergeActivation,
         GeluResidualBlock moveResidualBlock,
         Linear moveOutputProjection,
@@ -306,8 +314,8 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
                 discardPostCountEmbedding,
             ],
             dim: -1);
-        Tensor playLogits = ScoreMoveFeatures(playFeatures, moveOnlyProjection, moveMergeActivation, moveResidualBlock, moveOutputProjection).squeeze(-1);
-        Tensor discardLogits = ScoreMoveFeatures(discardFeatures, moveOnlyProjection, moveMergeActivation, moveResidualBlock, moveOutputProjection).squeeze(-1);
+        Tensor playLogits = ScoreMoveFeatures(playFeatures, moveOnlyProjection, compactStateLayerNorm, moveOnlyLayerNorm, moveMergeActivation, moveResidualBlock, moveOutputProjection).squeeze(-1);
+        Tensor discardLogits = ScoreMoveFeatures(discardFeatures, moveOnlyProjection, compactStateLayerNorm, moveOnlyLayerNorm, moveMergeActivation, moveResidualBlock, moveOutputProjection).squeeze(-1);
         Tensor logits = stack([playLogits, discardLogits], dim: 2).view([playLogits.size(0), MoveCount]);
         Tensor values = valueHead.forward(trunkState).squeeze(-1);
         logits.MoveToOuterDisposeScope();
@@ -328,6 +336,8 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
         Linear compressedStateProjection,
         GELU stateActivation,
         Linear moveOnlyProjection,
+        LayerNorm compactStateLayerNorm,
+        LayerNorm moveOnlyLayerNorm,
         GELU moveMergeActivation,
         GeluResidualBlock moveResidualBlock,
         Linear moveOutputProjection,
@@ -391,7 +401,7 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
             dim: -1);
         Tensor discardActionMask = selectedActionIndices.to_type(ScalarType.Float32).unsqueeze(-1);
         Tensor mixedFeatures = playFeatures * (1f - discardActionMask) + discardFeatures * discardActionMask;
-        Tensor selectedLogits = ScoreMoveFeatures(mixedFeatures, moveOnlyProjection, moveMergeActivation, moveResidualBlock, moveOutputProjection).squeeze(-1);
+        Tensor selectedLogits = ScoreMoveFeatures(mixedFeatures, moveOnlyProjection, compactStateLayerNorm, moveOnlyLayerNorm, moveMergeActivation, moveResidualBlock, moveOutputProjection).squeeze(-1);
         Tensor values = valueHead.forward(trunkState).squeeze(-1);
 
         selectedLogits.MoveToOuterDisposeScope();
@@ -436,13 +446,15 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
     }
 
 
-    static Tensor ScoreMoveFeatures(Tensor input, Linear moveOnlyProjection, GELU moveMergeActivation, GeluResidualBlock moveResidualBlock, Linear moveOutputProjection)
+    static Tensor ScoreMoveFeatures(Tensor input, Linear moveOnlyProjection, LayerNorm compactStateLayerNorm, LayerNorm moveOnlyLayerNorm, GELU moveMergeActivation, GeluResidualBlock moveResidualBlock, Linear moveOutputProjection)
     {
         using var scope = NewDisposeScope();
 
         Tensor compactStream = input[.., .., ..CompactWidth];
         Tensor moveOnlyFeatures = input[.., .., CompactWidth..];
-        Tensor residualStream = compactStream + moveOnlyProjection.forward(moveOnlyFeatures);
+        Tensor normalizedCompactStream = compactStateLayerNorm.forward(compactStream);
+        Tensor normalizedMoveOnlyStream = moveOnlyLayerNorm.forward(moveOnlyProjection.forward(moveOnlyFeatures));
+        Tensor residualStream = normalizedCompactStream + normalizedMoveOnlyStream;
         residualStream = moveResidualBlock.forward(residualStream);
         residualStream = moveMergeActivation.forward(residualStream);
         Tensor output = moveOutputProjection.forward(residualStream);
