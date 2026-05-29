@@ -16,14 +16,14 @@ public class PolicyOnlyAgent : IAgent, IDisposable
     /// <summary>
     /// A reference to the policy network used by this agent.
     /// </summary>
-    public readonly IPolicyModel Model;
+    public readonly IPolicyNetwork Model;
 
     /// <summary>
     /// The PS-RNG used by this agent to make decisions like which move to play.
     /// </summary>
     public readonly FastRandom Random;
 
-    public PolicyOnlyAgent(IPolicyModel model, bool ownsModel = false)
+    public PolicyOnlyAgent(IPolicyNetwork model, bool ownsModel = false)
     {
         Model = model;
         _ownsModel = ownsModel;
@@ -107,7 +107,7 @@ public class PolicyOnlyAgent : IAgent, IDisposable
         (GameStateTensors _, UseHandTensors _, Tensor probs) = GetPolicyProbDist(temp, states);
 
         probs = probs.to(CPU);
-        
+
         int batchSize = (int)probs.size(0);
         int moveCount = (int)probs.size(1);
         float[] flat = probs.data<float>().ToArray();
@@ -174,8 +174,8 @@ public class PolicyOnlyAgent : IAgent, IDisposable
     }
 
     /// <summary>
-    /// Returns the policy model's probability distributions for all game states and the generated use-hand tensors. 
-    /// Returned tensors are on the GPU. 
+    /// Returns the policy model's probability distributions for all game states and the generated use-hand tensors.
+    /// Returned tensors are on the GPU.
     /// </summary>
     public (GameStateTensors gameStateTensors, UseHandTensors moveTensors, Tensor probs) GetPolicyProbDist(float temp, params ReadOnlySpan<GameState> gameStates)
     {
@@ -225,7 +225,7 @@ public class PolicyOnlyAgent : IAgent, IDisposable
     {
         using var dscope = NewDisposeScope();
         using var pscope = ProfileScope.New(nameof(BuildDiscardMask));
-        
+
         Profiling.Enter("BuildManaged");
         float[,] mask = new float[gameStates.Length, 2];
         int useHandCount = moveCount / 2;

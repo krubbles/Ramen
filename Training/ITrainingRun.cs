@@ -15,7 +15,7 @@ public interface ITrainingRun
     /// <summary>
     /// Performs a single training step on the provided model.
     /// </summary>
-    public void Step(IPolicyModel model);
+    public void Step(IPolicyNetwork model);
 
     /// <summary>
     /// Repeatedly calls <see cref="Step"> <paramref name="steps"> times. Saves model weight snapshots into [EnvironmentAppData]/Ramen/Weights/[<paramref name="runName">]/[step].bin every <paramref name="samplingFrequency"> steps.

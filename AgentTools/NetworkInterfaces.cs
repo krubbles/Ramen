@@ -37,7 +37,7 @@ public interface IValueNetwork
     /// Returns one advantage value per input game state. Inputs must be batch-first tensors in
     /// <paramref name="gameStateTensors"/>, and the returned tensor must have shape (batch).
     /// </summary>
-    Tensor GetAdvantages(GameStateTensors gameStateTensors);
+    Tensor GetValues(GameStateTensors gameStateTensors);
 
     public void Save(string filePath);
     public void Load(string filePath);
