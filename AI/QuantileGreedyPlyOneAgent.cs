@@ -11,7 +11,6 @@ public sealed class QuantileGreedyPlyOneAgent : IAgent, IDisposable
     readonly bool _ownsModel;
 
     public readonly QuantilePaddedSwiGLUValueNetwork Model;
-    public readonly FastRandom Random;
 
     public int MaxActiveBatchSize { get; set; } = 16;
 
@@ -22,7 +21,6 @@ public sealed class QuantileGreedyPlyOneAgent : IAgent, IDisposable
         Model = model;
         Epsilon = epsilon;
         _ownsModel = ownsModel;
-        Random = FastRandom.SeededByClock();
     }
 
 
@@ -36,37 +34,6 @@ public sealed class QuantileGreedyPlyOneAgent : IAgent, IDisposable
     {
         if (_ownsModel)
             Model.Dispose();
-    }
-
-
-    public void MakeMove(float temp, bool annotatePolicy, params ReadOnlySpan<GameState> gameStates)
-    {
-        List<int> activeIndices = CollectActiveIndices(gameStates);
-        if (activeIndices.Count == 0)
-            return;
-
-        for (int batchStart = 0; batchStart < activeIndices.Count; batchStart += MaxActiveBatchSize)
-        {
-            int batchSize = Math.Min(MaxActiveBatchSize, activeIndices.Count - batchStart);
-            GameState[] activeStates = new GameState[batchSize];
-            for (int batchIndex = 0; batchIndex < batchSize; ++batchIndex)
-                activeStates[batchIndex] = gameStates[activeIndices[batchStart + batchIndex]];
-
-            (UseHandMove[][] moveOptions, float[][] policies) = EvaluateMovePolicies(activeStates);
-            for (int stateIndex = 0; stateIndex < activeStates.Length; ++stateIndex)
-            {
-                UseHandMove[] stateMoveOptions = moveOptions[stateIndex];
-                if (stateMoveOptions == null || stateMoveOptions.Length == 0)
-                    continue;
-
-                int chosenMoveIndex = AgentUtilities.SampleIndex(policies[stateIndex], Random);
-                GameState gameState = activeStates[stateIndex];
-                stateMoveOptions[chosenMoveIndex].Apply(gameState);
-
-                if (annotatePolicy)
-                    AnnotatePolicy(gameState, policies[stateIndex]);
-            }
-        }
     }
 
 
@@ -249,13 +216,6 @@ public sealed class QuantileGreedyPlyOneAgent : IAgent, IDisposable
         }
 
         return policy;
-    }
-
-
-    static void AnnotatePolicy(GameState gameState, ReadOnlySpan<float> probabilities)
-    {
-        AnnotatingDataMove annotation = AnnotationDataUtils.CreatePolicyAnnotation(probabilities);
-        annotation.Apply(gameState);
     }
 
 

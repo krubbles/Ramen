@@ -12,25 +12,6 @@ public sealed class SimpleFlushAgent : IAgent
     }
 
 
-    public void MakeMove(float temp, bool annotatePolicy, params ReadOnlySpan<GameState> gameStates)
-    {
-        for (int stateIndex = 0; stateIndex < gameStates.Length; ++stateIndex)
-        {
-            GameState gameState = gameStates[stateIndex];
-            gameState.AdvanceToNextPlayerChoice();
-            if (gameState.GameIsDone)
-                continue;
-
-            UseHandMove[] legalMoves = GetLegalMoves(gameState);
-            int chosenMoveIndex = SelectMoveIndex(gameState, legalMoves);
-            legalMoves[chosenMoveIndex].Apply(gameState);
-
-            if (annotatePolicy)
-                AnnotatePolicy(gameState, legalMoves.Length, chosenMoveIndex);
-        }
-    }
-
-
     public float[][] GetPolicy(float temp, params ReadOnlySpan<GameState> gameStates)
     {
         float[][] policies = new float[gameStates.Length][];
@@ -397,14 +378,6 @@ public sealed class SimpleFlushAgent : IAgent
         float[] policy = new float[moveCount];
         policy[chosenMoveIndex] = 1f;
         return policy;
-    }
-
-
-    static void AnnotatePolicy(GameState gameState, int moveCount, int chosenMoveIndex)
-    {
-        float[] policy = CreateDeterministicPolicy(moveCount, chosenMoveIndex);
-        AnnotatingDataMove annotation = AnnotationDataUtils.CreatePolicyAnnotation(policy);
-        annotation.Apply(gameState);
     }
 
 
