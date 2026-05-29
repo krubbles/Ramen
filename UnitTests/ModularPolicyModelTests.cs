@@ -22,6 +22,7 @@ public class ModularPolicyModelTests
         UseHandTensors useHandTensors = new()
         {
             Score = stateTensors.PlayHandScores + stateTensors.Score,
+            HandScore = stateTensors.PlayHandScores,
         };
 
         ModularPolicyModel.Settings settings = new()

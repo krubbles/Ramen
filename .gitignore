@@ -3,6 +3,9 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
+# OS-generated files
+.DS_Store
+
 # User-specific files
 *.rsuser
 *.suo
@@ -362,5 +365,5 @@ MigrationBackup/
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
 
-# Analysis data 
+# Analysis data
 /Analysis/

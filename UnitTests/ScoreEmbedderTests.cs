@@ -33,6 +33,30 @@ public class ScoreEmbedderTests
 
 
     [Test]
+    public void BilinearRangeScoreEmbedderInterpolatesAcrossConfiguredRange()
+    {
+        using var scope = NewDisposeScope();
+
+        BilinearRangeScoreEmbedder embedder = new(minValue: 0f, maxValue: 1f, bucketCount: 4);
+        Tensor scores = tensor(new float[,] { { -1f }, { 0f }, { 0.25f }, { 0.5f }, { 0.75f }, { 1f }, { 2f } });
+        Tensor output = embedder.forward(scores).to(CPU);
+
+        Assert.That(output.shape[0], Is.EqualTo(7));
+        Assert.That(output.shape[1], Is.EqualTo(1));
+        Assert.That(output.shape[2], Is.EqualTo(4));
+
+        float[] actual = output.data<float>().ToArray();
+        AssertBucketWeights(actual, rowIndex: 0, bucketCount: 4, expectedLowerIndex: 0, expectedLowerWeight: 1f, expectedUpperIndex: 0, expectedUpperWeight: 0f);
+        AssertBucketWeights(actual, rowIndex: 1, bucketCount: 4, expectedLowerIndex: 0, expectedLowerWeight: 1f, expectedUpperIndex: 0, expectedUpperWeight: 0f);
+        AssertBucketWeights(actual, rowIndex: 2, bucketCount: 4, expectedLowerIndex: 0, expectedLowerWeight: 0.25f, expectedUpperIndex: 1, expectedUpperWeight: 0.75f);
+        AssertBucketWeights(actual, rowIndex: 3, bucketCount: 4, expectedLowerIndex: 1, expectedLowerWeight: 0.5f, expectedUpperIndex: 2, expectedUpperWeight: 0.5f);
+        AssertBucketWeights(actual, rowIndex: 4, bucketCount: 4, expectedLowerIndex: 2, expectedLowerWeight: 0.75f, expectedUpperIndex: 3, expectedUpperWeight: 0.25f);
+        AssertBucketWeights(actual, rowIndex: 5, bucketCount: 4, expectedLowerIndex: 3, expectedLowerWeight: 1f, expectedUpperIndex: 3, expectedUpperWeight: 0f);
+        AssertBucketWeights(actual, rowIndex: 6, bucketCount: 4, expectedLowerIndex: 3, expectedLowerWeight: 1f, expectedUpperIndex: 3, expectedUpperWeight: 0f);
+    }
+
+
+    [Test]
     public void ThresholdScoreEmbeddingInterpolatesAndUsesOverflowEmbedding()
     {
         using var scope = NewDisposeScope();
@@ -91,8 +115,21 @@ public class ScoreEmbedderTests
 
     static void AssertBucketWeights(float[] actual, int rowIndex, int expectedLowerIndex, float expectedLowerWeight, int expectedUpperIndex, float expectedUpperWeight)
     {
-        int rowOffset = rowIndex * BilinearOneHotScoreEmbedder.BucketCount;
-        for (int bucketIndex = 0; bucketIndex < BilinearOneHotScoreEmbedder.BucketCount; ++bucketIndex)
+        AssertBucketWeights(
+            actual: actual,
+            rowIndex: rowIndex,
+            bucketCount: BilinearOneHotScoreEmbedder.BucketCount,
+            expectedLowerIndex: expectedLowerIndex,
+            expectedLowerWeight: expectedLowerWeight,
+            expectedUpperIndex: expectedUpperIndex,
+            expectedUpperWeight: expectedUpperWeight);
+    }
+
+
+    static void AssertBucketWeights(float[] actual, int rowIndex, int bucketCount, int expectedLowerIndex, float expectedLowerWeight, int expectedUpperIndex, float expectedUpperWeight)
+    {
+        int rowOffset = rowIndex * bucketCount;
+        for (int bucketIndex = 0; bucketIndex < bucketCount; ++bucketIndex)
         {
             float expectedWeight = 0f;
             if (bucketIndex == expectedLowerIndex)

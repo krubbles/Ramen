@@ -15,8 +15,8 @@ public sealed class ConsoleBalatroApp
     readonly GameState _gameState;
     readonly bool _saveGameOnExit;
     bool _gameSaved;
-    PpoPolicyValueModel _autoModel;
-    PpoPolicyAgent _autoAgent;
+    PpoPolicyValueModel _firstRoundAutoModel;
+    PpoPolicyValueModel _defaultAutoModel;
 
     public const string TempGameDatabaseName = "ConsoleAppTemp";
 
@@ -59,6 +59,7 @@ public sealed class ConsoleBalatroApp
         finally
         {
             SaveGame();
+            DisposeAutoModels();
         }
     }
 
@@ -94,6 +95,7 @@ public sealed class ConsoleBalatroApp
                 WriteRoundMoneyGained();
                 EndRoundMove endRoundMove = new();
                 endRoundMove.Apply(_gameState);
+                DisposeFirstRoundAutoModel();
             }
             else if (_gameState.Stage == StageOfGame.EnterShop)
             {
@@ -130,6 +132,8 @@ public sealed class ConsoleBalatroApp
                     moveSucceeded = HandleUseHand(input, isDiscard: true);
                 else if (commandName == "auto")
                     moveSucceeded = HandleAutoRound();
+                else if (commandName == "reward")
+                    moveSucceeded = HandleReward();
                 else
                 {
                     WriteGeneratedLine("Unknown command.");
@@ -165,6 +169,8 @@ public sealed class ConsoleBalatroApp
                     moveSucceeded = HandleExitShop();
                 else if (commandName == "auto")
                     moveSucceeded = HandleAutoShop();
+                else if (commandName == "reward")
+                    moveSucceeded = HandleReward();
                 else
                 {
                     WriteGeneratedLine("Unknown command.");
@@ -198,6 +204,7 @@ public sealed class ConsoleBalatroApp
         WriteGeneratedLine("Use 'play [hand]' to play a hand.");
         if (_gameState.HandState.RemainingDiscards > 0)
             WriteGeneratedLine("Use 'discard [hand]' to discard a hand.");
+        WriteGeneratedLine("Use 'reward' to show the value network's expected reward for this position.");
         WriteGeneratedLine();
     }
 
@@ -236,12 +243,13 @@ public sealed class ConsoleBalatroApp
         if (_gameState.ShopState.CurrentRerollCost <= _gameState.ShopState.Money)
             WriteGeneratedLine("Use 'reroll' to reroll the shop");
         WriteGeneratedLine("Use 'exit' to exit the shop");
+        WriteGeneratedLine("Use 'reward' to show the value network's expected reward for this position.");
         WriteGeneratedLine();
     }
 
     bool HandleAutoRound()
     {
-        EnsureAutoModel();
+        PpoPolicyValueModel autoModel = EnsureAutoModel();
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
 
@@ -249,26 +257,35 @@ public sealed class ConsoleBalatroApp
         embedder.AddGameState(_gameState);
         GameStateTensors gameStateTensors = embedder.ToTensors();
 
-        int useHandCount = Combinatorics.CalculateCombinationCount(
-            setSize: _gameState.HandState.HandCardCount,
-            minSubsetSize: 1,
-            maxSubsetSize: 5);
+        int useHandCount = GameStateEmbedder.PlayHandScoreCount;
         int[][] combinations = Combinatorics.GetCombinations(
-            setSize: _gameState.HandState.HandCardCount,
+            setSize: GameData.HandSize,
             minSubsetSize: 1,
             maxSubsetSize: 5);
 
         float[,] scores = new float[1, useHandCount];
+        float[,] handScores = new float[1, useHandCount];
+        float scoreBefore = (float)_gameState.ScoringState.CurrentRoundTotalScore;
         for (int i = 0; i < combinations.Length; ++i)
         {
-            UseHandMove move = new(false, combinations[i]);
+            int[] moveCardIndices = combinations[i];
+            if (moveCardIndices[^1] >= _gameState.HandState.HandCardCount)
+                continue;
+
+            UseHandMove move = new(false, moveCardIndices);
             move.Apply(_gameState);
-            scores[0, i] = (float)_gameState.ScoringState.CurrentRoundTotalScore / 300f;
+            float scoreAfter = (float)_gameState.ScoringState.CurrentRoundTotalScore;
+            scores[0, i] = scoreAfter;
+            handScores[0, i] = scoreAfter - scoreBefore;
             move.Revert(_gameState);
         }
-        UseHandTensors useHandTensors = new() { Score = tensor(scores) };
+        UseHandTensors useHandTensors = new()
+        {
+            Score = tensor(scores),
+            HandScore = tensor(handScores),
+        };
 
-        Tensor logits = _autoModel.GetPolicyLogits(gameStateTensors, useHandTensors).to(CPU);
+        Tensor logits = autoModel.GetPolicyLogits(gameStateTensors, useHandTensors).to(CPU);
         // mask out discards if none remaining
         if (_gameState.HandState.RemainingDiscards == 0)
         {
@@ -294,7 +311,7 @@ public sealed class ConsoleBalatroApp
 
     bool HandleAutoShop()
     {
-        EnsureAutoModel();
+        PpoPolicyValueModel autoModel = EnsureAutoModel();
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
 
@@ -302,7 +319,7 @@ public sealed class ConsoleBalatroApp
         embedder.AddGameState(_gameState);
         GameStateTensors gameStateTensors = embedder.ToTensors();
 
-        Tensor logits = _autoModel.GetStorePolicyLogits(gameStateTensors);
+        Tensor logits = autoModel.GetStorePolicyLogits(gameStateTensors);
         Tensor illegalMask = BuildAutoStoreMask(gameStateTensors);
 
         long bestIndex = (logits + illegalMask).to(CPU)[0].argmax().item<long>();
@@ -324,6 +341,23 @@ public sealed class ConsoleBalatroApp
             "buy 2" => HandleBuy("buy 2"),
             _ => HandleExitShop(),
         };
+    }
+
+    bool HandleReward()
+    {
+        PpoPolicyValueModel autoModel = EnsureAutoModel();
+        using var scope = NewDisposeScope();
+        using var noGrad = no_grad();
+
+        GameStateEmbedder embedder = new(1);
+        embedder.AddGameState(_gameState);
+        GameStateTensors gameStateTensors = embedder.ToTensors(PpoPolicyValueModel.EvalDevice);
+        Tensor values = autoModel.GetValues(gameStateTensors).to(CPU);
+        float[] valueData = values.data<float>().ToArray();
+        gameStateTensors.Dispose();
+
+        WriteGeneratedLine($"[reward] Expected reward: {valueData[0]:F4}");
+        return false;
     }
 
     static Tensor BuildAutoStoreMask(GameStateTensors gameStateTensors)
@@ -348,34 +382,100 @@ public sealed class ConsoleBalatroApp
         return stacked;
     }
 
-    void EnsureAutoModel()
+    PpoPolicyValueModel EnsureAutoModel()
     {
-        if (_autoModel != null)
-            return;
+        if (ShouldUseFirstRoundAutoModel())
+            return EnsureFirstRoundAutoModel();
+
+        DisposeFirstRoundAutoModel();
+        return EnsureDefaultAutoModel();
+    }
+
+
+    PpoPolicyValueModel EnsureFirstRoundAutoModel()
+    {
+        if (_firstRoundAutoModel != null)
+            return _firstRoundAutoModel;
+
+        string repoRoot = FindRepoRoot();
+        LatestCheckpointInfo checkpoint = Program.FindLatestPpoCheckpoint(repoRoot);
+
+        WriteGeneratedLine($"[auto] Loading round 1 model from {checkpoint.CheckpointPath}");
+        _firstRoundAutoModel = new();
+        _firstRoundAutoModel.Load(checkpoint.CheckpointPath);
+        return _firstRoundAutoModel;
+    }
+
+
+    PpoPolicyValueModel EnsureDefaultAutoModel()
+    {
+        if (_defaultAutoModel != null)
+            return _defaultAutoModel;
 
         string repoRoot = FindRepoRoot();
         string weightsDir = System.IO.Path.Combine(
-            repoRoot, "Analysis",
+            repoRoot,
+            "Analysis",
             "2026-04-27_ppo_roundsurvival_multiround_donefix_fresh_s20_randdeck52wr_r32768_b1024_e4_lr3e5_eps0p3_ent1e5_ss40",
             "weights");
+        string checkpointPath = FindLatestNumericCheckpointPath(weightsDir);
 
-        string[] bins = System.IO.Directory.GetFiles(weightsDir, "*.bin");
-        string bestPath = bins[0];
+        WriteGeneratedLine($"[auto] Loading model from {checkpointPath}");
+        _defaultAutoModel = new();
+        _defaultAutoModel.Load(checkpointPath);
+        return _defaultAutoModel;
+    }
+
+
+    bool ShouldUseFirstRoundAutoModel()
+    {
+        return _gameState.Round == 1 && _gameState.Stage == StageOfGame.InRoundPlayerChoice;
+    }
+
+
+    void DisposeFirstRoundAutoModel()
+    {
+        if (_firstRoundAutoModel == null)
+            return;
+
+        _firstRoundAutoModel.Dispose();
+        _firstRoundAutoModel = null;
+        TensorManager.DisposeAll();
+        GC.Collect();
+    }
+
+
+    void DisposeAutoModels()
+    {
+        DisposeFirstRoundAutoModel();
+
+        if (_defaultAutoModel == null)
+            return;
+
+        _defaultAutoModel.Dispose();
+        _defaultAutoModel = null;
+        TensorManager.DisposeAll();
+        GC.Collect();
+    }
+
+
+    static string FindLatestNumericCheckpointPath(string weightsDir)
+    {
+        string[] checkpointPaths = System.IO.Directory.GetFiles(weightsDir, "*.bin");
+        string bestPath = checkpointPaths[0];
         int bestStep = -1;
-        foreach (string path in bins)
+        for (int checkpointIndex = 0; checkpointIndex < checkpointPaths.Length; ++checkpointIndex)
         {
-            string name = System.IO.Path.GetFileNameWithoutExtension(path);
-            if (int.TryParse(name, out int step) && step > bestStep)
-            {
-                bestStep = step;
-                bestPath = path;
-            }
+            string checkpointPath = checkpointPaths[checkpointIndex];
+            string fileName = System.IO.Path.GetFileNameWithoutExtension(checkpointPath);
+            if (!int.TryParse(fileName, out int step) || step <= bestStep)
+                continue;
+
+            bestStep = step;
+            bestPath = checkpointPath;
         }
 
-        WriteGeneratedLine($"[auto] Loading model from {bestPath}");
-        _autoModel = new();
-        _autoModel.Load(bestPath);
-        _autoAgent = new(_autoModel);
+        return bestPath;
     }
 
     static string FindRepoRoot()

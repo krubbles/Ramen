@@ -13,7 +13,7 @@ public partial class Joker // Page 1 Jokers
         }
     };
 
-    public const int SinJokerMultBonus = 3;
+    public const int SinJokerMultBonus = 20;
 
     // plus mult for specific suits
 

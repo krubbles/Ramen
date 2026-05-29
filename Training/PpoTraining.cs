@@ -31,6 +31,7 @@ public readonly record struct ExperimentConfig
     int InitialHandsPerRound,
     int InitialDiscardsPerRound,
     bool UseRandomDeckInitializer,
+    bool TrainOnlyFirstRound,
     string ResumeSourceExperimentName,
     string NotebookReferenceExperimentName
 );
@@ -84,12 +85,13 @@ public static class PpoTraining
                 GameState gameState = gameStates[slot];
                 AdvanceToNextDecisionState(gameState);
 
-                if (gameState.GameIsDone)
+                if (IsRolloutTerminalState(gameState, config))
                 {
                     FinalizeCompletedTrajectory(
                         rollout: rollout,
                         trajectory: activeTrajectories[slot],
                         terminalState: gameState,
+                        config: config,
                         rewardSum: ref rewardSum,
                         rewardGameCount: ref rewardGameCount,
                         entropySum: ref entropySum);
@@ -330,10 +332,35 @@ public static class PpoTraining
     }
 
 
+    static bool IsRolloutTerminalState(GameState gameState, ExperimentConfig config)
+    {
+        if (gameState.GameIsDone)
+            return true;
+
+        return config.TrainOnlyFirstRound && gameState.Stage == StageOfGame.EndRound;
+    }
+
+
+    static float GetReward(GameState gameState, ExperimentConfig config)
+    {
+        if (!config.TrainOnlyFirstRound)
+            return GetStandardReward(gameState);
+
+        if (gameState.Stage != StageOfGame.EndRound)
+            return 0f;
+
+        if (gameState.ScoringState.CurrentRoundTotalScore < gameState.ScoringState.CurrentRoundThresholdScore)
+            return 0f;
+
+        return 1f + 0.1f * gameState.HandState.RemainingHands;
+    }
+
+
     static void FinalizeCompletedTrajectory(
         PpoRolloutDataset rollout,
         List<TrajectoryPosition> trajectory,
         GameState terminalState,
+        ExperimentConfig config,
         ref float rewardSum,
         ref int rewardGameCount,
         ref float entropySum)
@@ -341,7 +368,7 @@ public static class PpoTraining
         if (trajectory.Count == 0)
             return;
 
-        float finalReward = GetStandardReward(terminalState);
+        float finalReward = GetReward(terminalState, config);
         float[] suffixValues = new float[trajectory.Count + 1];
         for (int index = trajectory.Count - 1; index >= 0; --index)
             suffixValues[index] = suffixValues[index + 1] + trajectory[index].PositionValueEstimate;
@@ -493,10 +520,14 @@ public static class PpoTraining
     {
         GameStateTensors stateTensors = BuildStateTensorBatch(positions);
         float[,] useHandScores = new float[positions.Count, PpoPolicyValueModel.UseableHandCount];
+        float[,] handScores = new float[positions.Count, PpoPolicyValueModel.UseableHandCount];
         for (int batchIndex = 0; batchIndex < positions.Count; ++batchIndex)
         {
             for (int handIndex = 0; handIndex < PpoPolicyValueModel.UseableHandCount; ++handIndex)
+            {
                 useHandScores[batchIndex, handIndex] = positions[batchIndex].UseHandScores[handIndex];
+                handScores[batchIndex, handIndex] = positions[batchIndex].HandScores[handIndex];
+            }
         }
 
         return (
@@ -504,6 +535,7 @@ public static class PpoTraining
             new()
             {
                 Score = tensor(useHandScores, dtype: ScalarType.Float32),
+                HandScore = tensor(handScores, dtype: ScalarType.Float32),
             });
     }
 
@@ -522,6 +554,7 @@ public static class PpoTraining
         long[] round = new long[positions.Count];
         long[] stage = new long[positions.Count];
         float[,] score = new float[positions.Count, 1];
+        float[,] scoreThreshold = new float[positions.Count, 1];
 
         for (int batchIndex = 0; batchIndex < positions.Count; ++batchIndex)
         {
@@ -539,6 +572,7 @@ public static class PpoTraining
             round[batchIndex] = position.Round;
             stage[batchIndex] = position.Stage;
             score[batchIndex, 0] = position.Score;
+            scoreThreshold[batchIndex, 0] = position.ScoreThreshold;
 
             for (int jokerIndex = 0; jokerIndex < GameStateEmbedder.MaxOwnedJokerCount; ++jokerIndex)
                 ownedJokers[batchIndex, jokerIndex] = position.OwnedJokers[jokerIndex];
@@ -564,6 +598,7 @@ public static class PpoTraining
             Round = tensor(round, dtype: ScalarType.Int64),
             Stage = tensor(stage, dtype: ScalarType.Int64),
             Score = tensor(score, dtype: ScalarType.Float32),
+            ScoreThreshold = tensor(scoreThreshold, dtype: ScalarType.Float32),
         };
     }
 
@@ -759,7 +794,7 @@ public static class PpoTraining
 
     static void AdvanceToNextDecisionState(GameState gameState)
     {
-        while (!gameState.GameIsDone && !IsDecisionStage(gameState.Stage))
+        while (!gameState.GameIsDone && gameState.Stage != StageOfGame.EndRound && !IsDecisionStage(gameState.Stage))
         {
             Move[] moves = gameState.GetMoveOptions();
             if (moves.Length != 1)
@@ -1130,6 +1165,7 @@ public sealed class TrajectoryPosition
     public readonly long[] StoreJokers = new long[GameStateEmbedder.MaxStoreJokerCount];
     public readonly long[] StorePrices = new long[GameStateEmbedder.MaxStoreJokerCount];
     public readonly float[] UseHandScores = new float[PpoPolicyValueModel.UseableHandCount];
+    public readonly float[] HandScores = new float[PpoPolicyValueModel.UseableHandCount];
     public readonly long[] SampledMoveIndices;
     public readonly float[] OldSampledMoveProbs;
     public readonly float[] SampledMoveLogQ;
@@ -1143,6 +1179,7 @@ public sealed class TrajectoryPosition
     public readonly long Stage;
     public readonly bool IsStoreState;
     public readonly float Score;
+    public readonly float ScoreThreshold;
     public long StoreActionIndex;
     public float OldStoreActionProb;
     public float PositionValueEstimate;
@@ -1165,13 +1202,14 @@ public sealed class TrajectoryPosition
         Round = gameState.Round;
         Stage = IsStoreStage(gameState.Stage) ? 1 : 0;
         IsStoreState = IsStoreStage(gameState.Stage);
-        Score = (float)gameState.ScoringState.CurrentRoundTotalScore / 300f;
+        Score = (float)gameState.ScoringState.CurrentRoundTotalScore;
+        ScoreThreshold = (float)gameState.ScoringState.CurrentRoundThresholdScore;
 
         WriteJokerSlots(gameState.JokerState.Jokers, gameState.GameData, OwnedJokers);
         WriteJokerSlots(gameState.ShopState.ShopOfferings, gameState.GameData, StoreJokers);
         WriteStorePrices(gameState.ShopState.ShopOfferings, StorePrices);
         if (!IsStoreState)
-            WriteUseHandScores(gameState, UseHandScores);
+            WriteUseHandScores(gameState, UseHandScores, HandScores);
 
         SampledMoveIndices = new long[sampledSoftmaxCount];
         OldSampledMoveProbs = new float[sampledSoftmaxCount];
@@ -1222,23 +1260,26 @@ public sealed class TrajectoryPosition
     }
 
 
-    static void WriteUseHandScores(GameState gameState, float[] output)
+    static void WriteUseHandScores(GameState gameState, float[] postMoveScores, float[] handScores)
     {
         int handCardCount = gameState.HandState.HandCardCount;
+        float scoreBefore = (float)gameState.ScoringState.CurrentRoundTotalScore;
 
         for (int handIndex = 0; handIndex < PpoPolicyValueModel.HandCombinations.Length; ++handIndex)
         {
             int[] cardIndices = PpoPolicyValueModel.HandCombinations[handIndex];
             if (cardIndices[^1] >= handCardCount)
             {
-                output[handIndex] = 0f;
+                postMoveScores[handIndex] = 0f;
+                handScores[handIndex] = 0f;
                 continue;
             }
 
             UseHandMove move = new(isDiscard: false, cardIndices);
             move.Apply(gameState);
             float scoreAfter = (float)gameState.ScoringState.CurrentRoundTotalScore;
-            output[handIndex] = scoreAfter / 300f;
+            postMoveScores[handIndex] = scoreAfter;
+            handScores[handIndex] = scoreAfter - scoreBefore;
             move.Revert(gameState);
         }
     }

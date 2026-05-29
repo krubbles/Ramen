@@ -128,30 +128,38 @@ public class PolicyOnlyAgent : IAgent, IDisposable
     {
         using var p_funcScope = ProfileScope.New(nameof(CreateUseHandTensors));
 
-        // Precompute combination count (assumes hand size is consistent across the batch).
-        int useHandCount = Combinatorics.CalculateCombinationCount(
-            setSize: gameStates[0].HandState.HandCardCount,
-            minSubsetSize: 1,
-            maxSubsetSize: 5);
-
-        // Build score tensor in a single allocation.
+        int useHandCount = GameStateEmbedder.PlayHandScoreCount;
         float[,] scores = new float[gameStates.Length, useHandCount];
+        float[,] handScores = new float[gameStates.Length, useHandCount];
 
         // Populate scores per state by simulating each use-hand move.
         for (int stateIndex = 0; stateIndex < gameStates.Length; ++stateIndex)
         {
             GameState gameState = gameStates[stateIndex];
+            float scoreBefore = (float)gameState.ScoringState.CurrentRoundTotalScore;
             int[][] cardIndicesEnumerator = Combinatorics.GetCombinations(
-                setSize: gameState.HandState.HandCardCount,
+                setSize: GameData.HandSize,
                 minSubsetSize: 1,
                 maxSubsetSize: 5);
 
             int move = 0;
             for (int i = 0; i < cardIndicesEnumerator.Length; ++i)
             {
-                UseHandMove useHandMove = new(false, cardIndicesEnumerator[i]);
+                int[] cardIndices = cardIndicesEnumerator[i];
+                if (cardIndices[^1] >= gameState.HandState.HandCardCount)
+                {
+                    scores[stateIndex, move] = 0f;
+                    handScores[stateIndex, move] = 0f;
+                    move++;
+                    continue;
+                }
+
+                UseHandMove useHandMove = new(false, cardIndices);
                 useHandMove.Apply(gameState);
-                scores[stateIndex, move++] = (float)gameState.ScoringState.CurrentRoundTotalScore / 300f;
+                float scoreAfter = (float)gameState.ScoringState.CurrentRoundTotalScore;
+                scores[stateIndex, move] = scoreAfter;
+                handScores[stateIndex, move] = scoreAfter - scoreBefore;
+                move++;
                 useHandMove.Revert(gameState);
             }
         }
@@ -159,6 +167,7 @@ public class PolicyOnlyAgent : IAgent, IDisposable
         UseHandTensors useHandTensors = new()
         {
             Score = tensor(scores),
+            HandScore = tensor(handScores),
         };
 
         return (useHandTensors, useHandCount * 2);

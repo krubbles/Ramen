@@ -24,6 +24,11 @@ public class GameStateTensors : ITensorGroup
     public Tensor Score;
 
     /// <summary>
+    /// <see cref="ScoringState.CurrentRoundThresholdScore"/>
+    /// </summary>
+    public Tensor ScoreThreshold;
+
+    /// <summary>
     /// Ordered joker slots from <see cref="JokerState.Jokers"/>, encoded as 1-based joker indices with 0 as null.
     /// Shape: (batch, <see cref="MaxOwnedJokerCount"/>).
     /// </summary>
@@ -62,7 +67,7 @@ public class GameStateTensors : ITensorGroup
     public Tensor Stage;
 
     /// <summary>
-    /// Optional tensor of per-play hand score deltas in the standard hand ordering.
+    /// Optional tensor of per-play hand scores in the standard hand ordering.
     /// Shape: (batch, <see cref="GameStateEmbedder.PlayHandScoreCount"/>).
     /// </summary>
     public Tensor PlayHandScores;
@@ -87,6 +92,11 @@ public class UseHandTensors : ITensorGroup
     /// <see cref="ScoringState.CurrentRoundTotalScore"/> after hand is played.
     /// </summary>
     public Tensor Score;
+
+    /// <summary>
+    /// Score contributed by the played hand itself.
+    /// </summary>
+    public Tensor HandScore;
 }
 
 public class GameStateEmbedder
@@ -111,6 +121,7 @@ public class GameStateEmbedder
     readonly long[] _stage;
     readonly float[,] _playHandScores;
     readonly float[] _score;
+    readonly float[] _scoreThreshold;
 
     int _addedGameStateCount;
 
@@ -129,6 +140,7 @@ public class GameStateEmbedder
         _stage = new long[gameStateCount];
         _playHandScores = new float[gameStateCount, PlayHandScoreCount];
         _score = new float[gameStateCount];
+        _scoreThreshold = new float[gameStateCount];
     }
 
 
@@ -156,6 +168,7 @@ public class GameStateEmbedder
         WriteStorePrices(gameState.ShopState.ShopOfferings, _storePrices, _addedGameStateCount);
         WritePlayHandScores(gameState, _addedGameStateCount);
         _score[_addedGameStateCount] = GetScoreValue(gameState);
+        _scoreThreshold[_addedGameStateCount] = GetScoreThresholdValue(gameState);
         _addedGameStateCount++;
     }
 
@@ -186,6 +199,7 @@ public class GameStateEmbedder
         long[] round = new long[_addedGameStateCount];
         long[] stage = new long[_addedGameStateCount];
         float[,] score2D = new float[_addedGameStateCount, 1];
+        float[,] scoreThreshold2D = new float[_addedGameStateCount, 1];
         float[,] playHandScores = includePlayHandScores ? new float[_addedGameStateCount, PlayHandScoreCount] : null;
 
         for (int stateIndex = 0; stateIndex < _addedGameStateCount; ++stateIndex)
@@ -203,6 +217,7 @@ public class GameStateEmbedder
             round[stateIndex] = _round[stateIndex];
             stage[stateIndex] = _stage[stateIndex];
             score2D[stateIndex, 0] = _score[stateIndex];
+            scoreThreshold2D[stateIndex, 0] = _scoreThreshold[stateIndex];
 
             for (int jokerIndex = 0; jokerIndex < MaxOwnedJokerCount; ++jokerIndex)
                 ownedJokers[stateIndex, jokerIndex] = _ownedJokers[stateIndex, jokerIndex];
@@ -235,13 +250,19 @@ public class GameStateEmbedder
             Stage = tensor(stage, dtype: ScalarType.Int64, device: device),
             PlayHandScores = includePlayHandScores ? tensor(playHandScores, dtype: ScalarType.Float32, device: device) : null,
             Score = tensor(score2D, dtype: ScalarType.Float32, device: device),
+            ScoreThreshold = tensor(scoreThreshold2D, dtype: ScalarType.Float32, device: device),
         };
     }
 
 
     static float GetScoreValue(GameState gameState)
     {
-        return (float)gameState.ScoringState.CurrentRoundTotalScore / 300f;
+        return (float)gameState.ScoringState.CurrentRoundTotalScore;
+    }
+
+    static float GetScoreThresholdValue(GameState gameState)
+    {
+        return (float)gameState.ScoringState.CurrentRoundThresholdScore;
     }
 
     static bool IsStoreStage(StageOfGame stage)
@@ -308,7 +329,7 @@ public class GameStateEmbedder
             UseHandMove useHandMove = new(false, cardIndices);
             useHandMove.Apply(gameState);
             float roundScoreAfter = (float)gameState.ScoringState.CurrentRoundTotalScore;
-            _playHandScores[stateIndex, handIndex] = (roundScoreAfter - roundScoreBefore) / 300f;
+            _playHandScores[stateIndex, handIndex] = roundScoreAfter - roundScoreBefore;
             useHandMove.Revert(gameState);
         }
     }

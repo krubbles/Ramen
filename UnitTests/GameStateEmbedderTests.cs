@@ -25,7 +25,7 @@ public class GameStateEmbedderTests
 
 
     [Test]
-    public void ToTensorsEmbedsScoreAsSingleRelativeValue()
+    public void ToTensorsEmbedsRawScoreAndThreshold()
     {
         using var scope = NewDisposeScope();
 
@@ -39,11 +39,16 @@ public class GameStateEmbedderTests
 
         GameStateTensors tensors = embedder.ToTensors();
         Tensor score = tensors.Score.to(CPU);
+        Tensor scoreThreshold = tensors.ScoreThreshold.to(CPU);
         float[] actual = score.data<float>().ToArray();
+        float[] thresholdActual = scoreThreshold.data<float>().ToArray();
 
         Assert.That(score.shape[0], Is.EqualTo(1));
         Assert.That(score.shape[1], Is.EqualTo(1));
-        Assert.That(actual[0], Is.EqualTo(0.5f).Within(1e-5f));
+        Assert.That(scoreThreshold.shape[0], Is.EqualTo(1));
+        Assert.That(scoreThreshold.shape[1], Is.EqualTo(1));
+        Assert.That(actual[0], Is.EqualTo(150f).Within(1e-5f));
+        Assert.That(thresholdActual[0], Is.EqualTo((float)gameState.ScoringState.CurrentRoundThresholdScore).Within(1e-5f));
     }
 
 
@@ -205,7 +210,7 @@ public class GameStateEmbedderTests
             UseHandMove useHandMove = new(false, cardIndices);
             useHandMove.Apply(gameState);
             float roundScoreAfter = (float)gameState.ScoringState.CurrentRoundTotalScore;
-            playHandScores[handIndex] = (roundScoreAfter - roundScoreBefore) / 300f;
+            playHandScores[handIndex] = roundScoreAfter - roundScoreBefore;
             useHandMove.Revert(gameState);
         }
 

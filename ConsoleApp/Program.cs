@@ -20,25 +20,28 @@ public static class Program
     const string TraceEvaluationExperimentName = "2026-04-23_simple_flush_ppo_step355_temp0_randdeck_trace5_games";
     const int TraceEvaluationGameCount = 5;
     const string OutcomeEvaluationExperimentName = "2026-04-23_simple_flush_ppo_step355_temp0_randdeck_eval10k_outcomes";
-    const string OutcomeEvaluationCheckpointExperimentName = "2026-04-23_simple_flush_ppo_stdreward_resume315_randdeck52wr_r32768_b1024_e4_lr1e4_20more_eps0p3_ent3e5_ss40_trunk512_addgelu_vhead";
     const int OutcomeEvaluationGameCount = 10000;
     const int OutcomeEvaluationBatchSize = 500;
     const int LatestCheckpointEvaluationGameCount = 1000;
+    const int TemperatureOneEvaluationGameCount = 300;
+    const int TemperatureZeroEvaluationGameCount = 300;
+    const int FirstRoundEvaluationGameCount = 10000;
+    const string PpoExperimentName = "2026-05-21_ppo_firstround_winhandbonus_trunk768x4_leaf256x1_randdeck52wr_r16384_b1024_e4_lr7e5_clip2_ent0_val0p5_ss40";
 
     static readonly ExperimentConfig PpoConfig = new(
-        ExperimentName: "2026-04-30_cispo_roundsurvival_multiround_smalltrunk_fresh_s20_randdeck52wr_r4096_b1024_e2_lr1e5_clip5_ent1e5_val0p5_ss40",
-        RolloutSize: 4096,
+        ExperimentName: PpoExperimentName,
+        RolloutSize: 16384,
         RolloutParallelGameCount: 64,
         BatchSize: 1024,
-        TrainingEpochsPerStep: 2,
-        StepCount: 2000,
+        TrainingEpochsPerStep: 4,
+        StepCount: 200,
         SampledSoftmaxCount: 40,
-        LearningRate: 1e-5f,
+        LearningRate: 7e-5f,
         AdamBeta1: 0.9f,
         AdamBeta2: 0.97f,
         WeightDecay: 0f,
-        PpoEpsilon: 5f,
-        EntropyCoefficient: 1e-5f,
+        PpoEpsilon: 0.2f,
+        EntropyCoefficient: 0f,
         ValueLossCoefficient: 0.5f,
         ValueReplayBufferCapacity: 0,
         SnapshotFrequency: 5,
@@ -46,10 +49,11 @@ public static class Program
         InitialHandsPerRound: 4,
         InitialDiscardsPerRound: 3,
         UseRandomDeckInitializer: true,
+        TrainOnlyFirstRound: true,
         ResumeSourceExperimentName: "",
-        NotebookReferenceExperimentName: "2026-04-27_ppo_roundsurvival_multiround_donefix_fresh_s20_randdeck52wr_r32768_b1024_e4_lr3e5_eps0p3_ent1e5_ss40");
+        NotebookReferenceExperimentName: "");
 
-    const float PpoContinuationLearningRate = 1e-5f;
+    const float PpoContinuationLearningRate = 7e-5f;
 
     public static void Main(string[] args)
     {
@@ -62,6 +66,26 @@ public static class Program
         if (args.Length > 0 && args[0] == "ppo-eval-latest")
         {
             RunLatestCheckpointRewardEvaluation();
+            return;
+        }
+        if (args.Length > 0 && args[0] == "ppo-eval-latest-temp1-300")
+        {
+            RunLatestCheckpointTemperatureOneRewardEvaluation();
+            return;
+        }
+        if (args.Length > 0 && args[0] == "ppo-eval-latest-temp0-300")
+        {
+            RunLatestCheckpointTemperatureZeroRewardEvaluation();
+            return;
+        }
+        if (args.Length > 0 && args[0] == "ppo-eval-latest-temp0-300-buckets")
+        {
+            RunLatestCheckpointTemperatureZeroBucketEvaluation();
+            return;
+        }
+        if (args.Length > 0 && args[0] == "ppo-eval-latest-first-round-1k")
+        {
+            RunLatestCheckpointFirstRoundEvaluation();
             return;
         }
 
@@ -410,6 +434,7 @@ Commit Hash: {commitHash}
             model: model,
             gameCount: LatestCheckpointEvaluationGameCount,
             batchSize: OutcomeEvaluationBatchSize,
+            temp: 0f,
             gameData: CreateOutcomeEvaluationGameData());
         stopwatch.Stop();
 
@@ -419,6 +444,134 @@ Commit Hash: {commitHash}
         Console.WriteLine($"games {LatestCheckpointEvaluationGameCount}");
         Console.WriteLine($"temp 0");
         Console.WriteLine($"average_reward {averageReward.ToString("F6", CultureInfo.InvariantCulture)}");
+        Console.WriteLine($"wall_seconds {stopwatch.Elapsed.TotalSeconds.ToString("F2", CultureInfo.InvariantCulture)}");
+    }
+
+
+    static void RunLatestCheckpointTemperatureOneRewardEvaluation()
+    {
+        string repoRoot = FindRepoRoot();
+        string experimentDir = Path.Combine(repoRoot, "Analysis", PpoConfig.ExperimentName);
+        LatestCheckpointInfo checkpoint = FindLatestCheckpointInDirectory(experimentDir);
+
+        using PpoPolicyValueModel model = new();
+        model.Load(checkpoint.CheckpointPath);
+
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        float averageReward = EvaluateAverageReward(
+            model: model,
+            gameCount: TemperatureOneEvaluationGameCount,
+            batchSize: OutcomeEvaluationBatchSize,
+            temp: 1f,
+            gameData: CreateConsoleEvaluationGameData());
+        stopwatch.Stop();
+
+        Console.WriteLine($"checkpoint {checkpoint.CheckpointPath}");
+        Console.WriteLine($"experiment {checkpoint.ExperimentName}");
+        Console.WriteLine($"games {TemperatureOneEvaluationGameCount}");
+        Console.WriteLine($"temp 1");
+        Console.WriteLine($"average_reward {averageReward.ToString("F6", CultureInfo.InvariantCulture)}");
+        Console.WriteLine($"wall_seconds {stopwatch.Elapsed.TotalSeconds.ToString("F2", CultureInfo.InvariantCulture)}");
+    }
+
+
+    static void RunLatestCheckpointTemperatureZeroRewardEvaluation()
+    {
+        string repoRoot = FindRepoRoot();
+        string experimentDir = Path.Combine(repoRoot, "Analysis", PpoConfig.ExperimentName);
+        LatestCheckpointInfo checkpoint = FindLatestCheckpointInDirectory(experimentDir);
+
+        using PpoPolicyValueModel model = new();
+        model.Load(checkpoint.CheckpointPath);
+
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        float averageReward = EvaluateAverageReward(
+            model: model,
+            gameCount: TemperatureZeroEvaluationGameCount,
+            batchSize: OutcomeEvaluationBatchSize,
+            temp: 0f,
+            gameData: CreateConsoleEvaluationGameData());
+        stopwatch.Stop();
+
+        Console.WriteLine($"checkpoint {checkpoint.CheckpointPath}");
+        Console.WriteLine($"experiment {checkpoint.ExperimentName}");
+        Console.WriteLine($"games {TemperatureZeroEvaluationGameCount}");
+        Console.WriteLine($"temp 0");
+        Console.WriteLine($"average_reward {averageReward.ToString("F6", CultureInfo.InvariantCulture)}");
+        Console.WriteLine($"wall_seconds {stopwatch.Elapsed.TotalSeconds.ToString("F2", CultureInfo.InvariantCulture)}");
+    }
+
+
+    static void RunLatestCheckpointTemperatureZeroBucketEvaluation()
+    {
+        string repoRoot = FindRepoRoot();
+        string experimentDir = Path.Combine(repoRoot, "Analysis", PpoConfig.ExperimentName);
+        LatestCheckpointInfo checkpoint = FindLatestCheckpointInDirectory(experimentDir);
+
+        using PpoPolicyValueModel model = new();
+        model.Load(checkpoint.CheckpointPath);
+
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        float[] rewards = EvaluateRewards(
+            model: model,
+            gameCount: TemperatureZeroEvaluationGameCount,
+            batchSize: OutcomeEvaluationBatchSize,
+            temp: 0f,
+            gameData: CreateConsoleEvaluationGameData());
+        stopwatch.Stop();
+
+        float rewardSum = 0f;
+        for (int rewardIndex = 0; rewardIndex < rewards.Length; ++rewardIndex)
+            rewardSum += rewards[rewardIndex];
+
+        Console.WriteLine($"checkpoint {checkpoint.CheckpointPath}");
+        Console.WriteLine($"experiment {checkpoint.ExperimentName}");
+        Console.WriteLine($"games {TemperatureZeroEvaluationGameCount}");
+        Console.WriteLine($"temp 0");
+        Console.WriteLine($"average_reward {(rewardSum / rewards.Length).ToString("F6", CultureInfo.InvariantCulture)}");
+        Console.WriteLine("reward_buckets");
+        WriteRewardBuckets(rewards, bucketSize: 5);
+        Console.WriteLine($"wall_seconds {stopwatch.Elapsed.TotalSeconds.ToString("F2", CultureInfo.InvariantCulture)}");
+    }
+
+
+    static void RunLatestCheckpointFirstRoundEvaluation()
+    {
+        string repoRoot = FindRepoRoot();
+        string experimentDir = Path.Combine(repoRoot, "Analysis", PpoConfig.ExperimentName);
+        LatestCheckpointInfo checkpoint = FindLatestCheckpointInDirectory(experimentDir);
+
+        using PpoPolicyValueModel model = new();
+        model.Load(checkpoint.CheckpointPath);
+
+        Stopwatch stopwatch = Stopwatch.StartNew();
+        int[] rewardCounts = EvaluateFirstRoundRewards(
+            model: model,
+            gameCount: FirstRoundEvaluationGameCount,
+            batchSize: OutcomeEvaluationBatchSize,
+            gameData: CreateConsoleEvaluationGameData());
+        stopwatch.Stop();
+
+        int rewardSum = 0;
+        int completedCount = 0;
+        for (int reward = 0; reward < rewardCounts.Length; ++reward)
+        {
+            rewardSum += reward * rewardCounts[reward];
+            completedCount += rewardCounts[reward];
+        }
+
+        Console.WriteLine($"checkpoint {checkpoint.CheckpointPath}");
+        Console.WriteLine($"experiment {checkpoint.ExperimentName}");
+        Console.WriteLine($"games {FirstRoundEvaluationGameCount}");
+        Console.WriteLine("temp 0");
+        Console.WriteLine("reward_function first_round_win + remaining_hands");
+        Console.WriteLine($"average_reward {((float)rewardSum / completedCount).ToString("F6", CultureInfo.InvariantCulture)}");
+        Console.WriteLine("reward_buckets");
+        for (int reward = 0; reward < rewardCounts.Length; ++reward)
+        {
+            float fraction = (float)rewardCounts[reward] / completedCount;
+            Console.WriteLine($"{reward}: {rewardCounts[reward],4} {fraction.ToString("P1", CultureInfo.InvariantCulture)}");
+        }
         Console.WriteLine($"wall_seconds {stopwatch.Elapsed.TotalSeconds.ToString("F2", CultureInfo.InvariantCulture)}");
     }
 
@@ -466,12 +619,8 @@ Commit Hash: {commitHash}
     static string GetOutcomeEvaluationCheckpointPath()
     {
         string repoRoot = FindRepoRoot();
-        return Path.Combine(
-            repoRoot,
-            "Analysis",
-            OutcomeEvaluationCheckpointExperimentName,
-            "weights",
-            "355.bin");
+        LatestCheckpointInfo checkpoint = FindLatestPpoCheckpoint(repoRoot);
+        return checkpoint.CheckpointPath;
     }
 
 
@@ -543,14 +692,29 @@ Commit Hash: {commitHash}
     }
 
 
-    static float EvaluateAverageReward(PpoPolicyValueModel model, int gameCount, int batchSize, GameData gameData)
+    static float EvaluateAverageReward(PpoPolicyValueModel model, int gameCount, int batchSize, float temp, GameData gameData)
+    {
+        float[] rewards = EvaluateRewards(
+            model: model,
+            gameCount: gameCount,
+            batchSize: batchSize,
+            temp: temp,
+            gameData: gameData);
+        float rewardSum = 0f;
+        for (int rewardIndex = 0; rewardIndex < rewards.Length; ++rewardIndex)
+            rewardSum += rewards[rewardIndex];
+
+        return rewardSum / gameCount;
+    }
+
+
+    static float[] EvaluateRewards(PpoPolicyValueModel model, int gameCount, int batchSize, float temp, GameData gameData)
     {
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
 
         using PolicyOnlyAgent agent = new(model);
         GameState[] gameStates = new GameState[gameCount];
-        float rewardSum = 0f;
         for (int gameIndex = 0; gameIndex < gameStates.Length; ++gameIndex)
             gameStates[gameIndex] = new(gameData);
 
@@ -569,13 +733,219 @@ Commit Hash: {commitHash}
             if (allGamesDone)
                 break;
 
-            agent.MakeMove(temp: 1f, annotatePolicy: false, gameStates);
+            if (temp <= 0f)
+                MakeGreedyConsoleAutoMoves(model, agent, gameStates, batchSize);
+            else
+                agent.MakeMove(temp: temp, annotatePolicy: false, gameStates);
         }
 
+        float[] rewards = new float[gameCount];
         for (int gameIndex = 0; gameIndex < gameStates.Length; ++gameIndex)
-            rewardSum += PpoTraining.GetStandardReward(gameStates[gameIndex]);
+            rewards[gameIndex] = PpoTraining.GetStandardReward(gameStates[gameIndex]);
 
-        return rewardSum / gameCount;
+        return rewards;
+    }
+
+
+    static int[] EvaluateFirstRoundRewards(PpoPolicyValueModel model, int gameCount, int batchSize, GameData gameData)
+    {
+        using var scope = NewDisposeScope();
+        using var noGrad = no_grad();
+
+        using PolicyOnlyAgent agent = new(model);
+        GameState[] gameStates = new GameState[gameCount];
+        for (int gameIndex = 0; gameIndex < gameStates.Length; ++gameIndex)
+            gameStates[gameIndex] = new(gameData);
+
+        while (true)
+        {
+            bool allGamesDone = true;
+            for (int gameIndex = 0; gameIndex < gameStates.Length; ++gameIndex)
+            {
+                GameState gameState = gameStates[gameIndex];
+                if (!IsFirstRoundEvaluationDone(gameState))
+                {
+                    allGamesDone = false;
+                    break;
+                }
+            }
+
+            if (allGamesDone)
+                break;
+
+            MakeGreedyFirstRoundMoves(agent, gameStates, batchSize);
+        }
+
+        int[] rewardCounts = new int[5];
+        for (int gameIndex = 0; gameIndex < gameStates.Length; ++gameIndex)
+        {
+            int reward = GetFirstRoundReward(gameStates[gameIndex]);
+            rewardCounts[reward]++;
+        }
+
+        return rewardCounts;
+    }
+
+
+    static bool IsFirstRoundEvaluationDone(GameState gameState)
+    {
+        return gameState.GameIsDone || gameState.Stage == StageOfGame.EndRound;
+    }
+
+
+    static int GetFirstRoundReward(GameState gameState)
+    {
+        if (gameState.Stage != StageOfGame.EndRound)
+            return 0;
+
+        return 1 + gameState.HandState.RemainingHands;
+    }
+
+
+    static void WriteRewardBuckets(float[] rewards, int bucketSize)
+    {
+        SortedDictionary<int, int> bucketCounts = new();
+        for (int rewardIndex = 0; rewardIndex < rewards.Length; ++rewardIndex)
+        {
+            int bucketStart = (int)MathF.Floor(rewards[rewardIndex] / bucketSize) * bucketSize;
+            if (!bucketCounts.TryAdd(bucketStart, 1))
+                bucketCounts[bucketStart]++;
+        }
+
+        foreach (KeyValuePair<int, int> bucketCount in bucketCounts)
+        {
+            int bucketEnd = bucketCount.Key + bucketSize;
+            float fraction = (float)bucketCount.Value / rewards.Length;
+            Console.WriteLine($"{bucketCount.Key,4}-{bucketEnd,4}: {bucketCount.Value,4} {fraction.ToString("P1", CultureInfo.InvariantCulture)}");
+        }
+    }
+
+
+    static void MakeGreedyConsoleAutoMoves(PpoPolicyValueModel model, PolicyOnlyAgent agent, GameState[] gameStates, int batchSize)
+    {
+        List<int> roundIndices = [];
+        List<int> shopIndices = [];
+        for (int gameIndex = 0; gameIndex < gameStates.Length; ++gameIndex)
+        {
+            GameState gameState = gameStates[gameIndex];
+            while (!gameState.GameIsDone &&
+                gameState.Stage != StageOfGame.InRoundPlayerChoice &&
+                gameState.Stage != StageOfGame.InShop)
+            {
+                gameState.GetMoveOptions()[0].Apply(gameState);
+            }
+
+            if (gameState.GameIsDone)
+                continue;
+            if (gameState.Stage == StageOfGame.InRoundPlayerChoice)
+                roundIndices.Add(gameIndex);
+            else if (gameState.Stage == StageOfGame.InShop)
+                shopIndices.Add(gameIndex);
+        }
+
+        ApplyGreedyRoundMoves(agent, gameStates, roundIndices, batchSize);
+        ApplyGreedyShopMoves(model, gameStates, shopIndices, batchSize);
+    }
+
+
+    static void MakeGreedyFirstRoundMoves(PolicyOnlyAgent agent, GameState[] gameStates, int batchSize)
+    {
+        List<int> roundIndices = [];
+        for (int gameIndex = 0; gameIndex < gameStates.Length; ++gameIndex)
+        {
+            GameState gameState = gameStates[gameIndex];
+            while (!IsFirstRoundEvaluationDone(gameState) && gameState.Stage != StageOfGame.InRoundPlayerChoice)
+                gameState.GetMoveOptions()[0].Apply(gameState);
+
+            if (!IsFirstRoundEvaluationDone(gameState))
+                roundIndices.Add(gameIndex);
+        }
+
+        ApplyGreedyRoundMoves(agent, gameStates, roundIndices, batchSize);
+    }
+
+
+    static void ApplyGreedyRoundMoves(PolicyOnlyAgent agent, GameState[] gameStates, List<int> roundIndices, int batchSize)
+    {
+        for (int batchStart = 0; batchStart < roundIndices.Count; batchStart += batchSize)
+        {
+            int activeBatchSize = Math.Min(batchSize, roundIndices.Count - batchStart);
+            GameState[] activeStates = new GameState[activeBatchSize];
+            for (int batchIndex = 0; batchIndex < activeStates.Length; ++batchIndex)
+                activeStates[batchIndex] = gameStates[roundIndices[batchStart + batchIndex]];
+
+            float[][] policies = agent.GetPolicy(temp: 1f, activeStates);
+            for (int batchIndex = 0; batchIndex < activeStates.Length; ++batchIndex)
+            {
+                int chosenMoveIndex = GetArgmaxIndex(policies[batchIndex]);
+                PolicyOnlyAgent.MoveForIndex(activeStates[batchIndex], chosenMoveIndex).Apply(activeStates[batchIndex]);
+            }
+        }
+    }
+
+
+    static void ApplyGreedyShopMoves(PpoPolicyValueModel model, GameState[] gameStates, List<int> shopIndices, int batchSize)
+    {
+        for (int batchStart = 0; batchStart < shopIndices.Count; batchStart += batchSize)
+        {
+            using var scope = NewDisposeScope();
+
+            int activeBatchSize = Math.Min(batchSize, shopIndices.Count - batchStart);
+            GameState[] activeStates = new GameState[activeBatchSize];
+            for (int batchIndex = 0; batchIndex < activeStates.Length; ++batchIndex)
+                activeStates[batchIndex] = gameStates[shopIndices[batchStart + batchIndex]];
+
+            GameStateEmbedder embedder = new(activeStates.Length);
+            for (int stateIndex = 0; stateIndex < activeStates.Length; ++stateIndex)
+                embedder.AddGameState(activeStates[stateIndex]);
+
+            GameStateTensors gameStateTensors = embedder.ToTensors(PpoPolicyValueModel.EvalDevice);
+            Tensor logits = model.GetStorePolicyLogits(gameStateTensors);
+            Tensor illegalMask = BuildStoreMask(gameStateTensors);
+            Tensor selectedIndices = (logits + illegalMask).argmax(1).to(CPU);
+            long[] selectedIndexData = selectedIndices.data<long>().ToArray();
+            gameStateTensors.Dispose();
+
+            for (int stateIndex = 0; stateIndex < activeStates.Length; ++stateIndex)
+                ApplyStoreMove(activeStates[stateIndex], (int)selectedIndexData[stateIndex]);
+        }
+    }
+
+
+    static Tensor BuildStoreMask(GameStateTensors gameStateTensors)
+    {
+        using var scope = NewDisposeScope();
+
+        Device device = PpoPolicyValueModel.EvalDevice;
+        Tensor money = gameStateTensors.Money.to(device).to_type(ScalarType.Int64);
+        Tensor rerollPrice = gameStateTensors.RerollPrice.to(device).to_type(ScalarType.Int64);
+        Tensor storeJokers = gameStateTensors.StoreJokers.to(device).to_type(ScalarType.Int64);
+        Tensor storePrices = gameStateTensors.StorePrices.to(device).to_type(ScalarType.Int64);
+        Tensor ownedJokers = gameStateTensors.OwnedJokers.to(device).to_type(ScalarType.Int64);
+
+        Tensor exitMask = zeros([money.size(0), 1], dtype: ScalarType.Float32, device: device);
+        Tensor rerollMask = money.lt(rerollPrice).to_type(ScalarType.Float32).unsqueeze(-1);
+        Tensor nullStoreMask = storeJokers.eq(0).to_type(ScalarType.Float32);
+        Tensor unaffordableStoreMask = money.unsqueeze(-1).lt(storePrices).to_type(ScalarType.Float32);
+        Tensor ownedJokerCount = ownedJokers.ne(0).to_type(ScalarType.Int64).sum(dim: 1, keepdim: true);
+        Tensor rosterFullMask = ownedJokerCount.ge(GameStateEmbedder.MaxOwnedJokerCount).to_type(ScalarType.Float32).expand_as(nullStoreMask);
+        Tensor storeMask = (nullStoreMask + unaffordableStoreMask + rosterFullMask).clamp(0f, 1f);
+        Tensor stacked = cat([exitMask, rerollMask, storeMask], dim: 1) * -1e9f;
+        stacked.MoveToOuterDisposeScope();
+        return stacked;
+    }
+
+
+    static void ApplyStoreMove(GameState gameState, int selectedIndex)
+    {
+        Move move = selectedIndex switch
+        {
+            1 => new RerollMove(),
+            2 => new BuyShopOfferMove(0),
+            3 => new BuyShopOfferMove(1),
+            _ => new ExitShopMove(),
+        };
+        move.Apply(gameState);
     }
 
 
@@ -593,6 +963,12 @@ Commit Hash: {commitHash}
         };
 
         return gameData;
+    }
+
+
+    static GameData CreateConsoleEvaluationGameData()
+    {
+        return new();
     }
 
 
@@ -802,10 +1178,8 @@ win_hands_3,{distribution.WinHands3Count},{GetFractionText(distribution.WinHands
             return;
         }
 
-        List<StepMetrics> metrics = PpoTraining.LoadExistingMetrics(
-            filePath: preparedPaths.AnalysisCsvPath,
-            maxStepInclusive: resume.ResumeStep);
-        float priorWallClockSeconds = metrics.Count == 0 ? 0f : metrics[^1].WallClockSeconds;
+        List<StepMetrics> metrics = [];
+        float priorWallClockSeconds = 0f;
         Stopwatch stopwatch = Stopwatch.StartNew();
         using PpoPolicyValueModel model = new();
         if (!string.IsNullOrWhiteSpace(resume.CheckpointPath))
@@ -848,7 +1222,7 @@ win_hands_3,{distribution.WinHands3Count},{GetFractionText(distribution.WinHands
                 LearningRate: learningRate,
                 ValueReplayCount: 0);
             metrics.Add(stepMetrics);
-            PpoTraining.WriteMetricsCsv(preparedPaths.AnalysisCsvPath, metrics);
+            WriteRewardCsv(preparedPaths.AnalysisCsvPath, metrics);
 
             Console.WriteLine(
                 $"step {step}/{PpoConfig.StepCount} | " +
@@ -872,6 +1246,21 @@ win_hands_3,{distribution.WinHands3Count},{GetFractionText(distribution.WinHands
             TensorManager.DisposeAll();
             GC.Collect();
         }
+    }
+
+
+    static void WriteRewardCsv(string filePath, IReadOnlyList<StepMetrics> metrics)
+    {
+        CSVBuilder output = new();
+        for (int metricIndex = 0; metricIndex < metrics.Count; ++metricIndex)
+        {
+            StepMetrics metric = metrics[metricIndex];
+            output
+                .NextRow()
+                .SetCell("average_reward", metric.AverageReward);
+        }
+
+        File.WriteAllText(filePath, output.ToString());
     }
 
 
@@ -1169,6 +1558,13 @@ for label in sorted(debug_groups.keys()):
     }
 
 
+    internal static LatestCheckpointInfo FindLatestPpoCheckpoint(string repoRoot)
+    {
+        string experimentDir = Path.Combine(repoRoot, "Analysis", PpoConfig.ExperimentName);
+        return FindLatestCheckpointInDirectory(experimentDir);
+    }
+
+
     static LatestCheckpointInfo FindLatestCheckpoint(string repoRoot)
     {
         string analysisRoot = Path.Combine(repoRoot, "Analysis");
@@ -1176,7 +1572,7 @@ for label in sorted(debug_groups.keys()):
     }
 
 
-    static LatestCheckpointInfo FindLatestCheckpointInDirectory(string searchRoot)
+    internal static LatestCheckpointInfo FindLatestCheckpointInDirectory(string searchRoot)
     {
         string[] checkpointPaths = Directory.GetFiles(searchRoot, "*.bin", SearchOption.AllDirectories);
         if (checkpointPaths.Length == 0)
@@ -1262,8 +1658,17 @@ for label in sorted(debug_groups.keys()):
 """;
 
         string descriptionText = string.IsNullOrWhiteSpace(resume.CheckpointPath)
-            ? "- This experiment starts CISPO from scratch with a fresh model initialization."
-            : $"- This experiment continues CISPO from the step `{resume.ResumeStep}` checkpoint using the current multi-round rollout pipeline.";
+            ? "- This experiment starts PPO from scratch with a fresh model initialization."
+            : $"- This experiment continues PPO from the step `{resume.ResumeStep}` checkpoint using the current multi-round rollout pipeline.";
+        string rewardText = config.TrainOnlyFirstRound
+            ? "first-round terminal reward: lose = 0, win = 1 + 0.1 * remaining hands"
+            : "reward = (rounds survived / 3)^2";
+        string rolloutText = config.TrainOnlyFirstRound
+            ? "Each rollout follows first-round in-round decision states until the round resolves, then applies the terminal round reward."
+            : "Each rollout follows games across both in-round and in-shop decision states until terminal reward, with round and store minibatches mixed into the same optimizer step.";
+        string policyTrainingText = config.TrainOnlyFirstRound
+            ? "Round policy training uses the PPO clipped-surrogate objective with entropy regularization."
+            : "Round and store policy training both use the PPO clipped-surrogate objective with entropy regularization.";
         string readme = $"""
 Date: {runDate}
 Commit Hash: {commitHash}
@@ -1275,7 +1680,7 @@ Commit Hash: {commitHash}
 4. Adam beta1: `{config.AdamBeta1}`
 5. Adam beta2: `{config.AdamBeta2}`
 6. Weight decay: `{config.WeightDecay}`
-7. CISPO clip threshold: `{config.PpoEpsilon}`
+7. PPO clip threshold: `{config.PpoEpsilon}`
 8. Entropy coefficient: `{config.EntropyCoefficient}`
 9. Rollout size: `{config.RolloutSize}` positions
 10. Parallel rollout games: `{config.RolloutParallelGameCount}`
@@ -1284,25 +1689,27 @@ Commit Hash: {commitHash}
 13. Total training steps: `{config.StepCount}`
 14. Sampled softmax candidates: `{config.SampledSoftmaxCount}`
 15. Policy/value update pattern: `1 policy batch, 1 value batch, then optimizer step`
-16. Reward function: `reward = (rounds survived / 3)^2`
+16. Reward function: `{rewardText}`
 17. Value target: `average of later position value predictions, with terminal position assigned true reward`
-        18. Value head: `Linear(768 -> 1)` attached to the trunk residual stream
-19. Value loss coefficient: `{config.ValueLossCoefficient}`
-20. Snapshot frequency: every `{config.SnapshotFrequency}` step(s)
-21. Snapshot weights directory: `{localWeightsDir}`
-22. Notebook: [analysis.ipynb](analysis.ipynb)
-23. Starting hands per round: `{config.InitialHandsPerRound}`
-24. Starting discards per round: `{config.InitialDiscardsPerRound}`
-25. Deck initializer: `{(config.UseRandomDeckInitializer ? "uniform random 52 cards with replacement" : "default deck")}`
+18. Normalization: `LayerNorm`
+19. Value head: `Linear(768 -> 1)` attached to the trunk residual stream
+20. Value loss coefficient: `{config.ValueLossCoefficient}`
+21. Snapshot frequency: every `{config.SnapshotFrequency}` step(s)
+22. Snapshot weights directory: `{localWeightsDir}`
+23. Notebook: [analysis.ipynb](analysis.ipynb)
+24. Starting hands per round: `{config.InitialHandsPerRound}`
+25. Starting discards per round: `{config.InitialDiscardsPerRound}`
+26. Deck initializer: `{(config.UseRandomDeckInitializer ? "uniform random 52 cards with replacement" : "default deck")}`
 {extraTrainingLines}
 
 # Description
 - {descriptionText[2..]}
-- Each rollout follows games across both in-round and in-shop decision states until terminal reward, with round and store minibatches mixed into the same optimizer step.
-- Round policy training uses `40`-candidate importance-corrected sampled softmax with q-adjusted old and new candidate distributions, while store policy training uses direct CISPO over the 4 store actions.
+- {rolloutText}
+- Reward is only assigned when the first round reaches its terminal end-round state.
+- {policyTrainingText}
 - The value network trains on the same on-policy minibatches as the policy update, sharing the same trunk forward pass for each sample.
-- The CSV tracks cumulative wall clock time, average rollout reward, average move entropy, value-network MSE, policy loss, learning rate, and completed game count for each PPO step.
-- The notebook graphs reward, entropy, value MSE, policy loss, wall clock progress, and learning rate over the run.
+- The CSV contains only an `average_reward` timeseries, one row per PPO step.
+- The notebook graphs the reward timeseries over the run.
 """;
         File.WriteAllText(filePath, readme);
     }
@@ -1349,15 +1756,15 @@ Commit Hash: {commitHash}
 
     static void WriteNotebook(string filePath, string csvPath, string experimentName, string referenceCsvPath, string referenceLabel)
     {
+        _ = referenceCsvPath;
+        _ = referenceLabel;
         Dictionary<string, object> notebook = [];
         List<Dictionary<string, object>> cells = [];
 
         cells.Add(CreateMarkdownCell($"""
 # {experimentName}
 
-This notebook visualizes the CISPO training metrics stored in `analysis.csv`.
-{(string.IsNullOrWhiteSpace(referenceLabel) ? "" : $"It overlays the previous PPO run from `{referenceLabel}` and the split-trunk run from `2026-04-28_ppo_roundsurvival_multiround_dualtrunk_fresh_s20_randdeck52wr_r32768_b1024_e4_lr3e5_eps0p3_ent1e5_val0p5_ss40` for comparison.")}
-Step-based plots scale the current run to one eighth of the reference step axis so the 4K rollout lines up with the 32K reference runs.
+This notebook visualizes the reward timeseries stored in `analysis.csv`.
 """));
 
         cells.Add(CreateCodeCell("""
@@ -1366,247 +1773,33 @@ import csv
 import matplotlib.pyplot as plt
 
 csv_path = Path(r"__CSV_PATH__")
-previous_csv_path = Path(r"__PREVIOUS_CSV_PATH__")
-split_trunk_csv_path = Path(r"__SPLIT_TRUNK_CSV_PATH__")
 
-def load_rows(path):
-    loaded_rows = []
-    if str(path) in ("", "."):
-        return loaded_rows
-    if not path.exists():
-        return loaded_rows
-    with path.open("r", newline="") as csv_file:
+rewards = []
+if csv_path.exists():
+    with csv_path.open("r", newline="") as csv_file:
         reader = csv.DictReader(csv_file)
         for row in reader:
-            parsed_row = dict()
-            for key, value in row.items():
-                if value is None or value == "":
-                    parsed_row[key] = None
-                    continue
-                try:
-                    parsed_row[key] = float(value)
-                except ValueError:
-                    parsed_row[key] = value
-            loaded_rows.append(parsed_row)
-    return loaded_rows
+            value = row.get("average_reward")
+            if value is not None and value != "":
+                rewards.append(float(value))
 
-def build_series(rows):
-    steps = [int(row["step"]) for row in rows]
-    wall_clock_seconds = [row["wall_clock_seconds"] for row in rows]
-    average_reward = [row["average_reward"] for row in rows]
-    average_move_entropy = [row["average_move_entropy"] for row in rows]
-    value_mse_mean = [row["value_mse_mean"] for row in rows]
-    policy_loss_mean = [row["policy_loss_mean"] for row in rows]
-    completed_game_count = [row["completed_game_count"] for row in rows]
-    learning_rate = [row["learning_rate"] for row in rows]
-    rolling_window = 3
-    return {
-        "steps": steps,
-        "wall_clock_seconds": wall_clock_seconds,
-        "average_reward": average_reward,
-        "average_move_entropy": average_move_entropy,
-        "value_mse_mean": value_mse_mean,
-        "policy_loss_mean": policy_loss_mean,
-        "completed_game_count": completed_game_count,
-        "learning_rate": learning_rate,
-        "rolling_reward": centered_average(average_reward, rolling_window),
-        "rolling_entropy": centered_average(average_move_entropy, rolling_window),
-        "rolling_value_mse": centered_average(value_mse_mean, rolling_window),
-        "rolling_learning_rate": centered_average(learning_rate, rolling_window),
-    }
-
-def centered_average(values, window_size):
-    output = []
-    half_window = window_size // 2
-    for index in range(len(values)):
-        start = max(0, index - half_window)
-        end = min(len(values), index + half_window + 1)
-        window_values = values[start:end]
-        output.append(sum(window_values) / len(window_values))
-    return output
-
-rows = load_rows(csv_path)
-previous_rows = [row for row in load_rows(previous_csv_path) if int(row["step"]) <= 700]
-split_trunk_rows = [row for row in load_rows(split_trunk_csv_path) if int(row["step"]) <= 700]
-current = build_series(rows)
-current_step_scale = 0.125
-current["scaled_steps"] = [step * current_step_scale for step in current["steps"]]
-previous = build_series(previous_rows) if previous_rows else None
-split_trunk = build_series(split_trunk_rows) if split_trunk_rows else None
+steps = list(range(1, len(rewards) + 1))
+print(f"Loaded {len(rewards)} reward points")
 """.Replace("__CSV_PATH__", csvPath, StringComparison.Ordinal)
-            .Replace("__PREVIOUS_CSV_PATH__", referenceCsvPath, StringComparison.Ordinal)
-            .Replace("__SPLIT_TRUNK_CSV_PATH__", Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(referenceCsvPath)!)!, "2026-04-28_ppo_roundsurvival_multiround_dualtrunk_fresh_s20_randdeck52wr_r32768_b1024_e4_lr3e5_eps0p3_ent1e5_val0p5_ss40", "analysis.csv"), StringComparison.Ordinal)));
+            .Replace("__ROLLOUT_SIZE__", PpoConfig.RolloutSize.ToString(CultureInfo.InvariantCulture), StringComparison.Ordinal)));
 
         cells.Add(CreateCodeCell("""
 plt.style.use("seaborn-v0_8-whitegrid")
 
-current_colors = {
-    "reward": "#1f8f5f",
-    "entropy": "#2a6fdb",
-    "value": "#d94b3d",
-    "loss": "#7a3db8",
-    "wall": "#c97a00",
-    "games": "#7a5530",
-    "lr": "#1d8fa3",
-}
-previous_raw_color = "#a0a7b4"
-previous_trend_color = "#3b4252"
-split_trunk_trend_color = "#b45d5d"
-
-def style_axis(axis):
-    axis.grid(True, alpha=0.22, linewidth=0.8)
-    axis.spines["top"].set_visible(False)
-    axis.spines["right"].set_visible(False)
-    axis.spines["left"].set_alpha(0.35)
-    axis.spines["bottom"].set_alpha(0.35)
-
-def plot_current_and_reference(axis, current_x_key, reference_x_key, y_key, trend_key, raw_label, trend_label, color):
-    axis.plot(current[current_x_key], current[y_key], linewidth=1.15, color=color, alpha=0.24, label=f"Current {raw_label}")
-    axis.plot(current[current_x_key], current[trend_key], linewidth=2.8, color=color, label=f"Current centered trend")
-    if previous is not None:
-        axis.plot(previous[reference_x_key], previous[y_key], linewidth=1.0, color=previous_raw_color, alpha=0.22, label=f"Previous {raw_label}")
-        axis.plot(previous[reference_x_key], previous[trend_key], linewidth=2.2, color=previous_trend_color, alpha=0.92, label=f"Previous centered trend")
-
-def plot_split_trunk_trend(axis, x_key, trend_key, color):
-    if split_trunk is None:
-        return
-    axis.plot(split_trunk[x_key], split_trunk[trend_key], linewidth=2.0, color=color, alpha=0.9, linestyle="--", label="Split trunk centered trend")
-
-def clip_x_axis(axis):
-    x_values = []
-    for line in axis.lines:
-        x_values.extend(line.get_xdata())
-    if not x_values:
-        return
-    axis.set_xlim(min(x_values), max(x_values))
-
-def clip_visible_y_max(axis):
-    x_min, x_max = axis.get_xlim()
-    visible_values = []
-    for line in axis.lines:
-        x_values = line.get_xdata()
-        y_values = line.get_ydata()
-        for x_value, y_value in zip(x_values, y_values):
-            if x_value < x_min or x_value > x_max:
-                continue
-            visible_values.append(y_value)
-    if not visible_values:
-        return
-    upper_value = max(visible_values)
-    if upper_value > 0:
-        upper_value *= 1.05
-    else:
-        upper_value *= 0.95
-    axis.set_ylim(top=upper_value)
-
-figure, axes = plt.subplots(5, 2, figsize=(15, 21), constrained_layout=True)
+figure, axis = plt.subplots(figsize=(10, 5), constrained_layout=True)
 figure.patch.set_facecolor("white")
-
-plot_current_and_reference(axes[0, 0], "scaled_steps", "steps", "average_reward", "rolling_reward", "raw", "trend", current_colors["reward"])
-plot_split_trunk_trend(axes[0, 0], "steps", "rolling_reward", split_trunk_trend_color)
-axes[0, 0].set_title("Average Reward vs Step")
-axes[0, 0].set_xlabel("Reference-Equivalent Step")
-axes[0, 0].set_ylabel("Average Reward")
-style_axis(axes[0, 0])
-clip_x_axis(axes[0, 0])
-clip_visible_y_max(axes[0, 0])
-axes[0, 0].legend(frameon=False)
-
-plot_current_and_reference(axes[0, 1], "wall_clock_seconds", "wall_clock_seconds", "average_reward", "rolling_reward", "raw", "trend", current_colors["reward"])
-plot_split_trunk_trend(axes[0, 1], "wall_clock_seconds", "rolling_reward", split_trunk_trend_color)
-axes[0, 1].set_title("Average Reward vs Wall Clock")
-axes[0, 1].set_xlabel("Seconds")
-axes[0, 1].set_ylabel("Average Reward")
-style_axis(axes[0, 1])
-clip_x_axis(axes[0, 1])
-clip_visible_y_max(axes[0, 1])
-axes[0, 1].legend(frameon=False)
-
-plot_current_and_reference(axes[1, 0], "scaled_steps", "steps", "average_move_entropy", "rolling_entropy", "raw", "trend", current_colors["entropy"])
-plot_split_trunk_trend(axes[1, 0], "steps", "rolling_entropy", split_trunk_trend_color)
-axes[1, 0].set_title("Average Move Entropy vs Step")
-axes[1, 0].set_xlabel("Reference-Equivalent Step")
-axes[1, 0].set_ylabel("Entropy")
-style_axis(axes[1, 0])
-clip_x_axis(axes[1, 0])
-clip_visible_y_max(axes[1, 0])
-axes[1, 0].legend(frameon=False)
-
-plot_current_and_reference(axes[1, 1], "scaled_steps", "steps", "value_mse_mean", "rolling_value_mse", "raw", "trend", current_colors["value"])
-plot_split_trunk_trend(axes[1, 1], "steps", "rolling_value_mse", split_trunk_trend_color)
-axes[1, 1].set_title("Value MSE vs Step")
-axes[1, 1].set_xlabel("Reference-Equivalent Step")
-axes[1, 1].set_ylabel("MSE")
-axes[1, 1].set_yscale("log")
-style_axis(axes[1, 1])
-clip_x_axis(axes[1, 1])
-clip_visible_y_max(axes[1, 1])
-axes[1, 1].legend(frameon=False)
-
-axes[2, 0].plot(current["scaled_steps"], current["policy_loss_mean"], linewidth=2.2, color=current_colors["loss"], label="Current")
-if previous is not None:
-    axes[2, 0].plot(previous["steps"], previous["policy_loss_mean"], linewidth=2.0, color=previous_trend_color, label="Previous")
-if split_trunk is not None:
-    axes[2, 0].plot(split_trunk["steps"], split_trunk["policy_loss_mean"], linewidth=2.0, color=split_trunk_trend_color, linestyle="--", label="Split trunk")
-axes[2, 0].set_title("Policy Loss vs Step")
-axes[2, 0].set_xlabel("Reference-Equivalent Step")
-axes[2, 0].set_ylabel("Loss")
-style_axis(axes[2, 0])
-clip_x_axis(axes[2, 0])
-clip_visible_y_max(axes[2, 0])
-axes[2, 0].legend(frameon=False)
-
-axes[2, 1].plot(current["scaled_steps"], current["wall_clock_seconds"], linewidth=2.2, color=current_colors["wall"], label="Current wall")
-axes[2, 1].plot(current["scaled_steps"], current["completed_game_count"], linewidth=2.2, color=current_colors["games"], label="Current games")
-if previous is not None:
-    axes[2, 1].plot(previous["steps"], previous["wall_clock_seconds"], linewidth=1.8, color=previous_raw_color, alpha=0.75, label="Previous wall")
-    axes[2, 1].plot(previous["steps"], previous["completed_game_count"], linewidth=1.8, color=previous_trend_color, alpha=0.75, label="Previous games")
-if split_trunk is not None:
-    axes[2, 1].plot(split_trunk["steps"], split_trunk["wall_clock_seconds"], linewidth=1.8, color=split_trunk_trend_color, alpha=0.6, linestyle="--", label="Split trunk wall")
-    axes[2, 1].plot(split_trunk["steps"], split_trunk["completed_game_count"], linewidth=1.8, color=split_trunk_trend_color, alpha=0.85, linestyle="--", label="Split trunk games")
-axes[2, 1].set_title("Wall Clock and Completed Games")
-axes[2, 1].set_xlabel("Reference-Equivalent Step")
-style_axis(axes[2, 1])
-clip_x_axis(axes[2, 1])
-clip_visible_y_max(axes[2, 1])
-axes[2, 1].legend(frameon=False, ncol=2)
-
-plot_current_and_reference(axes[3, 0], "scaled_steps", "steps", "learning_rate", "rolling_learning_rate", "raw", "trend", current_colors["lr"])
-plot_split_trunk_trend(axes[3, 0], "steps", "rolling_learning_rate", split_trunk_trend_color)
-axes[3, 0].set_title("Learning Rate vs Step")
-axes[3, 0].set_xlabel("Reference-Equivalent Step")
-axes[3, 0].set_ylabel("Learning Rate")
-style_axis(axes[3, 0])
-clip_x_axis(axes[3, 0])
-clip_visible_y_max(axes[3, 0])
-axes[3, 0].legend(frameon=False)
-
-plot_current_and_reference(axes[3, 1], "wall_clock_seconds", "wall_clock_seconds", "learning_rate", "rolling_learning_rate", "raw", "trend", current_colors["lr"])
-plot_split_trunk_trend(axes[3, 1], "wall_clock_seconds", "rolling_learning_rate", split_trunk_trend_color)
-axes[3, 1].set_title("Learning Rate vs Wall Clock")
-axes[3, 1].set_xlabel("Seconds")
-axes[3, 1].set_ylabel("Learning Rate")
-style_axis(axes[3, 1])
-clip_x_axis(axes[3, 1])
-clip_visible_y_max(axes[3, 1])
-axes[3, 1].legend(frameon=False)
-
-axes[4, 0].plot(current["average_move_entropy"], current["average_reward"], linewidth=1.15, color=current_colors["reward"], alpha=0.24, label="Current raw")
-axes[4, 0].plot(current["rolling_entropy"], current["rolling_reward"], linewidth=2.8, color=current_colors["reward"], label="Current centered trend")
-if previous is not None:
-    axes[4, 0].plot(previous["average_move_entropy"], previous["average_reward"], linewidth=1.0, color=previous_raw_color, alpha=0.22, label="Previous raw")
-    axes[4, 0].plot(previous["rolling_entropy"], previous["rolling_reward"], linewidth=2.2, color=previous_trend_color, alpha=0.92, label="Previous centered trend")
-if split_trunk is not None:
-    axes[4, 0].plot(split_trunk["rolling_entropy"], split_trunk["rolling_reward"], linewidth=2.0, color=split_trunk_trend_color, alpha=0.9, linestyle="--", label="Split trunk centered trend")
-axes[4, 0].set_title("Average Reward vs Entropy")
-axes[4, 0].set_xlabel("Entropy")
-axes[4, 0].set_ylabel("Average Reward")
-style_axis(axes[4, 0])
-axes[4, 0].legend(frameon=False)
-
-axes[4, 1].axis("off")
-
-figure.suptitle("CISPO Training Overview", fontsize=16, y=1.02)
+axis.plot(steps, rewards, linewidth=2.0, color="#1f8f5f")
+axis.set_title("Average Reward")
+axis.set_xlabel("PPO Step")
+axis.set_ylabel("Average Reward")
+axis.grid(True, alpha=0.22, linewidth=0.8)
+axis.spines["top"].set_visible(False)
+axis.spines["right"].set_visible(False)
 plt.show()
 """));
 
