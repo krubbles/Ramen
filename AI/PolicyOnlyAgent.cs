@@ -76,7 +76,7 @@ public class PolicyOnlyAgent : IAgent, IDisposable
                 activeStates[i] = states[activeIndices[batchStart + i]];
 
             // Evaluate the policy for the current active-state chunk.
-            (GameStateTensors _, UseHandTensors _, Tensor probs) = GetPolicyProbDist(temp, activeStates);
+            (GameStateTensors _, Tensor probs) = GetPolicyProbDist(temp, activeStates);
 
             // Sample and apply one move per active state in this chunk.
             Tensor indexTensor = multinomial(probs, num_samples: 1);
@@ -104,7 +104,7 @@ public class PolicyOnlyAgent : IAgent, IDisposable
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
 
-        (GameStateTensors _, UseHandTensors _, Tensor probs) = GetPolicyProbDist(temp, states);
+        (GameStateTensors _, Tensor probs) = GetPolicyProbDist(temp, states);
 
         probs = probs.to(CPU);
 
@@ -124,80 +124,30 @@ public class PolicyOnlyAgent : IAgent, IDisposable
         return results;
     }
 
-    (UseHandTensors useHandTensors, int moveCount) CreateUseHandTensors(ReadOnlySpan<GameState> gameStates)
-    {
-        using var p_funcScope = ProfileScope.New(nameof(CreateUseHandTensors));
-
-        int useHandCount = GameStateEmbedder.PlayHandScoreCount;
-        float[,] scores = new float[gameStates.Length, useHandCount];
-        float[,] handScores = new float[gameStates.Length, useHandCount];
-
-        // Populate scores per state by simulating each use-hand move.
-        for (int stateIndex = 0; stateIndex < gameStates.Length; ++stateIndex)
-        {
-            GameState gameState = gameStates[stateIndex];
-            float scoreBefore = (float)gameState.ScoringState.CurrentRoundTotalScore;
-            int[][] cardIndicesEnumerator = Combinatorics.GetCombinations(
-                setSize: GameData.HandSize,
-                minSubsetSize: 1,
-                maxSubsetSize: 5);
-
-            int move = 0;
-            for (int i = 0; i < cardIndicesEnumerator.Length; ++i)
-            {
-                int[] cardIndices = cardIndicesEnumerator[i];
-                if (cardIndices[^1] >= gameState.HandState.HandCardCount)
-                {
-                    scores[stateIndex, move] = 0f;
-                    handScores[stateIndex, move] = 0f;
-                    move++;
-                    continue;
-                }
-
-                UseHandMove useHandMove = new(false, cardIndices);
-                useHandMove.Apply(gameState);
-                float scoreAfter = (float)gameState.ScoringState.CurrentRoundTotalScore;
-                scores[stateIndex, move] = scoreAfter;
-                handScores[stateIndex, move] = scoreAfter - scoreBefore;
-                move++;
-                useHandMove.Revert(gameState);
-            }
-        }
-
-        UseHandTensors useHandTensors = new()
-        {
-            Score = tensor(scores),
-            HandScore = tensor(handScores),
-        };
-
-        return (useHandTensors, useHandCount * 2);
-    }
-
     /// <summary>
-    /// Returns the policy model's probability distributions for all game states and the generated use-hand tensors.
+    /// Returns the policy model's probability distributions for all game states.
     /// Returned tensors are on the GPU.
     /// </summary>
-    public (GameStateTensors gameStateTensors, UseHandTensors moveTensors, Tensor probs) GetPolicyProbDist(float temp, params ReadOnlySpan<GameState> gameStates)
+    public (GameStateTensors gameStateTensors, Tensor probs) GetPolicyProbDist(float temp, params ReadOnlySpan<GameState> gameStates)
     {
         using var dscope = NewDisposeScope();
         using var gscope = no_grad();
         using var pscope = ProfileScope.New(nameof(GetPolicyProbDist));
 
         GameStateTensors gameStateTensors = CreateGameStateTensors(gameStates);
-        (UseHandTensors useHandTensors, int moveCount) = CreateUseHandTensors(gameStates);
+        int moveCount = GameStateEmbedder.PlayHandScoreCount * 2;
         Tensor discardMask = BuildDiscardMask(gameStates, moveCount);
 
         Profiling.Enter("GetPolicyLogits");
-        Tensor logits = Model.GetPolicyLogits(gameStateTensors, useHandTensors); // interface so it doesn't have a profile scope internally
+        Tensor logits = Model.GetPolicyLogits(gameStateTensors); // interface so it doesn't have a profile scope internally
         Profiling.Exit("GetPolicyLogits");
 
         logits += discardMask;
 
         Tensor probs = (logits / MathF.Max(temp, 0.0001f)).softmax(1).ToOuterScope();
 
-        useHandTensors.ToOuterScope();
         gameStateTensors.ToOuterScope();
-        return (gameStateTensors, useHandTensors, probs);
+        return (gameStateTensors, probs);
     }
 
     static GameStateTensors CreateGameStateTensors(ReadOnlySpan<GameState> gameStates)
@@ -206,7 +156,7 @@ public class PolicyOnlyAgent : IAgent, IDisposable
         GameStateEmbedder gameStateEmbedder = new(gameStates.Length);
         for (int stateIndex = 0; stateIndex < gameStates.Length; ++stateIndex)
             gameStateEmbedder.AddGameState(gameStates[stateIndex]);
-        return gameStateEmbedder.ToTensors();
+        return gameStateEmbedder.ToTensors(includePlayHandScores: true);
     }
 
     /// <summary>
@@ -214,11 +164,7 @@ public class PolicyOnlyAgent : IAgent, IDisposable
     /// </summary>
     public static UseHandMove MoveForIndex(GameState state, int index)
     {
-        int[][] useHandOptions = Combinatorics.GetCombinations(
-            setSize: GameData.HandSize,
-            minSubsetSize: 1,
-            maxSubsetSize: 5);
-        return new UseHandMove(state.HandState.RemainingDiscards >= 1 && index % 2 == 1, useHandOptions[index / 2]);
+        return AgentUtilities.MoveForPolicyIndex(state, index);
     }
 
     static Tensor BuildDiscardMask(ReadOnlySpan<GameState> gameStates, int moveCount)

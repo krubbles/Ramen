@@ -9,7 +9,7 @@ using static TorchSharp.torch;
 
 public static class GRPOTrainingData
 {
-    public static List<PolicyTrainingSample> GenerateTrainingData(IPolicyModel model, int trainingSampleCount, int sampledSoftmaxCount, int groupSize = 32)
+    public static List<PolicyTrainingSample> GenerateTrainingData(IPolicyNetwork model, int trainingSampleCount, int sampledSoftmaxCount, int groupSize = 32)
     {
         List<PolicyTrainingSample> outputSamples = [];
         

@@ -90,22 +90,6 @@ public class GameStateTensors : ITensorGroup
     public Tensor Stage;
 }
 
-/// <summary>
-/// An embedded Move.
-/// </summary>
-public class UseHandTensors : ITensorGroup
-{
-    /// <summary>
-    /// <see cref="ScoringState.CurrentRoundTotalScore"/> after hand is played.
-    /// </summary>
-    public Tensor Score;
-
-    /// <summary>
-    /// Score contributed by the played hand itself.
-    /// </summary>
-    public Tensor HandScore;
-}
-
 public class GameStateEmbedder
 {
     public const int MaxOwnedJokerCount = 5;

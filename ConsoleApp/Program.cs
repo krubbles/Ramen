@@ -250,7 +250,7 @@ Commit Hash: {commitHash}
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
 
-        using PpoPolicyAgent agent = new(model);
+        using PolicyNetworkAgent agent = new(model);
         GameData gameData = CreateOutcomeEvaluationGameData();
         StringBuilder trace = new();
 
@@ -282,7 +282,7 @@ Commit Hash: {commitHash}
                 string preMoveState = DescribeTraceState(gameState);
                 float[][] policies = agent.GetPolicy(temp: 1f, gameState);
                 int chosenMoveIndex = GetArgmaxIndex(policies[0]);
-                UseHandMove move = PolicyOnlyAgent.MoveForIndex(gameState, chosenMoveIndex);
+                UseHandMove move = AgentUtilities.MoveForPolicyIndex(gameState, chosenMoveIndex);
                 string moveText = DescribeTraceMove(gameState, move);
                 move.Apply(gameState);
                 string postMoveState = DescribeTraceState(gameState);
@@ -629,7 +629,7 @@ Commit Hash: {commitHash}
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
 
-        using PpoPolicyAgent agent = new(model);
+        using PolicyNetworkAgent agent = new(model);
         GameState[] gameStates = new GameState[batchSize];
         int gamesStarted = 0;
         OutcomeDistribution distribution = new(GameCount: gameCount);
@@ -684,7 +684,7 @@ Commit Hash: {commitHash}
             for (int index = 0; index < activeSlots.Count; ++index)
             {
                 int chosenMoveIndex = GetArgmaxIndex(policies[index]);
-                PolicyOnlyAgent.MoveForIndex(activeStates[index], chosenMoveIndex).Apply(activeStates[index]);
+                AgentUtilities.MoveForPolicyIndex(activeStates[index], chosenMoveIndex).Apply(activeStates[index]);
             }
         }
 
@@ -713,7 +713,7 @@ Commit Hash: {commitHash}
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
 
-        using PolicyOnlyAgent agent = new(model);
+        using PolicyNetworkAgent agent = new(model);
         GameState[] gameStates = new GameState[gameCount];
         for (int gameIndex = 0; gameIndex < gameStates.Length; ++gameIndex)
             gameStates[gameIndex] = new(gameData);
@@ -752,7 +752,7 @@ Commit Hash: {commitHash}
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
 
-        using PolicyOnlyAgent agent = new(model);
+        using PolicyNetworkAgent agent = new(model);
         GameState[] gameStates = new GameState[gameCount];
         for (int gameIndex = 0; gameIndex < gameStates.Length; ++gameIndex)
             gameStates[gameIndex] = new(gameData);
@@ -821,7 +821,7 @@ Commit Hash: {commitHash}
     }
 
 
-    static void MakeGreedyConsoleAutoMoves(PpoPolicyValueModel model, PolicyOnlyAgent agent, GameState[] gameStates, int batchSize)
+    static void MakeGreedyConsoleAutoMoves(PpoPolicyValueModel model, IAgent agent, GameState[] gameStates, int batchSize)
     {
         List<int> roundIndices = [];
         List<int> shopIndices = [];
@@ -848,7 +848,7 @@ Commit Hash: {commitHash}
     }
 
 
-    static void MakeGreedyFirstRoundMoves(PolicyOnlyAgent agent, GameState[] gameStates, int batchSize)
+    static void MakeGreedyFirstRoundMoves(IAgent agent, GameState[] gameStates, int batchSize)
     {
         List<int> roundIndices = [];
         for (int gameIndex = 0; gameIndex < gameStates.Length; ++gameIndex)
@@ -865,7 +865,7 @@ Commit Hash: {commitHash}
     }
 
 
-    static void ApplyGreedyRoundMoves(PolicyOnlyAgent agent, GameState[] gameStates, List<int> roundIndices, int batchSize)
+    static void ApplyGreedyRoundMoves(IAgent agent, GameState[] gameStates, List<int> roundIndices, int batchSize)
     {
         for (int batchStart = 0; batchStart < roundIndices.Count; batchStart += batchSize)
         {
@@ -878,7 +878,7 @@ Commit Hash: {commitHash}
             for (int batchIndex = 0; batchIndex < activeStates.Length; ++batchIndex)
             {
                 int chosenMoveIndex = GetArgmaxIndex(policies[batchIndex]);
-                PolicyOnlyAgent.MoveForIndex(activeStates[batchIndex], chosenMoveIndex).Apply(activeStates[batchIndex]);
+                AgentUtilities.MoveForPolicyIndex(activeStates[batchIndex], chosenMoveIndex).Apply(activeStates[batchIndex]);
             }
         }
     }

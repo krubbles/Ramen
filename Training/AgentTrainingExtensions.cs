@@ -46,7 +46,7 @@ public static class AgentTrainingExtensions
             activeStates[i] = gameStates[activeIndices[i]];
 
         // get a batch of policy probabilities for each active state as a single batched tensor
-        (GameStateTensors gameStateTensors, UseHandTensors useHandTensors, Tensor probs) = agent.GetPolicyProbDist(temp: 1f, activeStates); // returned tensors are on the gpu.
+        (GameStateTensors gameStateTensors, Tensor probs) = agent.GetPolicyProbDist(temp: 1f, activeStates); // returned tensors are on the gpu.
 
 
         int moveCount = (int)probs.size(1);
@@ -73,14 +73,12 @@ public static class AgentTrainingExtensions
             // Clone per-sample slices so each sample owns compact tensors instead of views to full step batches.
             Tensor sampleSamplingProb = sampledProbs[activeIndex..(activeIndex + 1)].clone();
             GameStateTensors sampleStateTensors = gameStateTensors.GetBatch(activeIndex, activeIndex + 1).Clone();
-            UseHandTensors sampleUseHandTensors = useHandTensors.GetBatch(activeIndex, activeIndex + 1).Clone();
             Tensor sampleMoveIndices = sampleIndices[activeIndex..(activeIndex + 1)].clone();
 
             PolicyTrainingSample sample = new()
             {
                 SamplingProb = sampleSamplingProb,
                 StateTensors = sampleStateTensors,
-                UseHandTensors = sampleUseHandTensors,
                 MoveIndices = sampleMoveIndices,
                 ChosenMoveNLProb = -MathF.Log(chosenProbsManaged[activeIndex] + 1e-9f),
             };

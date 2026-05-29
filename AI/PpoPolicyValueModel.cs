@@ -2,12 +2,11 @@ namespace Ramen.AI;
 
 using Ramen.AgentTools;
 using Ramen.Game;
-using TorchSharp;
 using TorchSharp.Modules;
 using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
 
-public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
+public sealed class PpoPolicyValueModel : Module, IPolicyNetwork, IValueNetwork
 {
     public static readonly Device EvalDevice = mps_is_available() ? MPS : CPU;
     public static readonly int[][] HandCombinations = Combinatorics.GetCombinations(
@@ -107,17 +106,16 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
     }
 
 
-    public Tensor GetPolicyLogits(GameStateTensors gameStateTensors, UseHandTensors useHandTensors)
+    public Tensor GetPolicyLogits(GameStateTensors gameStateTensors)
     {
-        return GetPolicyLogitsAndValues(gameStateTensors, useHandTensors).logits;
+        return GetPolicyLogitsAndValues(gameStateTensors).logits;
     }
 
 
-    public Tensor GetPolicyLogits(GameStateTensors gameStateTensors, UseHandTensors useHandTensors, Tensor moveIndices)
+    public Tensor GetPolicyLogits(GameStateTensors gameStateTensors, Tensor moveIndices)
     {
         return GetSelectedPolicyLogitsAndValues(
             gameStateTensors: gameStateTensors,
-            useHandTensors: useHandTensors,
             moveIndices: moveIndices).logits;
     }
 
@@ -142,11 +140,10 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
     }
 
 
-    public (Tensor logits, Tensor values) GetPolicyLogitsAndValues(GameStateTensors gameStateTensors, UseHandTensors useHandTensors)
+    public (Tensor logits, Tensor values) GetPolicyLogitsAndValues(GameStateTensors gameStateTensors)
     {
         return GetPolicyLogitsAndValues(
             gameStateTensors: gameStateTensors,
-            useHandTensors: useHandTensors,
             playedHandMask: _playedHandMask,
             remainingHandMask: _remainingHandMask,
             relativeScoreEmbedding: _relativeScoreEmbedding,
@@ -166,11 +163,10 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
     }
 
 
-    public (Tensor logits, Tensor values) GetSelectedPolicyLogitsAndValues(GameStateTensors gameStateTensors, UseHandTensors useHandTensors, Tensor moveIndices)
+    public (Tensor logits, Tensor values) GetSelectedPolicyLogitsAndValues(GameStateTensors gameStateTensors, Tensor moveIndices)
     {
         return GetSelectedPolicyLogitsAndValues(
             gameStateTensors: gameStateTensors,
-            useHandTensors: useHandTensors,
             moveIndices: moveIndices,
             playedHandMask: _playedHandMask,
             remainingHandMask: _remainingHandMask,
@@ -280,7 +276,6 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
 
     static (Tensor logits, Tensor values) GetPolicyLogitsAndValues(
         GameStateTensors gameStateTensors,
-        UseHandTensors useHandTensors,
         Tensor playedHandMask,
         Tensor remainingHandMask,
         BilinearRangeScoreEmbedder relativeScoreEmbedding,
@@ -316,21 +311,23 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
             fullHand: gameStateTensors.FullHand.to(EvalDevice),
             handMask: remainingHandMask);
         Tensor scoreThreshold = gameStateTensors.ScoreThreshold.to(EvalDevice);
+        Tensor playHandScores = gameStateTensors.PlayHandScores.to(EvalDevice);
+        Tensor postPlayScores = gameStateTensors.Score.to(EvalDevice) + playHandScores;
         Tensor preScoreEmbedding = EncodeScore(
             score: gameStateTensors.Score.to(EvalDevice),
             scoreThreshold: scoreThreshold,
             relativeScoreEmbedding: relativeScoreEmbedding,
             logScoreEmbedding: logScoreEmbedding).squeeze(1);
         Tensor postPlayScoreEmbedding = EncodeScore(
-            score: useHandTensors.Score.to(EvalDevice),
+            score: postPlayScores,
             scoreThreshold: scoreThreshold,
             relativeScoreEmbedding: relativeScoreEmbedding,
             logScoreEmbedding: logScoreEmbedding);
         Tensor postPlayThresholdReached = EncodeThresholdReached(
-            score: useHandTensors.Score.to(EvalDevice),
+            score: postPlayScores,
             scoreThreshold: scoreThreshold);
         Tensor playHandScoreEmbedding = EncodeScore(
-            score: useHandTensors.HandScore.to(EvalDevice),
+            score: playHandScores,
             scoreThreshold: scoreThreshold,
             relativeScoreEmbedding: relativeScoreEmbedding,
             logScoreEmbedding: logScoreEmbedding);
@@ -391,7 +388,6 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
 
     static (Tensor logits, Tensor values) GetSelectedPolicyLogitsAndValues(
         GameStateTensors gameStateTensors,
-        UseHandTensors useHandTensors,
         Tensor moveIndices,
         Tensor playedHandMask,
         Tensor remainingHandMask,
@@ -435,21 +431,23 @@ public sealed class PpoPolicyValueModel : Module, IPolicyValueModel
             handMask: remainingHandMask,
             selectedHandIndices: selectedHandIndices);
         Tensor scoreThreshold = gameStateTensors.ScoreThreshold.to(EvalDevice);
+        Tensor playHandScores = gameStateTensors.PlayHandScores.to(EvalDevice);
+        Tensor postPlayScores = gameStateTensors.Score.to(EvalDevice) + playHandScores;
         Tensor preScoreEmbedding = EncodeScore(
             score: gameStateTensors.Score.to(EvalDevice),
             scoreThreshold: scoreThreshold,
             relativeScoreEmbedding: relativeScoreEmbedding,
             logScoreEmbedding: logScoreEmbedding).squeeze(1);
         Tensor selectedPostPlayScoreEmbedding = EncodeScore(
-            score: useHandTensors.Score.to(EvalDevice).gather(dim: 1, index: selectedHandIndices),
+            score: postPlayScores.gather(dim: 1, index: selectedHandIndices),
             scoreThreshold: scoreThreshold,
             relativeScoreEmbedding: relativeScoreEmbedding,
             logScoreEmbedding: logScoreEmbedding);
         Tensor selectedPostPlayThresholdReached = EncodeThresholdReached(
-            score: useHandTensors.Score.to(EvalDevice).gather(dim: 1, index: selectedHandIndices),
+            score: postPlayScores.gather(dim: 1, index: selectedHandIndices),
             scoreThreshold: scoreThreshold);
         Tensor selectedPlayHandScoreEmbedding = EncodeScore(
-            score: useHandTensors.HandScore.to(EvalDevice).gather(dim: 1, index: selectedHandIndices),
+            score: playHandScores.gather(dim: 1, index: selectedHandIndices),
             scoreThreshold: scoreThreshold,
             relativeScoreEmbedding: relativeScoreEmbedding,
             logScoreEmbedding: logScoreEmbedding);

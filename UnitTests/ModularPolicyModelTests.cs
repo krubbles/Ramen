@@ -19,11 +19,6 @@ public class ModularPolicyModelTests
         GameStateEmbedder embedder = new(1);
         embedder.AddGameState(gameState);
         GameStateTensors stateTensors = embedder.ToTensors(includePlayHandScores: true);
-        UseHandTensors useHandTensors = new()
-        {
-            Score = stateTensors.PlayHandScores + stateTensors.Score,
-            HandScore = stateTensors.PlayHandScores,
-        };
 
         ModularPolicyModel.Settings settings = new()
         {
@@ -83,9 +78,9 @@ public class ModularPolicyModelTests
 
         ModularPolicyModel model = new(settings);
 
-        Tensor allLogits = model.GetPolicyLogits(stateTensors, useHandTensors).to(CPU);
+        Tensor allLogits = model.GetPolicyLogits(stateTensors).to(CPU);
         Tensor moveIndices = tensor(new long[,] { { 0, 1, 10, 11, 100 } }, dtype: ScalarType.Int64);
-        Tensor selectedLogits = model.GetPolicyLogits(stateTensors, useHandTensors, moveIndices).to(CPU);
+        Tensor selectedLogits = model.GetPolicyLogits(stateTensors, moveIndices).to(CPU);
         Tensor expectedSelectedLogits = allLogits.gather(dim: 1, index: moveIndices);
 
         Assert.That(allLogits.shape[0], Is.EqualTo(1));

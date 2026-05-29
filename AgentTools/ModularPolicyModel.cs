@@ -6,7 +6,7 @@ using TorchSharp.Modules;
 using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
 
-public sealed class ModularPolicyModel : Module
+public sealed class ModularPolicyModel : Module, IPolicyNetwork
 {
     public static readonly Device EvalDevice = mps_is_available() ? MPS : CPU;
     public static readonly int UseableHandCount = Combinatorics.CalculateCombinationCount(
@@ -116,13 +116,13 @@ public sealed class ModularPolicyModel : Module
     }
 
 
-    public Tensor GetPolicyLogits(GameStateTensors gameStateTensors, UseHandTensors useHandTensors)
+    public Tensor GetPolicyLogits(GameStateTensors gameStateTensors)
     {
         using var scope = NewDisposeScope();
 
         Tensor compressedState = BuildCompressedState(gameStateTensors);
         Tensor fullHand = gameStateTensors.FullHand.to(EvalDevice);
-        Tensor postPlayScores = useHandTensors.Score.to(EvalDevice);
+        Tensor postPlayScores = GetPostPlayScores(gameStateTensors);
         int moveCount = (int)postPlayScores.size(1);
 
         Tensor compressedStateExpanded = ExpandAcrossMoves(compressedState, moveCount);
@@ -152,7 +152,7 @@ public sealed class ModularPolicyModel : Module
     }
 
 
-    public Tensor GetPolicyLogits(GameStateTensors gameStateTensors, UseHandTensors useHandTensors, Tensor moveIndices)
+    public Tensor GetPolicyLogits(GameStateTensors gameStateTensors, Tensor moveIndices)
     {
         using var scope = NewDisposeScope();
 
@@ -172,7 +172,6 @@ public sealed class ModularPolicyModel : Module
             usedHandEmbedding: usedHandEmbedding,
             remainingHandEmbedding: remainingHandEmbedding,
             gameStateTensors: gameStateTensors,
-            useHandTensors: useHandTensors,
             selectedHandIndices: selectedHandIndices,
             actionIndices: actionIndices);
         Tensor selectedMoveLogits = RunMoveProcessor(selectedMoveFeatures);
@@ -374,7 +373,6 @@ public sealed class ModularPolicyModel : Module
         Tensor usedHandEmbedding,
         Tensor remainingHandEmbedding,
         GameStateTensors gameStateTensors,
-        UseHandTensors useHandTensors,
         Tensor selectedHandIndices,
         Tensor actionIndices)
     {
@@ -394,8 +392,7 @@ public sealed class ModularPolicyModel : Module
         Tensor discardDiscardsEmbedding = ExpandAcrossMoves(EmbedStateCount((remainingDiscards - 1).clamp_min(0), "discard discards"), moveCount);
         Tensor selectedPostMoveDiscardsEmbedding = SelectByAction(playDiscardsEmbedding, discardDiscardsEmbedding, actionMask);
 
-        Tensor selectedPostPlayScores = useHandTensors.Score
-            .to(EvalDevice)
+        Tensor selectedPostPlayScores = GetPostPlayScores(gameStateTensors)
             .gather(dim: 1, index: selectedHandIndices);
         Tensor playScoreEmbedding = EmbedMoveScore(selectedPostPlayScores, "selected play score");
         Tensor discardScoreEmbedding = ExpandAcrossMoves(EmbedStateScore(_postMoveScoreEmbedder, stateScore, "selected discard score"), moveCount);
@@ -417,6 +414,12 @@ public sealed class ModularPolicyModel : Module
             moveCount: moveCount);
         selectedMoveFeatures.MoveToOuterDisposeScope();
         return selectedMoveFeatures;
+    }
+
+
+    static Tensor GetPostPlayScores(GameStateTensors gameStateTensors)
+    {
+        return gameStateTensors.Score.to(EvalDevice) + gameStateTensors.PlayHandScores.to(EvalDevice);
     }
 
 

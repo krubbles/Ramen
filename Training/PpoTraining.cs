@@ -75,6 +75,8 @@ public static class PpoTraining
             activeTrajectories[slot] = [];
         }
 
+        using PolicyNetworkAgent roundAgent = new(model);
+
         while (rollout.Count < config.RolloutSize)
         {
             List<int> activeIndices = [];
@@ -118,6 +120,7 @@ public static class PpoTraining
                 continue;
 
             ProcessRoundDecisions(
+                agent: roundAgent,
                 model: model,
                 random: random,
                 gameStates: gameStates,
@@ -394,6 +397,7 @@ public static class PpoTraining
 
 
     static void ProcessRoundDecisions(
+        PolicyNetworkAgent agent,
         PpoPolicyValueModel model,
         Random random,
         IReadOnlyList<GameState> gameStates,
@@ -418,37 +422,41 @@ public static class PpoTraining
         using var scope = NewDisposeScope();
 
         int actualCount = roundPositions.Count;
+        GameState[] roundGameStates = new GameState[actualCount];
+        for (int batchIndex = 0; batchIndex < roundGameStates.Length; ++batchIndex)
+        {
+            int activeSlot = roundDecisionSlots[batchIndex];
+            int gameSlot = activeIndices[activeSlot];
+            roundGameStates[batchIndex] = gameStates[gameSlot];
+        }
+
+        float[][] policies = agent.GetPolicy(temp: 1f, roundGameStates);
+
         int paddedCount = PadToPowerOfTwo(actualCount);
         if (paddedCount > actualCount)
             for (int i = actualCount; i < paddedCount; ++i)
                 roundPositions.Add(roundPositions[0]);
 
-        (GameStateTensors stateTensors, UseHandTensors useHandTensors) = BuildRoundRolloutBatch(roundPositions);
-        (Tensor logits, Tensor values) = model.GetPolicyLogitsAndValues(stateTensors, useHandTensors);
-        Tensor illegalMask = BuildIllegalMoveMask(
-            remainingHands: stateTensors.RemainingHands.to(PpoPolicyValueModel.EvalDevice).to_type(ScalarType.Int64),
-            remainingDiscards: stateTensors.RemainingDiscards.to(PpoPolicyValueModel.EvalDevice).to_type(ScalarType.Int64));
-        Tensor probs = functional.softmax(logits + illegalMask, dim: 1).to(CPU);
-        float[] flatProbs = [.. probs.data<float>()];
+        GameStateTensors stateTensors = BuildStateTensorBatch(roundPositions);
+        Tensor values = model.GetValues(stateTensors);
         float[] flatValues = [.. values.to(CPU).data<float>()];
 
         for (int batchIndex = 0; batchIndex < actualCount; ++batchIndex)
         {
-            int rowOffset = batchIndex * PpoPolicyValueModel.MoveCount;
-            Span<float> rowSpan = flatProbs.AsSpan(rowOffset, PpoPolicyValueModel.MoveCount);
+            float[] policy = policies[batchIndex];
             TrajectoryPosition position = roundPositions[batchIndex];
             position.PositionValueEstimate = flatValues[batchIndex];
-            int chosenMoveIndex = SampleMoveIndex(rowSpan, random);
+            int chosenMoveIndex = SampleMoveIndex(policy, random);
             FillRoundTargets(
                 position: position,
                 chosenMoveIndex: chosenMoveIndex,
-                fullProbs: rowSpan,
+                fullProbs: policy,
                 random: random);
 
             int activeSlot = roundDecisionSlots[batchIndex];
             int gameSlot = activeIndices[activeSlot];
             activeTrajectories[gameSlot].Add(position);
-            UseHandMove move = PolicyOnlyAgent.MoveForIndex(gameStates[gameSlot], chosenMoveIndex);
+            UseHandMove move = AgentUtilities.MoveForPolicyIndex(gameStates[gameSlot], chosenMoveIndex);
             move.Apply(gameStates[gameSlot]);
         }
     }
@@ -516,30 +524,6 @@ public static class PpoTraining
     }
 
 
-    internal static (GameStateTensors stateTensors, UseHandTensors useHandTensors) BuildRoundRolloutBatch(IReadOnlyList<TrajectoryPosition> positions)
-    {
-        GameStateTensors stateTensors = BuildStateTensorBatch(positions);
-        float[,] useHandScores = new float[positions.Count, PpoPolicyValueModel.UseableHandCount];
-        float[,] handScores = new float[positions.Count, PpoPolicyValueModel.UseableHandCount];
-        for (int batchIndex = 0; batchIndex < positions.Count; ++batchIndex)
-        {
-            for (int handIndex = 0; handIndex < PpoPolicyValueModel.UseableHandCount; ++handIndex)
-            {
-                useHandScores[batchIndex, handIndex] = positions[batchIndex].UseHandScores[handIndex];
-                handScores[batchIndex, handIndex] = positions[batchIndex].HandScores[handIndex];
-            }
-        }
-
-        return (
-            stateTensors,
-            new()
-            {
-                Score = tensor(useHandScores, dtype: ScalarType.Float32),
-                HandScore = tensor(handScores, dtype: ScalarType.Float32),
-            });
-    }
-
-
     internal static GameStateTensors BuildStateTensorBatch(IReadOnlyList<TrajectoryPosition> positions)
     {
         long[,] fullHand = new long[positions.Count, GameData.HandSize];
@@ -555,6 +539,7 @@ public static class PpoTraining
         long[] stage = new long[positions.Count];
         float[,] score = new float[positions.Count, 1];
         float[,] scoreThreshold = new float[positions.Count, 1];
+        float[,] playHandScores = new float[positions.Count, PpoPolicyValueModel.UseableHandCount];
 
         for (int batchIndex = 0; batchIndex < positions.Count; ++batchIndex)
         {
@@ -573,6 +558,9 @@ public static class PpoTraining
             stage[batchIndex] = position.Stage;
             score[batchIndex, 0] = position.Score;
             scoreThreshold[batchIndex, 0] = position.ScoreThreshold;
+
+            for (int handIndex = 0; handIndex < PpoPolicyValueModel.UseableHandCount; ++handIndex)
+                playHandScores[batchIndex, handIndex] = position.PlayHandScores[handIndex];
 
             for (int jokerIndex = 0; jokerIndex < GameStateEmbedder.MaxOwnedJokerCount; ++jokerIndex)
                 ownedJokers[batchIndex, jokerIndex] = position.OwnedJokers[jokerIndex];
@@ -597,6 +585,7 @@ public static class PpoTraining
             Money = tensor(money, dtype: ScalarType.Int64),
             Round = tensor(round, dtype: ScalarType.Int64),
             Stage = tensor(stage, dtype: ScalarType.Int64),
+            PlayHandScores = tensor(playHandScores, dtype: ScalarType.Float32),
             Score = tensor(score, dtype: ScalarType.Float32),
             ScoreThreshold = tensor(scoreThreshold, dtype: ScalarType.Float32),
         };
@@ -839,7 +828,6 @@ public static class PpoTraining
     static (float policyLoss, float valueMse, float clipFraction) TrainRoundBatch(PpoPolicyValueModel model, AdamW optimizer, PpoRoundMiniBatch batch, ExperimentConfig config)
     {
         GameStateTensors stateTensors = batch.StateTensors.ToDevice(PpoPolicyValueModel.EvalDevice);
-        UseHandTensors useHandTensors = batch.UseHandTensors.ToDevice(PpoPolicyValueModel.EvalDevice);
         Tensor sampledMoveIndices = batch.SampledMoveIndices.to(PpoPolicyValueModel.EvalDevice);
         Tensor sampledMoveLogQ = batch.SampledMoveLogQ.to(PpoPolicyValueModel.EvalDevice);
         Tensor sampledMoveValidMask = batch.SampledMoveValidMask.to(PpoPolicyValueModel.EvalDevice);
@@ -848,7 +836,6 @@ public static class PpoTraining
 
         (Tensor sampledLogits, Tensor values) = model.GetSelectedPolicyLogitsAndValues(
             gameStateTensors: stateTensors,
-            useHandTensors: useHandTensors,
             moveIndices: sampledMoveIndices);
         Tensor correctedLogits = sampledLogits - sampledMoveLogQ;
         Tensor invalidMask = (1f - sampledMoveValidMask) * -1e9f;
@@ -1044,11 +1031,10 @@ public sealed class PpoRoundRolloutDataset : IDisposable
             }
         }
 
-        (GameStateTensors stateTensors, UseHandTensors useHandTensors) = PpoTraining.BuildRoundRolloutBatch(batchPositions);
+        GameStateTensors stateTensors = PpoTraining.BuildStateTensorBatch(batchPositions);
         return new()
         {
             StateTensors = stateTensors,
-            UseHandTensors = useHandTensors,
             SampledMoveIndices = tensor(sampledMoveIndices, dtype: ScalarType.Int64),
             OldSampledMoveProbs = tensor(oldSampledMoveProbs, dtype: ScalarType.Float32),
             SampledMoveLogQ = tensor(sampledMoveLogQ, dtype: ScalarType.Float32),
@@ -1129,7 +1115,6 @@ public sealed class PpoStoreRolloutDataset : IDisposable
 public sealed class PpoRoundMiniBatch : Ramen.AgentTools.ITensorGroup, IDisposable
 {
     public GameStateTensors StateTensors;
-    public UseHandTensors UseHandTensors;
     public Tensor SampledMoveIndices;
     public Tensor OldSampledMoveProbs;
     public Tensor SampledMoveLogQ;
@@ -1164,8 +1149,7 @@ public sealed class TrajectoryPosition
     public readonly long[] OwnedJokers = new long[GameStateEmbedder.MaxOwnedJokerCount];
     public readonly long[] StoreJokers = new long[GameStateEmbedder.MaxStoreJokerCount];
     public readonly long[] StorePrices = new long[GameStateEmbedder.MaxStoreJokerCount];
-    public readonly float[] UseHandScores = new float[PpoPolicyValueModel.UseableHandCount];
-    public readonly float[] HandScores = new float[PpoPolicyValueModel.UseableHandCount];
+    public readonly float[] PlayHandScores = new float[PpoPolicyValueModel.UseableHandCount];
     public readonly long[] SampledMoveIndices;
     public readonly float[] OldSampledMoveProbs;
     public readonly float[] SampledMoveLogQ;
@@ -1209,7 +1193,7 @@ public sealed class TrajectoryPosition
         WriteJokerSlots(gameState.ShopState.ShopOfferings, gameState.GameData, StoreJokers);
         WriteStorePrices(gameState.ShopState.ShopOfferings, StorePrices);
         if (!IsStoreState)
-            WriteUseHandScores(gameState, UseHandScores, HandScores);
+            WritePlayHandScores(gameState, PlayHandScores);
 
         SampledMoveIndices = new long[sampledSoftmaxCount];
         OldSampledMoveProbs = new float[sampledSoftmaxCount];
@@ -1260,7 +1244,7 @@ public sealed class TrajectoryPosition
     }
 
 
-    static void WriteUseHandScores(GameState gameState, float[] postMoveScores, float[] handScores)
+    static void WritePlayHandScores(GameState gameState, float[] playHandScores)
     {
         int handCardCount = gameState.HandState.HandCardCount;
         float scoreBefore = (float)gameState.ScoringState.CurrentRoundTotalScore;
@@ -1270,16 +1254,14 @@ public sealed class TrajectoryPosition
             int[] cardIndices = PpoPolicyValueModel.HandCombinations[handIndex];
             if (cardIndices[^1] >= handCardCount)
             {
-                postMoveScores[handIndex] = 0f;
-                handScores[handIndex] = 0f;
+                playHandScores[handIndex] = 0f;
                 continue;
             }
 
             UseHandMove move = new(isDiscard: false, cardIndices);
             move.Apply(gameState);
             float scoreAfter = (float)gameState.ScoringState.CurrentRoundTotalScore;
-            postMoveScores[handIndex] = scoreAfter;
-            handScores[handIndex] = scoreAfter - scoreBefore;
+            playHandScores[handIndex] = scoreAfter - scoreBefore;
             move.Revert(gameState);
         }
     }

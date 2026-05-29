@@ -255,37 +255,9 @@ public sealed class ConsoleBalatroApp
 
         GameStateEmbedder embedder = new(1);
         embedder.AddGameState(_gameState);
-        GameStateTensors gameStateTensors = embedder.ToTensors();
+        GameStateTensors gameStateTensors = embedder.ToTensors(includePlayHandScores: true);
 
-        int useHandCount = GameStateEmbedder.PlayHandScoreCount;
-        int[][] combinations = Combinatorics.GetCombinations(
-            setSize: GameData.HandSize,
-            minSubsetSize: 1,
-            maxSubsetSize: 5);
-
-        float[,] scores = new float[1, useHandCount];
-        float[,] handScores = new float[1, useHandCount];
-        float scoreBefore = (float)_gameState.ScoringState.CurrentRoundTotalScore;
-        for (int i = 0; i < combinations.Length; ++i)
-        {
-            int[] moveCardIndices = combinations[i];
-            if (moveCardIndices[^1] >= _gameState.HandState.HandCardCount)
-                continue;
-
-            UseHandMove move = new(false, moveCardIndices);
-            move.Apply(_gameState);
-            float scoreAfter = (float)_gameState.ScoringState.CurrentRoundTotalScore;
-            scores[0, i] = scoreAfter;
-            handScores[0, i] = scoreAfter - scoreBefore;
-            move.Revert(_gameState);
-        }
-        UseHandTensors useHandTensors = new()
-        {
-            Score = tensor(scores),
-            HandScore = tensor(handScores),
-        };
-
-        Tensor logits = autoModel.GetPolicyLogits(gameStateTensors, useHandTensors).to(CPU);
+        Tensor logits = autoModel.GetPolicyLogits(gameStateTensors).to(CPU);
         // mask out discards if none remaining
         if (_gameState.HandState.RemainingDiscards == 0)
         {

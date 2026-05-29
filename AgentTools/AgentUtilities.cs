@@ -4,6 +4,15 @@ using Ramen.Game;
 
 public static class AgentUtilities
 {
+    public static UseHandMove MoveForPolicyIndex(GameState state, int index)
+    {
+        int[][] useHandOptions = Combinatorics.GetCombinations(
+            setSize: GameData.HandSize,
+            minSubsetSize: 1,
+            maxSubsetSize: 5);
+        return new(state.HandState.RemainingDiscards >= 1 && index % 2 == 1, useHandOptions[index / 2]);
+    }
+
     public static float[] SafeSoftmax(ReadOnlySpan<float> logits, float temp)
     {
         if (logits.Length == 0)

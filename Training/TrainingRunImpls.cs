@@ -17,7 +17,7 @@ public class BasicGRPOTrainingRun : ITrainingRun
     /// <summary>
     /// Clears prior policy samples, generates a GRPO rollout, then trains the model on that rollout.
     /// </summary>
-    public void Step(IPolicyModel model)
+    public void Step(IPolicyNetwork model)
     {
         // Generate a rollout where group size matches rollout size.
         IReadOnlyList<PolicyTrainingSample> trainingData = GRPOTrainingData.GenerateTrainingData(

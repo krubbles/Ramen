@@ -23,9 +23,9 @@ public static class Training
 {
     public const float epsilonLow = 0.2f, epsilonHigh = 0.2f;
     public static AdamW Optimizer;
-    static IPolicyModel _model;
+    static IPolicyNetwork _model;
 
-    static void SetModelAndOptimizer(IPolicyModel model, TrainingParams tp)
+    static void SetModelAndOptimizer(IPolicyNetwork model, TrainingParams tp)
     {
         Module modelModule = model as Module;
         if (_model == model)
@@ -40,7 +40,7 @@ public static class Training
         Optimizer.zero_grad();
     }
 
-    public static void TrainPolicyModelGRPO(IPolicyModel model, IReadOnlyList<PolicyTrainingSample> trainingData, TrainingParams tp, CancellationToken cancel, bool validate = false)
+    public static void TrainPolicyModelGRPO(IPolicyNetwork model, IReadOnlyList<PolicyTrainingSample> trainingData, TrainingParams tp, CancellationToken cancel, bool validate = false)
     {
         using var dscope = NewDisposeScope();
 
