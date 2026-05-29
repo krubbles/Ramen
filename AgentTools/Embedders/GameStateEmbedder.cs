@@ -8,6 +8,8 @@ using static TorchSharp.torch;
 /// </summary>
 public class GameStateTensors : ITensorGroup
 {
+    // ROUND STATE
+
     /// <summary>
     /// Vector of cards in <see cref="HandState.Hand"/> encoded with <see cref="Card.ToIndex"/>.
     /// </summary>
@@ -27,6 +29,25 @@ public class GameStateTensors : ITensorGroup
     /// <see cref="ScoringState.CurrentRoundThresholdScore"/>
     /// </summary>
     public Tensor ScoreThreshold;
+
+
+    /// <summary>
+    /// Optional tensor of per-play hand scores in the standard hand ordering.
+    /// Shape: (batch, <see cref="GameStateEmbedder.PlayHandScoreCount"/>).
+    /// </summary>
+    public Tensor PlayHandScores;
+
+    /// <summary>
+    /// <see cref="HandState.RemainingHands"/>
+    /// </summary>
+    public Tensor RemainingHands;
+
+    /// <summary>
+    /// <see cref="HandState.RemainingDiscards"/>
+    /// </summary>
+    public Tensor RemainingDiscards;
+
+    // STORE STATE
 
     /// <summary>
     /// Ordered joker slots from <see cref="JokerState.Jokers"/>, encoded as 1-based joker indices with 0 as null.
@@ -51,6 +72,8 @@ public class GameStateTensors : ITensorGroup
     /// </summary>
     public Tensor RerollPrice;
 
+    // PERSISTENT STATE
+
     /// <summary>
     /// <see cref="ShopState.Money"/>
     /// </summary>
@@ -65,22 +88,6 @@ public class GameStateTensors : ITensorGroup
     /// Encodes whether the state is in-round (`0`) or in-store (`1`).
     /// </summary>
     public Tensor Stage;
-
-    /// <summary>
-    /// Optional tensor of per-play hand scores in the standard hand ordering.
-    /// Shape: (batch, <see cref="GameStateEmbedder.PlayHandScoreCount"/>).
-    /// </summary>
-    public Tensor PlayHandScores;
-
-    /// <summary>
-    /// <see cref="HandState.RemainingHands"/>
-    /// </summary>
-    public Tensor RemainingHands;
-
-    /// <summary>
-    /// <see cref="HandState.RemainingDiscards"/>
-    /// </summary>
-    public Tensor RemainingDiscards;
 }
 
 /// <summary>
@@ -108,22 +115,29 @@ public class GameStateEmbedder
         maxSubsetSize: 5,
         minSubsetSize: 1);
 
+    // in round data
     readonly long[,] _fullHand;
     readonly long[,] _remainingDeck;
     readonly long[] _remainingHands;
     readonly long[] _remainingDiscards;
-    readonly long[,] _ownedJokers;
+    readonly float[] _score;
+    readonly float[] _scoreThreshold;
+    readonly float[,] _playHandScores;
+
+    // in store data
     readonly long[,] _storeJokers;
     readonly long[,] _storePrices;
     readonly long[] _rerollPrice;
+
+    // persistent data
+    readonly long[,] _ownedJokers;
     readonly long[] _money;
     readonly long[] _round;
-    readonly long[] _stage;
-    readonly float[,] _playHandScores;
-    readonly float[] _score;
-    readonly float[] _scoreThreshold;
+    readonly long[] _isInStore;
 
-    int _addedGameStateCount;
+    public int AddedGameStateCount { get; private set; }
+
+    public int MaxGameStateCount => _remainingHands.Length;
 
     public GameStateEmbedder(int gameStateCount)
     {
@@ -137,7 +151,7 @@ public class GameStateEmbedder
         _rerollPrice = new long[gameStateCount];
         _money = new long[gameStateCount];
         _round = new long[gameStateCount];
-        _stage = new long[gameStateCount];
+        _isInStore = new long[gameStateCount];
         _playHandScores = new float[gameStateCount, PlayHandScoreCount];
         _score = new float[gameStateCount];
         _scoreThreshold = new float[gameStateCount];
@@ -146,130 +160,70 @@ public class GameStateEmbedder
 
     public void AddGameState(GameState gameState)
     {
-        if (_addedGameStateCount >= _remainingHands.Length)
+        if (AddedGameStateCount >= _remainingHands.Length)
             throw new InvalidOperationException("GameStateEmbedder is already full.");
+
+        // in round data
 
         ReadOnlySpan<Card> hand = gameState.HandState.Hand;
         for (int cardIndex = 0; cardIndex < hand.Length; ++cardIndex)
-            _fullHand[_addedGameStateCount, cardIndex] = hand[cardIndex].ToIndex();
+            _fullHand[AddedGameStateCount, cardIndex] = hand[cardIndex].ToIndex();
 
         ReadOnlySpan<Card> deck = gameState.DeckState.RemainingDeck;
         for (int cardIndex = 0; cardIndex < deck.Length; ++cardIndex)
-            _remainingDeck[_addedGameStateCount, cardIndex] = deck[cardIndex].ToIndex();
+            _remainingDeck[AddedGameStateCount, cardIndex] = deck[cardIndex].ToIndex();
 
-        _remainingHands[_addedGameStateCount] = gameState.HandState.RemainingHands;
-        _remainingDiscards[_addedGameStateCount] = gameState.HandState.RemainingDiscards;
-        _money[_addedGameStateCount] = gameState.ShopState.Money;
-        _rerollPrice[_addedGameStateCount] = gameState.ShopState.CurrentRerollCost;
-        _round[_addedGameStateCount] = gameState.Round;
-        _stage[_addedGameStateCount] = IsStoreStage(gameState.Stage) ? 1 : 0;
-        WriteJokerSlots(gameState.JokerState.Jokers, gameState.GameData, _ownedJokers, _addedGameStateCount);
-        WriteJokerSlots(gameState.ShopState.ShopOfferings, gameState.GameData, _storeJokers, _addedGameStateCount);
-        WriteStorePrices(gameState.ShopState.ShopOfferings, _storePrices, _addedGameStateCount);
-        WritePlayHandScores(gameState, _addedGameStateCount);
-        _score[_addedGameStateCount] = GetScoreValue(gameState);
-        _scoreThreshold[_addedGameStateCount] = GetScoreThresholdValue(gameState);
-        _addedGameStateCount++;
+        _remainingHands[AddedGameStateCount] = gameState.HandState.RemainingHands;
+        _remainingDiscards[AddedGameStateCount] = gameState.HandState.RemainingDiscards;
+
+        _score[AddedGameStateCount] = (float)gameState.ScoringState.CurrentRoundTotalScore;
+        _scoreThreshold[AddedGameStateCount] = (float)gameState.ScoringState.CurrentRoundThresholdScore;
+        WritePlayHandScores(gameState, AddedGameStateCount);
+
+        // store data
+
+        WriteJokerSlots(gameState.ShopState.ShopOfferings, gameState.GameData, _storeJokers, AddedGameStateCount);
+        WriteStorePrices(gameState.ShopState.ShopOfferings, _storePrices, AddedGameStateCount);
+        _rerollPrice[AddedGameStateCount] = gameState.ShopState.CurrentRerollCost;
+
+
+        WriteJokerSlots(gameState.JokerState.Jokers, gameState.GameData, _ownedJokers, AddedGameStateCount);
+        _money[AddedGameStateCount] = gameState.ShopState.Money;
+        _round[AddedGameStateCount] = gameState.Round;
+        _isInStore[AddedGameStateCount] =
+            (gameState.Stage == StageOfGame.EnterShop || gameState.Stage == StageOfGame.InShop) ? 1 : 0;
+        AddedGameStateCount++;
     }
 
 
-    public GameStateTensors ToTensors()
+    void WritePlayHandScores(GameState gameState, int stateIndex)
     {
-        return ToTensors(CPU, includePlayHandScores: false);
-    }
+        if (gameState.Stage != StageOfGame.InRoundPlayerChoice)
+            return;
 
+        int[][] playHandOptions = Combinatorics.GetCombinations(
+            setSize: GameData.HandSize,
+            minSubsetSize: 1,
+            maxSubsetSize: 5);
+        float roundScoreBefore = (float)gameState.ScoringState.CurrentRoundTotalScore;
+        int handCardCount = gameState.HandState.HandCardCount;
 
-    public GameStateTensors ToTensors(bool includePlayHandScores)
-    {
-        return ToTensors(CPU, includePlayHandScores);
-    }
-
-
-    public GameStateTensors ToTensors(Device device, bool includePlayHandScores = false)
-    {
-        long[,] fullHand = new long[_addedGameStateCount, GameData.HandSize];
-        long[,] remainingDeck = new long[_addedGameStateCount, 52];
-        long[] remainingHands = new long[_addedGameStateCount];
-        long[] remainingDiscards = new long[_addedGameStateCount];
-        long[,] ownedJokers = new long[_addedGameStateCount, MaxOwnedJokerCount];
-        long[,] storeJokers = new long[_addedGameStateCount, MaxStoreJokerCount];
-        long[,] storePrices = new long[_addedGameStateCount, MaxStoreJokerCount];
-        long[] rerollPrice = new long[_addedGameStateCount];
-        long[] money = new long[_addedGameStateCount];
-        long[] round = new long[_addedGameStateCount];
-        long[] stage = new long[_addedGameStateCount];
-        float[,] score2D = new float[_addedGameStateCount, 1];
-        float[,] scoreThreshold2D = new float[_addedGameStateCount, 1];
-        float[,] playHandScores = includePlayHandScores ? new float[_addedGameStateCount, PlayHandScoreCount] : null;
-
-        for (int stateIndex = 0; stateIndex < _addedGameStateCount; ++stateIndex)
+        for (int handIndex = 0; handIndex < playHandOptions.Length; ++handIndex)
         {
-            for (int cardIndex = 0; cardIndex < GameData.HandSize; ++cardIndex)
-                fullHand[stateIndex, cardIndex] = _fullHand[stateIndex, cardIndex];
-
-            for (int cardIndex = 0; cardIndex < 52; ++cardIndex)
-                remainingDeck[stateIndex, cardIndex] = _remainingDeck[stateIndex, cardIndex];
-
-            remainingHands[stateIndex] = _remainingHands[stateIndex];
-            remainingDiscards[stateIndex] = _remainingDiscards[stateIndex];
-            money[stateIndex] = _money[stateIndex];
-            rerollPrice[stateIndex] = _rerollPrice[stateIndex];
-            round[stateIndex] = _round[stateIndex];
-            stage[stateIndex] = _stage[stateIndex];
-            score2D[stateIndex, 0] = _score[stateIndex];
-            scoreThreshold2D[stateIndex, 0] = _scoreThreshold[stateIndex];
-
-            for (int jokerIndex = 0; jokerIndex < MaxOwnedJokerCount; ++jokerIndex)
-                ownedJokers[stateIndex, jokerIndex] = _ownedJokers[stateIndex, jokerIndex];
-
-            for (int jokerIndex = 0; jokerIndex < MaxStoreJokerCount; ++jokerIndex)
+            int[] cardIndices = playHandOptions[handIndex];
+            if (cardIndices[^1] >= handCardCount)
             {
-                storeJokers[stateIndex, jokerIndex] = _storeJokers[stateIndex, jokerIndex];
-                storePrices[stateIndex, jokerIndex] = _storePrices[stateIndex, jokerIndex];
+                _playHandScores[stateIndex, handIndex] = 0f;
+                continue;
             }
 
-            if (!includePlayHandScores)
-                continue;
-
-            for (int handIndex = 0; handIndex < PlayHandScoreCount; ++handIndex)
-                playHandScores[stateIndex, handIndex] = _playHandScores[stateIndex, handIndex];
+            UseHandMove useHandMove = new(false, cardIndices);
+            useHandMove.Apply(gameState);
+            float roundScoreAfter = (float)gameState.ScoringState.CurrentRoundTotalScore;
+            _playHandScores[stateIndex, handIndex] = roundScoreAfter - roundScoreBefore;
+            useHandMove.Revert(gameState);
         }
-
-        return new()
-        {
-            FullHand = tensor(fullHand, dtype: ScalarType.Int64, device: device),
-            RemainingDeck = tensor(remainingDeck, dtype: ScalarType.Int64, device: device),
-            RemainingHands = tensor(remainingHands, dtype: ScalarType.Int64, device: device),
-            RemainingDiscards = tensor(remainingDiscards, dtype: ScalarType.Int64, device: device),
-            OwnedJokers = tensor(ownedJokers, dtype: ScalarType.Int64, device: device),
-            StoreJokers = tensor(storeJokers, dtype: ScalarType.Int64, device: device),
-            StorePrices = tensor(storePrices, dtype: ScalarType.Int64, device: device),
-            RerollPrice = tensor(rerollPrice, dtype: ScalarType.Int64, device: device),
-            Money = tensor(money, dtype: ScalarType.Int64, device: device),
-            Round = tensor(round, dtype: ScalarType.Int64, device: device),
-            Stage = tensor(stage, dtype: ScalarType.Int64, device: device),
-            PlayHandScores = includePlayHandScores ? tensor(playHandScores, dtype: ScalarType.Float32, device: device) : null,
-            Score = tensor(score2D, dtype: ScalarType.Float32, device: device),
-            ScoreThreshold = tensor(scoreThreshold2D, dtype: ScalarType.Float32, device: device),
-        };
     }
-
-
-    static float GetScoreValue(GameState gameState)
-    {
-        return (float)gameState.ScoringState.CurrentRoundTotalScore;
-    }
-
-    static float GetScoreThresholdValue(GameState gameState)
-    {
-        return (float)gameState.ScoringState.CurrentRoundThresholdScore;
-    }
-
-    static bool IsStoreStage(StageOfGame stage)
-    {
-        return stage == StageOfGame.EnterShop || stage == StageOfGame.InShop;
-    }
-
     static void WriteJokerSlots(IReadOnlyList<JokerInstance> jokers, GameData gameData, long[,] output, int stateIndex)
     {
         int slotCount = output.GetLength(1);
@@ -305,32 +259,37 @@ public class GameStateEmbedder
         throw new InvalidOperationException($"Joker {joker.Name} was not found in the current game data.");
     }
 
-    void WritePlayHandScores(GameState gameState, int stateIndex)
+
+    public GameStateTensors ToTensors()
     {
-        if (gameState.Stage != StageOfGame.InRoundPlayerChoice)
-            return;
+        return ToTensors(CPU, includePlayHandScores: false);
+    }
 
-        int[][] playHandOptions = Combinatorics.GetCombinations(
-            setSize: GameData.HandSize,
-            minSubsetSize: 1,
-            maxSubsetSize: 5);
-        float roundScoreBefore = (float)gameState.ScoringState.CurrentRoundTotalScore;
-        int handCardCount = gameState.HandState.HandCardCount;
 
-        for (int handIndex = 0; handIndex < playHandOptions.Length; ++handIndex)
+    public GameStateTensors ToTensors(bool includePlayHandScores)
+    {
+        return ToTensors(CPU, includePlayHandScores);
+    }
+
+
+    public GameStateTensors ToTensors(Device device, bool includePlayHandScores = false)
+    {
+        return new()
         {
-            int[] cardIndices = playHandOptions[handIndex];
-            if (cardIndices[^1] >= handCardCount)
-            {
-                _playHandScores[stateIndex, handIndex] = 0f;
-                continue;
-            }
-
-            UseHandMove useHandMove = new(false, cardIndices);
-            useHandMove.Apply(gameState);
-            float roundScoreAfter = (float)gameState.ScoringState.CurrentRoundTotalScore;
-            _playHandScores[stateIndex, handIndex] = roundScoreAfter - roundScoreBefore;
-            useHandMove.Revert(gameState);
-        }
+            FullHand = tensor(_fullHand, dtype: ScalarType.Int64, device: device),
+            RemainingDeck = tensor(_remainingDeck, dtype: ScalarType.Int64, device: device),
+            RemainingHands = tensor(_remainingHands, dtype: ScalarType.Int64, device: device),
+            RemainingDiscards = tensor(_remainingDiscards, dtype: ScalarType.Int64, device: device),
+            OwnedJokers = tensor(_ownedJokers, dtype: ScalarType.Int64, device: device),
+            StoreJokers = tensor(_storeJokers, dtype: ScalarType.Int64, device: device),
+            StorePrices = tensor(_storePrices, dtype: ScalarType.Int64, device: device),
+            RerollPrice = tensor(_rerollPrice, dtype: ScalarType.Int64, device: device),
+            Money = tensor(_money, dtype: ScalarType.Int64, device: device),
+            Round = tensor(_round, dtype: ScalarType.Int64, device: device),
+            Stage = tensor(_isInStore, dtype: ScalarType.Int64, device: device),
+            PlayHandScores = includePlayHandScores ? tensor(_playHandScores, dtype: ScalarType.Float32, device: device) : null,
+            Score = tensor(_score, dtype: ScalarType.Float32, device: device).unsqueeze(1),
+            ScoreThreshold = tensor(_scoreThreshold, dtype: ScalarType.Float32, device: device).unsqueeze(1),
+        };
     }
 }
