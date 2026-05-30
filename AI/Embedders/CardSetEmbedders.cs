@@ -1,8 +1,6 @@
-namespace Ramen.AgentTools;
+namespace Ramen.AI;
 
-using Ramen.Game;
 using TorchSharp.Modules;
-using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
 
 public sealed class StandardProcessor : Module<Tensor, Tensor>

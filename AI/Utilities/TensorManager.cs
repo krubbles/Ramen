@@ -1,10 +1,9 @@
 namespace Ramen.AI;
 
 using TorchSharp;
-using static TorchSharp.torch;
 
 /// <summary>
-/// Memory management class for tensors. 
+/// Memory management class for tensors.
 /// </summary>
 public static class TensorManager
 {

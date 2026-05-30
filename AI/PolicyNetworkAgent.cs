@@ -1,10 +1,4 @@
-namespace Ramen.AgentTools;
-
-using System;
-using Ramen.AI;
-using Ramen.Game;
-using TorchSharp;
-using static TorchSharp.torch;
+namespace Ramen.AI;
 
 public sealed class PolicyNetworkAgent : IAgent, IDisposable
 {

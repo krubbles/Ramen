@@ -1,6 +1,5 @@
-namespace Ramen.AgentTools;
+namespace Ramen.AI;
 
-using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
 
 public static class OneHotCountEmbedder

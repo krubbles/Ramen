@@ -1,4 +1,4 @@
-namespace Ramen.AgentTools;
+namespace Ramen.AI;
 
 public static class Profiling
 {

@@ -1,7 +1,4 @@
-namespace Ramen.AgentTools;
-
-using Ramen.Game;
-using static TorchSharp.torch;
+namespace Ramen.AI;
 
 /// <summary>
 /// An embedded GameState.

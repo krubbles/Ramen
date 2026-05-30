@@ -1,14 +1,7 @@
-namespace Ramen.Training;
+namespace Ramen.AI;
 
-using System;
-using Ramen.AgentTools;
-using Ramen.Game;
-using Ramen.AI;
-using TorchSharp;
 using TorchSharp.Modules;
-using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
-using TensorGroups = Ramen.AgentTools.TensorGroupExtentions;
 
 public static class PolicyValueNetworkTraining
 {
@@ -98,7 +91,7 @@ public static class PolicyValueNetworkTraining
             beta1: settings.AdamBeta1,
             beta2: settings.AdamBeta2);
 
-        PolicyTrainingSample stacked = TensorGroups.Stack(rollout, disposeInputs: false, concat: true);
+        PolicyTrainingSample stacked = TensorGroupExtentions.Stack(rollout, disposeInputs: false, concat: true);
         int sampleCount = rollout.Count;
         for (int epoch = 0; epoch < settings.EpochCount; ++epoch)
         {

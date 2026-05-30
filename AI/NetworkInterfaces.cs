@@ -1,6 +1,4 @@
-namespace Ramen.AgentTools;
-
-using static TorchSharp.torch;
+namespace Ramen.AI;
 
 /// <summary>
 /// Interface for policy models used for move evaluation.

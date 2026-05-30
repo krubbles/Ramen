@@ -1,13 +1,7 @@
 namespace Ramen.AI;
 
-// NOTE: CURRENTLY NOT IN USE. 
+// NOTE: CURRENTLY NOT IN USE.
 // MAY END UP USING IN THE FUTURE HOWEVER
-
-using System;
-using System.Collections.Generic;
-using TorchSharp;
-using static TorchSharp.torch;
-using Ramen.Game;
 
 /// <summary>
 /// Utilities for generating a choose b matrices. Use for generating use hand move data.

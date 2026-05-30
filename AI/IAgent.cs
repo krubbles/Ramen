@@ -1,6 +1,4 @@
-namespace Ramen.AgentTools;
-
-using Ramen.Game;
+namespace Ramen.AI;
 
 public interface IAgent
 {

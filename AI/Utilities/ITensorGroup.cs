@@ -1,12 +1,8 @@
-namespace Ramen.AgentTools;
+namespace Ramen.AI;
 
 using System.Reflection;
-using TorchSharp;
-using static TorchSharp.torch;
 
-public interface ITensorGroup
-{
-}
+public interface ITensorGroup { }
 
 public static class TensorGroupExtentions
 {
