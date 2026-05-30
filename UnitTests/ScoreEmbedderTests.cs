@@ -1,7 +1,7 @@
 namespace Ramen.UnitTests;
 
 using System.Reflection;
-using Ramen.AgentTools;
+using Ramen.AI;
 using TorchSharp;
 using TorchSharp.Modules;
 using static TorchSharp.torch;

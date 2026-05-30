@@ -1,6 +1,6 @@
 namespace Ramen.UnitTests;
 
-using Ramen.AgentTools;
+using Ramen.AI;
 using static TorchSharp.torch;
 
 public class CountEmbedderTests
