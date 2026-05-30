@@ -253,7 +253,7 @@ public class GameStateEmbedder
     }
 
 
-    public GameStateTensors ToTensors(Device device, bool includePlayHandScores = false)
+    public GameStateTensors ToTensors(Device device, bool includeInterRoundData = true, bool includePlayHandScores = false)
     {
         return new()
         {
@@ -261,16 +261,17 @@ public class GameStateEmbedder
             RemainingDeck = tensor(_remainingDeck, dtype: ScalarType.Int64, device: device),
             RemainingHands = tensor(_remainingHands, dtype: ScalarType.Int64, device: device),
             RemainingDiscards = tensor(_remainingDiscards, dtype: ScalarType.Int64, device: device),
-            OwnedJokers = tensor(_ownedJokers, dtype: ScalarType.Int64, device: device),
-            StoreJokers = tensor(_storeJokers, dtype: ScalarType.Int64, device: device),
-            StorePrices = tensor(_storePrices, dtype: ScalarType.Int64, device: device),
-            RerollPrice = tensor(_rerollPrice, dtype: ScalarType.Int64, device: device),
-            Money = tensor(_money, dtype: ScalarType.Int64, device: device),
-            Round = tensor(_round, dtype: ScalarType.Int64, device: device),
-            Stage = tensor(_isInStore, dtype: ScalarType.Int64, device: device),
-            PlayHandScores = includePlayHandScores ? tensor(_playHandScores, dtype: ScalarType.Float32, device: device) : null,
             Score = tensor(_score, dtype: ScalarType.Float32, device: device).unsqueeze(1),
             ScoreThreshold = tensor(_scoreThreshold, dtype: ScalarType.Float32, device: device).unsqueeze(1),
+            PlayHandScores = includePlayHandScores ? tensor(_playHandScores, dtype: ScalarType.Float32, device: device) : null,
+
+            OwnedJokers = includeInterRoundData ? tensor(_ownedJokers, dtype: ScalarType.Int64, device: device) : null,
+            StoreJokers = includeInterRoundData ? tensor(_storeJokers, dtype: ScalarType.Int64, device: device) : null,
+            StorePrices = includeInterRoundData ? tensor(_storePrices, dtype: ScalarType.Int64, device: device) : null,
+            RerollPrice = includeInterRoundData ? tensor(_rerollPrice, dtype: ScalarType.Int64, device: device) : null,
+            Money = includeInterRoundData ? tensor(_money, dtype: ScalarType.Int64, device: device) : null,
+            Round = includeInterRoundData ? tensor(_round, dtype: ScalarType.Int64, device: device) : null,
+            Stage = includeInterRoundData ? tensor(_isInStore, dtype: ScalarType.Int64, device: device) : null,
         };
     }
 }
