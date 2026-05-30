@@ -33,6 +33,7 @@ public sealed class ModularPolicyModel : Module, IPolicyNetwork
     readonly Module<Tensor, Tensor> _moveProcessor;
     readonly ModuleList<ModularResidualBlock> _residualBlocks = new();
     readonly Linear _compressedStateProjection;
+    readonly Linear _valueHead;
     readonly Tensor _usedHandGatherIndices;
     readonly Tensor _usedHandValidMask;
     readonly Tensor _remainingHandGatherIndices;
@@ -105,6 +106,7 @@ public sealed class ModularPolicyModel : Module, IPolicyNetwork
         }
 
         _compressedStateProjection = Linear(_residualWidth, _compressedStateWidth, device: EvalDevice);
+        _valueHead = Linear(_compressedStateWidth, 1, device: EvalDevice);
 
         (long[,] usedHandGatherIndices, long[,] usedHandValidMask, long[,] remainingHandGatherIndices, long[,] remainingHandValidMask) = BuildHandSelectionTables();
         _usedHandGatherIndices = tensor(usedHandGatherIndices, dtype: ScalarType.Int64, device: EvalDevice);
@@ -113,6 +115,14 @@ public sealed class ModularPolicyModel : Module, IPolicyNetwork
         _remainingHandValidMask = tensor(remainingHandValidMask, dtype: ScalarType.Int64, device: EvalDevice);
 
         RegisterComponents();
+    }
+
+
+    public (Tensor policyLogits, Tensor value) GetPolicyLogitsAndValue(GameStateTensors gameStateTensors)
+    {
+        Tensor policyLogits = GetPolicyLogits(gameStateTensors);
+        Tensor value = GetValue(gameStateTensors);
+        return (policyLogits, value);
     }
 
 
@@ -181,6 +191,14 @@ public sealed class ModularPolicyModel : Module, IPolicyNetwork
     }
 
 
+    (Tensor policyLogits, Tensor value) IPolicyNetwork.GetPolicyLogits(GameStateTensors gameStateTensors, Tensor moveIndices)
+    {
+        Tensor policyLogits = GetPolicyLogits(gameStateTensors, moveIndices);
+        Tensor value = GetValue(gameStateTensors);
+        return (policyLogits, value);
+    }
+
+
     public void Save(string filePath)
     {
         save(filePath);
@@ -218,6 +236,17 @@ public sealed class ModularPolicyModel : Module, IPolicyNetwork
         float rawHiddenWidth = settings.ResidualWidth * settings.HiddenToResidualWidthRatio * widthMultiplier;
         int roundedHiddenWidth = RoundToNearestMultipleOf16(rawHiddenWidth);
         return Math.Max(16, roundedHiddenWidth);
+    }
+
+
+    Tensor GetValue(GameStateTensors gameStateTensors)
+    {
+        using var scope = NewDisposeScope();
+
+        Tensor compressedState = BuildCompressedState(gameStateTensors);
+        Tensor value = _valueHead.forward(compressedState);
+        value.MoveToOuterDisposeScope();
+        return value;
     }
 
 
