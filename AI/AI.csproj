@@ -16,7 +16,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Game\Game.csproj" />
-    <ProjectReference Include="..\AI\AI.csproj" />
   </ItemGroup>
 
 </Project>
