@@ -2,9 +2,7 @@ namespace Ramen.ConsoleApp;
 
 using System.Globalization;
 using Ramen.AI;
-using Ramen.AgentTools;
 using Ramen.Game;
-using Ramen.Training;
 using static TorchSharp.torch;
 
 public sealed class ConsoleBalatroApp

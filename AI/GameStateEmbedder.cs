@@ -205,6 +205,7 @@ public class GameStateEmbedder
             useHandMove.Revert(gameState);
         }
     }
+
     static void WriteJokerSlots(IReadOnlyList<JokerInstance> jokers, GameData gameData, long[,] output, int stateIndex)
     {
         int slotCount = output.GetLength(1);
@@ -240,18 +241,15 @@ public class GameStateEmbedder
         throw new InvalidOperationException($"Joker {joker.Name} was not found in the current game data.");
     }
 
-
     public GameStateTensors ToTensors()
     {
         return ToTensors(CPU, includePlayHandScores: false);
     }
 
-
     public GameStateTensors ToTensors(bool includePlayHandScores)
     {
         return ToTensors(CPU, includePlayHandScores);
     }
-
 
     public GameStateTensors ToTensors(Device device, bool includeInterRoundData = true, bool includePlayHandScores = false)
     {

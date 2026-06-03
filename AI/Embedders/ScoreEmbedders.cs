@@ -1,6 +1,8 @@
-namespace Ramen.AI;
+namespace Ramen.AgentTools;
 
+using TorchSharp;
 using TorchSharp.Modules;
+using static TorchSharp.torch;
 using static TorchSharp.torch.nn;
 
 public sealed class BilinearOneHotScoreEmbedder : Module<Tensor, Tensor>
@@ -71,6 +73,47 @@ public sealed class BilinearRangeScoreEmbedder : Module<Tensor, Tensor>
         Tensor lowerOneHot = functional.one_hot(lowerIndex, _bucketCount).to_type(ScalarType.Float32);
         Tensor upperOneHot = functional.one_hot(upperIndex, _bucketCount).to_type(ScalarType.Float32);
         Tensor result = lowerOneHot * lowerWeight.unsqueeze(-1) + upperOneHot * upperWeight.unsqueeze(-1);
+
+        result.MoveToOuterDisposeScope();
+        return result;
+    }
+}
+
+public sealed class BilinearBucketScoreEmbedder : Module<Tensor, Tensor>
+{
+    readonly float _minValue;
+    readonly float _maxValue;
+    readonly int _bucketCount;
+    readonly Tensor _bucketIndices;
+
+    public int BucketCount => _bucketCount;
+    public int EmbeddingWidth => _bucketCount + 1;
+
+    public BilinearBucketScoreEmbedder(float minValue, float maxValue, int bucketCount) : base(nameof(BilinearBucketScoreEmbedder))
+    {
+        if (bucketCount < 1)
+            throw new ArgumentOutOfRangeException(nameof(bucketCount), "Bucket count must be at least 1.");
+        if (maxValue <= minValue)
+            throw new ArgumentOutOfRangeException(nameof(maxValue), "Max value must be greater than min value.");
+
+        _minValue = minValue;
+        _maxValue = maxValue;
+        _bucketCount = bucketCount;
+        _bucketIndices = arange(_bucketCount + 1, dtype: ScalarType.Float32, device: CPU);
+
+        RegisterComponents();
+    }
+
+
+    public override Tensor forward(Tensor score)
+    {
+        using var scope = NewDisposeScope();
+
+        Tensor scaledScore = ((score.to_type(ScalarType.Float32) - _minValue) * _bucketCount / (_maxValue - _minValue))
+            .clamp(0f, _bucketCount);
+        Tensor bucketIndices = _bucketIndices.to(scaledScore.device);
+        Tensor distanceFromBuckets = scaledScore.unsqueeze(-1) - bucketIndices;
+        Tensor result = (1f - distanceFromBuckets.abs()).clamp_min(0f);
 
         result.MoveToOuterDisposeScope();
         return result;
