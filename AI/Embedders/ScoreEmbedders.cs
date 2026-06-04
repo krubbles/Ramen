@@ -1,4 +1,4 @@
-namespace Ramen.AgentTools;
+namespace Ramen.AI;
 
 using TorchSharp;
 using TorchSharp.Modules;
