@@ -115,7 +115,7 @@ public sealed class ModularPolicyModel : Module, IPolicyNetwork
     }
 
 
-    public (Tensor policyLogits, Tensor value) GetPolicyLogitsAndValue(GameStateTensors gameStateTensors)
+    public (Tensor policyLogits, Tensor value) GetPolicyValue(GameStateTensors gameStateTensors)
     {
         Tensor policyLogits = GetPolicyLogits(gameStateTensors);
         Tensor value = GetValue(gameStateTensors);
@@ -188,7 +188,7 @@ public sealed class ModularPolicyModel : Module, IPolicyNetwork
     }
 
 
-    (Tensor policyLogits, Tensor value) IPolicyNetwork.GetPolicyLogits(GameStateTensors gameStateTensors, Tensor moveIndices)
+    (Tensor policyLogits, Tensor value) IPolicyNetwork.GetPolicyValue(GameStateTensors gameStateTensors, Tensor moveIndices)
     {
         Tensor policyLogits = GetPolicyLogits(gameStateTensors, moveIndices);
         Tensor value = GetValue(gameStateTensors);

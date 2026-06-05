@@ -77,7 +77,7 @@ public sealed class PolicyNetworkAgent : IAgent, IDisposable
         GameStateTensors gameStateTensors = CreateGameStateTensors(gameStates);
 
         Profiling.Enter("GetPolicyLogits");
-        (Tensor logits, Tensor value) = Network.GetPolicyLogitsAndValue(gameStateTensors);
+        (Tensor logits, Tensor value) = Network.GetPolicyValue(gameStateTensors);
         Profiling.Exit("GetPolicyLogits");
 
         int moveCount = (int)logits.size(1);

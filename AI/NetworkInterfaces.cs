@@ -6,8 +6,8 @@ namespace Ramen.AI;
 public interface IPolicyNetwork
 {
     // batch first
-    (Tensor policyLogits, Tensor value) GetPolicyLogitsAndValue(GameStateTensors gameStateTensors);
-    (Tensor policyLogits, Tensor value) GetPolicyLogits(GameStateTensors gameStateTensors, Tensor moveIndices);
+    (Tensor policyLogits, Tensor value) GetPolicyValue(GameStateTensors gameStateTensors);
+    (Tensor policyLogits, Tensor value) GetPolicyValue(GameStateTensors gameStateTensors, Tensor moveIndices);
 
     public void Save(string filePath);
     public void Load(string filePath);

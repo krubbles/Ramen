@@ -106,7 +106,7 @@ public static class PolicyValueNetworkTraining
                 PolicyTrainingSample batch = shuffled.GetBatch(batchStart, batchEnd);
                 optimizer.zero_grad();
 
-                (Tensor sampledLogits, Tensor values) = network.GetPolicyLogits(batch.StateTensors, batch.MoveIndices);
+                (Tensor sampledLogits, Tensor values) = network.GetPolicyValue(batch.StateTensors, batch.MoveIndices);
                 Tensor oldProbs = batch.SamplingProb.to(sampledLogits.device);
                 oldProbs /= oldProbs.sum(dim: 1, keepdim: true).clamp_min(1e-9f);
 
