@@ -3,7 +3,7 @@ namespace Ramen.AI;
 using TorchSharp.Modules;
 using static TorchSharp.torch.nn;
 
-public sealed class VectorizedPolicyNetwork : Module, IPolicyNetwork
+public sealed class NewPolicyNetwork : Module, IPolicyNetwork
 {
     readonly GameStateVectorizer _stateVectorizer;
     readonly MoveVectorizer _moveVectorizer;
@@ -32,7 +32,7 @@ public sealed class VectorizedPolicyNetwork : Module, IPolicyNetwork
         public Device Device;
     }
 
-    public VectorizedPolicyNetwork(Settings settings) : base(nameof(VectorizedPolicyNetwork))
+    public NewPolicyNetwork(Settings settings) : base(nameof(NewPolicyNetwork))
     {
         ValidateSettings(settings);
 
@@ -172,6 +172,7 @@ public sealed class VectorizedPolicyNetwork : Module, IPolicyNetwork
 
     static void ValidateSettings(Settings settings)
     {
+#pragma warning disable CA2208 // not passing argument name to AOOR constructor
         if (settings.StateResidualWidth <= 0)
             throw new ArgumentOutOfRangeException(nameof(settings.StateResidualWidth), "State residual width must be positive.");
         if (settings.ScoreBucketCount < 2)
@@ -186,5 +187,6 @@ public sealed class VectorizedPolicyNetwork : Module, IPolicyNetwork
             throw new ArgumentOutOfRangeException(nameof(settings.MoveBlockCount), "Move block count must be non-negative.");
         if (settings.MoveResidualRatio <= 0f)
             throw new ArgumentOutOfRangeException(nameof(settings.MoveResidualRatio), "Move hidden-to-residual width ratio must be positive.");
+#pragma warning restore CA2208
     }
 }
