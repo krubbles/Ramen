@@ -84,12 +84,7 @@ public static class PolicyValueNetworkTraining
         if (network is not Module networkModule)
             throw new InvalidOperationException($"{nameof(network)} must be a TorchSharp module to train.");
 
-        using AdamW optimizer = optim.AdamW(
-            networkModule.parameters(),
-            lr: settings.LearningRate,
-            weight_decay: settings.WeightDecay,
-            beta1: settings.AdamBeta1,
-            beta2: settings.AdamBeta2);
+        using AdamW optimizer = BuildAdamWOptimizer(networkModule, settings);
 
         PolicyTrainingSample stacked = TensorGroupExtentions.Stack(rollout, disposeInputs: false, concat: true);
         int sampleCount = rollout.Count;
@@ -137,6 +132,39 @@ public static class PolicyValueNetworkTraining
         stacked.Dispose();
         for (int sampleIndex = 0; sampleIndex < rollout.Count; ++sampleIndex)
             rollout[sampleIndex].Dispose();
+    }
+
+    static AdamW BuildAdamWOptimizer(Module networkModule, PpoTrainingSettings settings)
+    {
+        List<Parameter> weightDecayParameters = [];
+        List<Parameter> noWeightDecayParameters = [];
+        foreach (Parameter parameter in networkModule.parameters())
+        {
+            if (parameter.dim() <= 1)
+                noWeightDecayParameters.Add(parameter);
+            else
+                weightDecayParameters.Add(parameter);
+        }
+
+        return optim.AdamW(
+            [
+                new AdamW.ParamGroup(
+                    weightDecayParameters,
+                    lr: settings.LearningRate,
+                    weight_decay: settings.WeightDecay,
+                    beta1: settings.AdamBeta1,
+                    beta2: settings.AdamBeta2),
+                new AdamW.ParamGroup(
+                    noWeightDecayParameters,
+                    lr: settings.LearningRate,
+                    weight_decay: 0,
+                    beta1: settings.AdamBeta1,
+                    beta2: settings.AdamBeta2),
+            ],
+            lr: settings.LearningRate,
+            weight_decay: settings.WeightDecay,
+            beta1: settings.AdamBeta1,
+            beta2: settings.AdamBeta2);
     }
 }
 
