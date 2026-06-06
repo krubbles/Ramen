@@ -62,7 +62,6 @@ public static class AgentTrainingExtensions
                 MoveIndices = sampleMoveIndices,
                 Value = value[stateIndex..(stateIndex + 1)].clone(),
                 ChosenMoveNLProb = -MathF.Log(chosenProbsManaged[stateIndex] + 1e-9f),
-                PolicyAnnotation = AnnotationDataUtils.CreatePolicyAnnotation(policy),
             };
             sample.DetachFromScope();
 
@@ -71,6 +70,7 @@ public static class AgentTrainingExtensions
             {
                 UseHandMove move = AgentUtilities.MoveForPolicyIndex(state, (int)chosenMoveIndicesManaged[stateIndex]);
                 move.Apply(state);
+                AnnotationDataUtils.CreatePolicyAnnotation(policy).Apply(state);
             }
 
             // save sample in the output buffer
@@ -100,6 +100,4 @@ public class PolicyTrainingSample : ITensorGroup
     /// The negative natural log probability of the chosen move. Used for debugging
     /// </summary>
     public float ChosenMoveNLProb;
-
-    public AnnotatingDataMove PolicyAnnotation;
 }

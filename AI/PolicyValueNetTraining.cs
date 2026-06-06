@@ -7,13 +7,11 @@ public static class PolicyValueNetworkTraining
 {
     public const int RolloutBatchSize = 64;
 
-    public static List<PolicyTrainingSample> GenerateRollout(
-        IPolicyNetwork network,
-        PpoTrainingSettings settings,
-        IReadOnlyList<IRolloutAnalyzer> analyzers = null)
+    static (List<GameState> trajectories, List<PolicyTrainingSample> trainingSamples) GenerateRollout(IPolicyNetwork network, PpoTrainingSettings settings)
     {
         using PolicyNetworkAgent agent = new(network, ownsNetwork: false);
         List<PolicyTrainingSample> completedSamples = [];
+        List<GameState> trajectoryGameStates = [];
         GameState[] gameStates = new GameState[RolloutBatchSize];
         List<PolicyTrainingSample>[] activeSamples = new List<PolicyTrainingSample>[RolloutBatchSize];
 
@@ -30,20 +28,14 @@ public static class PolicyValueNetworkTraining
             {
                 activeSamples[slot].Add(stepSamples[slot]);
 
-                if (!IsTrajectoryDone(gameStates[slot]))
-                    gameStates[slot].AdvanceToNextPlayerChoice();
-
+                gameStates[slot].AdvanceToNextPlayerChoice();
                 if (!IsTrajectoryDone(gameStates[slot]))
                     continue;
 
                 float reward = GetReward(gameStates[slot]);
                 SetTargetsAndAdvantages(activeSamples[slot], reward, settings.AdvantageFalloff);
-                if (analyzers is not null)
-                {
-                    for (int analyzerIndex = 0; analyzerIndex < analyzers.Count; ++analyzerIndex)
-                        analyzers[analyzerIndex].ObserveCompletedTrajectory(activeSamples[slot], reward);
-                }
                 completedSamples.AddRange(activeSamples[slot]);
+                trajectoryGameStates.Add(gameStates[slot]);
 
                 gameStates[slot] = new(settings.GameData);
                 activeSamples[slot] = [];
@@ -53,10 +45,7 @@ public static class PolicyValueNetworkTraining
             }
         }
 
-        if (completedSamples.Count > settings.RolloutStateCount)
-            completedSamples.RemoveRange(settings.RolloutStateCount, completedSamples.Count - settings.RolloutStateCount);
-
-        return completedSamples;
+        return (trajectoryGameStates, completedSamples);
     }
 
     static void SetTargetsAndAdvantages(List<PolicyTrainingSample> samples, float finalReward, float advantageFalloff)
@@ -97,27 +86,28 @@ public static class PolicyValueNetworkTraining
         return gameState.Round == 1 && gameState.Stage == StageOfGame.EndRound;
     }
 
-    public static RolloutAnalysis DoPPORollout(IPolicyNetwork network, PpoTrainingSettings settings)
+    public static RolloutData DoPPORollout(IPolicyNetwork network, PpoTrainingSettings settings)
     {
         using AdamW optimizer = BuildAdamWOptimizer(network, settings);
         return DoPPORollout(network, settings, optimizer);
     }
 
-    public static RolloutAnalysis DoPPORollout(IPolicyNetwork network, PpoTrainingSettings settings, AdamW optimizer)
+    public static RolloutData DoPPORollout(IPolicyNetwork network, PpoTrainingSettings settings, AdamW optimizer)
     {
         using var scope = NewDisposeScope();
 
-        AverageRewardRolloutAnalyzer averageRewardAnalyzer = new();
-        AverageEntropyRolloutAnalyzer averageEntropyAnalyzer = new();
-        IRolloutAnalyzer[] analyzers = [averageRewardAnalyzer, averageEntropyAnalyzer];
-        List<PolicyTrainingSample> rollout = GenerateRollout(network, settings, analyzers);
+        if (network is not Module networkModule)
+            throw new InvalidOperationException($"{nameof(network)} must be a TorchSharp module to train.");
 
-        PolicyTrainingSample stacked = TensorGroupExtentions.Stack(rollout, disposeInputs: false, concat: true);
-        int sampleCount = rollout.Count;
+        (List<GameState> trajectories, List<PolicyTrainingSample> trainingSamples) = GenerateRollout(network, settings);
+        List<float> gradNorms = [];
+
+        PolicyTrainingSample stackedSamples = TensorGroupExtentions.Stack(trainingSamples, disposeInputs: false, concat: true);
+        int sampleCount = trainingSamples.Count;
         for (int epoch = 0; epoch < settings.EpochCount; ++epoch)
         {
             Tensor shuffledIndices = randperm(sampleCount, dtype: ScalarType.Int64, device: CPU);
-            PolicyTrainingSample shuffled = stacked.IndexSelect(dim: 0, indices: shuffledIndices);
+            PolicyTrainingSample shuffled = stackedSamples.IndexSelect(dim: 0, indices: shuffledIndices);
 
             for (int batchStart = 0; batchStart < sampleCount; batchStart += settings.BatchSize)
             {
@@ -148,6 +138,7 @@ public static class PolicyValueNetworkTraining
                 Tensor loss = policyLoss + settings.ValueLossCoefficient * valueLoss;
 
                 loss.backward();
+                gradNorms.Add(GetGradNorm(networkModule));
                 optimizer.step();
             }
 
@@ -155,13 +146,25 @@ public static class PolicyValueNetworkTraining
             shuffledIndices.Dispose();
         }
 
-        stacked.Dispose();
-        for (int sampleIndex = 0; sampleIndex < rollout.Count; ++sampleIndex)
-            rollout[sampleIndex].Dispose();
+        stackedSamples.Dispose();
+        return new() { Trajectories = trajectories, GradNorms = gradNorms };
+    }
 
-        return new(
-            AverageReward: averageRewardAnalyzer.Value,
-            AverageEntropy: averageEntropyAnalyzer.Value);
+    static float GetGradNorm(Module networkModule)
+    {
+        double squaredNormSum = 0;
+        foreach (Parameter parameter in networkModule.parameters())
+        {
+            Tensor grad = parameter.grad;
+            if (grad is null)
+                continue;
+
+            using Tensor gradNorm = grad.detach().to_type(ScalarType.Float32).norm(2);
+            float norm = gradNorm.item<float>();
+            squaredNormSum += norm * norm;
+        }
+
+        return (float)Math.Sqrt(squaredNormSum);
     }
 
     public static AdamW BuildAdamWOptimizer(IPolicyNetwork network, PpoTrainingSettings settings)
@@ -220,3 +223,7 @@ public struct PpoTrainingSettings
 
     public PpoTrainingSettings() { }
 }
+
+public readonly record struct RolloutData(
+    IReadOnlyList<GameState> Trajectories,
+    IReadOnlyList<float> GradNorms);
