@@ -370,3 +370,6 @@ FodyWeavers.xsd
 
 # Analysis data
 /Analysis/
+
+# Local experiment entry point
+/ConsoleApp/Experiment.cs
