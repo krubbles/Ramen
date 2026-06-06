@@ -29,13 +29,15 @@ public static class PolicyValueNetworkTraining
             for (int slot = 0; slot < RolloutBatchSize; ++slot)
             {
                 activeSamples[slot].Add(stepSamples[slot]);
-                gameStates[slot].AdvanceToNextPlayerChoice();
 
-                if (!agent.IsGameDone(gameStates[slot]))
+                if (!IsTrajectoryDone(gameStates[slot]))
+                    gameStates[slot].AdvanceToNextPlayerChoice();
+
+                if (!IsTrajectoryDone(gameStates[slot]))
                     continue;
 
                 float reward = GetReward(gameStates[slot]);
-                SetTargetsAndAdvantages(activeSamples[slot], reward);
+                SetTargetsAndAdvantages(activeSamples[slot], reward, settings.AdvantageFalloff);
                 if (analyzers is not null)
                 {
                     for (int analyzerIndex = 0; analyzerIndex < analyzers.Count; ++analyzerIndex)
@@ -57,16 +59,16 @@ public static class PolicyValueNetworkTraining
         return completedSamples;
     }
 
-    static void SetTargetsAndAdvantages(List<PolicyTrainingSample> samples, float finalReward)
+    static void SetTargetsAndAdvantages(List<PolicyTrainingSample> samples, float finalReward, float advantageFalloff)
     {
-        float subsequentValueSum = finalReward;
+        float weightedSubsequentValueSum = finalReward;
+        float subsequentWeightSum = 1f;
 
         for (int index = samples.Count - 1; index >= 0; --index)
         {
             PolicyTrainingSample sample = samples[index];
             float predictedValue = sample.Value.item<float>();
-            int subsequentStateCount = samples.Count - index;
-            float valueTarget = subsequentValueSum / subsequentStateCount;
+            float valueTarget = weightedSubsequentValueSum / subsequentWeightSum;
             float policyAdvantage = valueTarget - predictedValue;
 
             sample.ValueTarget?.Dispose();
@@ -74,14 +76,25 @@ public static class PolicyValueNetworkTraining
             sample.ValueTarget = tensor([valueTarget], device: CPU).DetachFromScope();
             sample.PolicyAdvantage = tensor([policyAdvantage], device: CPU).DetachFromScope();
 
-            subsequentValueSum += predictedValue;
+            weightedSubsequentValueSum = predictedValue + advantageFalloff * weightedSubsequentValueSum;
+            subsequentWeightSum = 1f + advantageFalloff * subsequentWeightSum;
         }
     }
 
     public static float GetReward(GameState gameState)
     {
-        float roundsSurvived = gameState.Round / 3f;
-        return roundsSurvived * roundsSurvived;
+        float winReward = IsFirstRoundWin(gameState) ? 1f : 0f;
+        return winReward + 0.1f * gameState.HandState.RemainingHands;
+    }
+
+    static bool IsTrajectoryDone(GameState gameState)
+    {
+        return gameState.GameIsDone || IsFirstRoundWin(gameState);
+    }
+
+    static bool IsFirstRoundWin(GameState gameState)
+    {
+        return gameState.Round == 1 && gameState.Stage == StageOfGame.EndRound;
     }
 
     public static RolloutAnalysis DoPPORollout(IPolicyNetwork network, PpoTrainingSettings settings)
@@ -197,6 +210,7 @@ public struct PpoTrainingSettings
     public float PpoEpsilon = 0.2f;
     public float EntropyCoefficient = 0f;
     public float ValueLossCoefficient = 1f;
+    public float AdvantageFalloff = 1f;
 
     public GameData GameData = GameData.Default;
 
