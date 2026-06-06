@@ -38,4 +38,17 @@ public static class RolloutAnalyzers
 
         return annotationCount == 0 ? 0f : entropySum / annotationCount;
     }
+
+    public static float AverageGradNorm(RolloutData rolloutData)
+    {
+        IReadOnlyList<float> gradNorms = rolloutData.GradNorms;
+        if (gradNorms.Count == 0)
+            return 0f;
+
+        float gradNormSum = 0f;
+        for (int gradNormIndex = 0; gradNormIndex < gradNorms.Count; ++gradNormIndex)
+            gradNormSum += gradNorms[gradNormIndex];
+
+        return gradNormSum / gradNorms.Count;
+    }
 }
