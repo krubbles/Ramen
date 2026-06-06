@@ -248,7 +248,7 @@ public class GameStateEmbedder
 
     public GameStateTensors ToTensors(bool includePlayHandScores)
     {
-        return ToTensors(CPU, includePlayHandScores);
+        return ToTensors(CPU, includePlayHandScores: includePlayHandScores);
     }
 
     public GameStateTensors ToTensors(Device device, bool includeInterRoundData = true, bool includePlayHandScores = false)

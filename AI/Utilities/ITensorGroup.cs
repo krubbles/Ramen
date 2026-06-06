@@ -71,7 +71,7 @@ public static class TensorGroupExtentions
         {
             object value = field.GetValue(me);
             if (value is Tensor tensor)
-                field.SetValue(result, tensor.index_select(dim, indices));
+                field.SetValue(result, tensor.index_select(dim, indices.to(tensor.device)));
             else if (value is ITensorGroup group)
                 field.SetValue(result, group.IndexSelect(dim, indices));
         }

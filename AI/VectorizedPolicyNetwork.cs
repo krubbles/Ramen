@@ -70,7 +70,7 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
         _valueHead = Linear(settings.StateResidualWidth, 1, device: _device);
         _trunkLayerNorm = LayerNorm(settings.StateResidualWidth, device: _device);
         _trunkProjection = Linear(settings.StateResidualWidth, settings.MoveResidualWidth, device: _device);
-        _logitHead = Linear(settings.MoveResidualWidth, 1, device: _device);
+        _logitHead = Linear(settings.MoveResidualWidth, 2, device: _device);
 
         float trunkGainInitialization = settings.MoveResidualWidth / (float)settings.StateResidualWidth * 0.5f;
         _trunkGain = Parameter(full([settings.MoveResidualWidth], trunkGainInitialization, device: _device));
@@ -110,9 +110,7 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
         using var scope = NewDisposeScope();
 
         Tensor trunkOutput = BuildTrunkOutput(gameStateTensors);
-        Tensor allPolicyLogits = BuildPolicyLogits(gameStateTensors, trunkOutput);
-        Tensor selectedMoveIndices = moveIndices.to(_device).to_type(ScalarType.Int64);
-        Tensor selectedPolicyLogits = allPolicyLogits.gather(dim: 1, index: selectedMoveIndices);
+        Tensor selectedPolicyLogits = BuildSelectedPolicyLogits(gameStateTensors, trunkOutput, moveIndices);
         Tensor value = _valueHead.forward(trunkOutput);
 
         selectedPolicyLogits.MoveToOuterDisposeScope();
@@ -150,22 +148,56 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
     {
         using var scope = NewDisposeScope();
 
-        Tensor moveEmbeddings = _moveVectorizer.forward(gameStateTensors)
-            .view([trunkOutput.size(0), MoveVectorizer.PlayableHandCount, 2, _settings.MoveResidualWidth]);
+        Tensor moveEmbeddings = _moveVectorizer.forward(gameStateTensors);
+        Tensor flattenedLogits = BuildPolicyLogits(trunkOutput, moveEmbeddings);
+
+        flattenedLogits.MoveToOuterDisposeScope();
+        return flattenedLogits;
+    }
+
+
+    Tensor BuildSelectedPolicyLogits(GameStateTensors gameStateTensors, Tensor trunkOutput, Tensor moveIndices)
+    {
+        using var scope = NewDisposeScope();
+
+        Tensor moveEmbeddings = _moveVectorizer.forward(gameStateTensors, moveIndices);
+        Tensor actionLogits = BuildActionLogits(trunkOutput, moveEmbeddings);
+        Tensor selectedActionIndices = moveIndices.to(_device).to_type(ScalarType.Int64).remainder(2).unsqueeze(-1);
+        Tensor selectedLogits = actionLogits.gather(dim: 2, index: selectedActionIndices).squeeze(2);
+
+        selectedLogits.MoveToOuterDisposeScope();
+        return selectedLogits;
+    }
+
+
+    Tensor BuildPolicyLogits(Tensor trunkOutput, Tensor moveEmbeddings)
+    {
+        using var scope = NewDisposeScope();
+
+        Tensor actionLogits = BuildActionLogits(trunkOutput, moveEmbeddings);
+        Tensor policyLogits = actionLogits.view([trunkOutput.size(0), moveEmbeddings.size(1) * 2]);
+
+        policyLogits.MoveToOuterDisposeScope();
+        return policyLogits;
+    }
+
+
+    Tensor BuildActionLogits(Tensor trunkOutput, Tensor moveEmbeddings)
+    {
+        using var scope = NewDisposeScope();
+
         Tensor trunkLeaf = _trunkProjection.forward(_trunkLayerNorm.forward(trunkOutput)) * _trunkGain;
-        Tensor moveNetworkOutput = moveEmbeddings + trunkLeaf.unsqueeze(1).unsqueeze(2).expand(
+        Tensor moveNetworkOutput = moveEmbeddings + trunkLeaf.unsqueeze(1).expand(
             trunkOutput.size(0),
-            MoveVectorizer.PlayableHandCount,
-            2,
+            moveEmbeddings.size(1),
             _settings.MoveResidualWidth);
         for (int blockIndex = 0; blockIndex < _moveBlocks.Count; ++blockIndex)
             moveNetworkOutput = _moveBlocks[blockIndex].forward(moveNetworkOutput);
 
-        Tensor actionLogits = _logitHead.forward(moveNetworkOutput).squeeze(3);
-        Tensor flattenedLogits = actionLogits.view([trunkOutput.size(0), MoveVectorizer.PlayableHandCount * 2]);
+        Tensor actionLogits = _logitHead.forward(moveNetworkOutput);
 
-        flattenedLogits.MoveToOuterDisposeScope();
-        return flattenedLogits;
+        actionLogits.MoveToOuterDisposeScope();
+        return actionLogits;
     }
 
 

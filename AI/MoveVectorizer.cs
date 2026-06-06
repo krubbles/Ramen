@@ -72,39 +72,53 @@ public sealed class MoveVectorizer : Module
     {
         using var scope = NewDisposeScope();
 
-        Tensor playableCardSetEmbedding = EmbedPlayableCardSets(gameStateTensors.FullHand.to(_device));
+        Tensor playableCardSetEmbedding = EmbedPlayableCardSets(gameStateTensors.FullHand.to(_device), selectedHandIndices: null);
         Tensor postPlayScore = GetPostPlayScores(gameStateTensors).to(_device);
-        Tensor playMoveVectors = VectorizeMoves(
-            playableCardSetEmbedding: playableCardSetEmbedding,
-            scoreEmbedding: EmbedScore(postPlayScore, gameStateTensors.ScoreThreshold.to(_device)),
-            remainingHandDiscardEmbedding: EmbedRemainingHandsAndDiscards(
-                remainingHands: (gameStateTensors.RemainingHands.to(_device).to_type(ScalarType.Int64) - 1).clamp_min(0),
-                remainingDiscards: gameStateTensors.RemainingDiscards.to(_device).to_type(ScalarType.Int64),
-                moveCount: PlayableHandCount),
-            winningMoveMask: postPlayScore.greater_equal(gameStateTensors.ScoreThreshold.to(_device)));
-        Tensor discardMoveVectors = VectorizeMoves(
-            playableCardSetEmbedding: playableCardSetEmbedding,
-            scoreEmbedding: EmbedScore(gameStateTensors.Score.to(_device), gameStateTensors.ScoreThreshold.to(_device)),
-            remainingHandDiscardEmbedding: EmbedRemainingHandsAndDiscards(
-                remainingHands: gameStateTensors.RemainingHands.to(_device).to_type(ScalarType.Int64),
-                remainingDiscards: (gameStateTensors.RemainingDiscards.to(_device).to_type(ScalarType.Int64) - 1).clamp_min(0),
-                moveCount: PlayableHandCount),
-            winningMoveMask: null);
-        Tensor stackedMoveVectors = stack([playMoveVectors, discardMoveVectors], dim: 2);
-        Tensor flattenedMoveVectors = stackedMoveVectors.view([stackedMoveVectors.size(0), PlayableHandCount * 2, _moveEmbeddingWidth]);
+        Tensor moveVectors = VectorizeMoves(
+            gameStateTensors,
+            playableCardSetEmbedding,
+            postPlayScore);
 
-        flattenedMoveVectors.MoveToOuterDisposeScope();
-        return flattenedMoveVectors;
+        moveVectors.MoveToOuterDisposeScope();
+        return moveVectors;
     }
 
 
-    Tensor EmbedPlayableCardSets(Tensor fullHand)
+    public Tensor forward(GameStateTensors gameStateTensors, Tensor moveIndices)
+    {
+        using var scope = NewDisposeScope();
+
+        Tensor selectedMoveIndices = moveIndices.to(_device).to_type(ScalarType.Int64);
+        Tensor selectedHandIndices = selectedMoveIndices.div(2).to_type(ScalarType.Int64);
+
+        Tensor playableCardSetEmbedding = EmbedPlayableCardSets(
+            fullHand: gameStateTensors.FullHand.to(_device),
+            selectedHandIndices: selectedHandIndices);
+        Tensor postPlayScore = GetPostPlayScores(gameStateTensors).to(_device);
+        Tensor selectedPostPlayScore = postPlayScore.gather(dim: 1, index: selectedHandIndices);
+        Tensor selectedMoveVectors = VectorizeMoves(
+            gameStateTensors,
+            playableCardSetEmbedding,
+            selectedPostPlayScore);
+
+        selectedMoveVectors.MoveToOuterDisposeScope();
+        return selectedMoveVectors;
+    }
+
+
+    Tensor EmbedPlayableCardSets(Tensor fullHand, Tensor selectedHandIndices)
     {
         using var scope = NewDisposeScope();
 
         Tensor cardOneHot = functional.one_hot(fullHand.to_type(ScalarType.Int64), CardOneHotWidth).to_type(ScalarType.Float32);
         Tensor combinationMatrix = _combinationMatrix.to(fullHand.device);
-        Tensor cardSetOneHot = combinationMatrix.unsqueeze(0).matmul(cardOneHot);
+        if (selectedHandIndices is null)
+            combinationMatrix = combinationMatrix.unsqueeze(0);
+        else
+            combinationMatrix = combinationMatrix
+                .index_select(dim: 0, index: selectedHandIndices.reshape([-1]))
+                .view([fullHand.size(0), selectedHandIndices.size(1), GameData.HandSize]);
+        Tensor cardSetOneHot = combinationMatrix.matmul(cardOneHot);
         Tensor cardSetEmbedding = _cardSetProjection.forward(cardSetOneHot);
 
         cardSetEmbedding.MoveToOuterDisposeScope();
@@ -113,19 +127,27 @@ public sealed class MoveVectorizer : Module
 
 
     Tensor VectorizeMoves(
+        GameStateTensors gameStateTensors,
         Tensor playableCardSetEmbedding,
-        Tensor scoreEmbedding,
-        Tensor remainingHandDiscardEmbedding,
-        Tensor winningMoveMask)
+        Tensor postPlayScore)
     {
         using var scope = NewDisposeScope();
 
-        Tensor moveVector = playableCardSetEmbedding + scoreEmbedding + remainingHandDiscardEmbedding;
-        if (_addWinningMoveEmbedding && winningMoveMask is not null)
-            moveVector = moveVector + winningMoveMask.unsqueeze(-1).to_type(ScalarType.Float32) * _winningMoveEmbedding;
+        int moveCount = (int)postPlayScore.size(1);
+        Tensor scoreThreshold = gameStateTensors.ScoreThreshold.to(_device);
+        Tensor remainingHands = gameStateTensors.RemainingHands.to(_device).to_type(ScalarType.Int64);
+        Tensor remainingDiscards = gameStateTensors.RemainingDiscards.to(_device).to_type(ScalarType.Int64);
+        Tensor moveVectors = playableCardSetEmbedding +
+            EmbedScore(postPlayScore, scoreThreshold) +
+            EmbedRemainingHandsAndDiscards(
+                remainingHands: remainingHands,
+                remainingDiscards: remainingDiscards,
+                moveCount: moveCount);
+        if (_addWinningMoveEmbedding)
+            moveVectors = moveVectors + postPlayScore.greater_equal(scoreThreshold).unsqueeze(-1).to_type(ScalarType.Float32) * _winningMoveEmbedding;
 
-        moveVector.MoveToOuterDisposeScope();
-        return moveVector;
+        moveVectors.MoveToOuterDisposeScope();
+        return moveVectors;
     }
 
 

@@ -7,7 +7,10 @@ public static class PolicyValueNetworkTraining
 {
     public const int RolloutBatchSize = 64;
 
-    public static List<PolicyTrainingSample> GenerateRollout(IPolicyNetwork network, PpoTrainingSettings settings)
+    public static List<PolicyTrainingSample> GenerateRollout(
+        IPolicyNetwork network,
+        PpoTrainingSettings settings,
+        IReadOnlyList<IRolloutAnalyzer> analyzers = null)
     {
         using PolicyNetworkAgent agent = new(network, ownsNetwork: false);
         List<PolicyTrainingSample> completedSamples = [];
@@ -31,7 +34,13 @@ public static class PolicyValueNetworkTraining
                 if (!agent.IsGameDone(gameStates[slot]))
                     continue;
 
-                SetTargetsAndAdvantages(activeSamples[slot], GetReward(gameStates[slot]));
+                float reward = GetReward(gameStates[slot]);
+                SetTargetsAndAdvantages(activeSamples[slot], reward);
+                if (analyzers is not null)
+                {
+                    for (int analyzerIndex = 0; analyzerIndex < analyzers.Count; ++analyzerIndex)
+                        analyzers[analyzerIndex].ObserveCompletedTrajectory(activeSamples[slot], reward);
+                }
                 completedSamples.AddRange(activeSamples[slot]);
 
                 gameStates[slot] = new(settings.GameData);
@@ -75,11 +84,14 @@ public static class PolicyValueNetworkTraining
         return roundsSurvived * roundsSurvived;
     }
 
-    public static void DoPPORollout(IPolicyNetwork network, PpoTrainingSettings settings)
+    public static RolloutAnalysis DoPPORollout(IPolicyNetwork network, PpoTrainingSettings settings)
     {
         using var scope = NewDisposeScope();
 
-        List<PolicyTrainingSample> rollout = GenerateRollout(network, settings);
+        AverageRewardRolloutAnalyzer averageRewardAnalyzer = new();
+        AverageEntropyRolloutAnalyzer averageEntropyAnalyzer = new();
+        IRolloutAnalyzer[] analyzers = [averageRewardAnalyzer, averageEntropyAnalyzer];
+        List<PolicyTrainingSample> rollout = GenerateRollout(network, settings, analyzers);
 
         if (network is not Module networkModule)
             throw new InvalidOperationException($"{nameof(network)} must be a TorchSharp module to train.");
@@ -132,6 +144,10 @@ public static class PolicyValueNetworkTraining
         stacked.Dispose();
         for (int sampleIndex = 0; sampleIndex < rollout.Count; ++sampleIndex)
             rollout[sampleIndex].Dispose();
+
+        return new(
+            AverageReward: averageRewardAnalyzer.Value,
+            AverageEntropy: averageEntropyAnalyzer.Value);
     }
 
     static AdamW BuildAdamWOptimizer(Module networkModule, PpoTrainingSettings settings)

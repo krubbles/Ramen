@@ -41,6 +41,7 @@ public static class AgentTrainingExtensions
         Profiling.Enter("ChosenMoveReadback");
         long[] chosenMoveIndicesManaged = [.. chosenMoveIndices.to(CPU).data<long>()];
         float[] chosenProbsManaged = [.. chosenProbs.to(CPU).data<float>()];
+        float[] policyData = [.. probs.to(CPU).data<float>()];
         Profiling.Exit("ChosenMoveReadback");
 
         Profiling.Enter("BuildSamples");
@@ -52,6 +53,8 @@ public static class AgentTrainingExtensions
             GameStateTensors sampleStateTensors = gameStateTensors.GetBatch(stateIndex, stateIndex + 1).Clone();
             Tensor sampleMoveIndices = sampleIndices[stateIndex..(stateIndex + 1)].clone();
             Tensor sampleValue = value[stateIndex..(stateIndex + 1)].clone();
+            float[] policy = new float[moveCount];
+            Array.Copy(policyData, stateIndex * moveCount, policy, 0, moveCount);
             PolicyTrainingSample sample = new()
             {
                 SamplingProb = sampleSamplingProb,
@@ -59,6 +62,7 @@ public static class AgentTrainingExtensions
                 MoveIndices = sampleMoveIndices,
                 Value = value[stateIndex..(stateIndex + 1)].clone(),
                 ChosenMoveNLProb = -MathF.Log(chosenProbsManaged[stateIndex] + 1e-9f),
+                PolicyAnnotation = AnnotationDataUtils.CreatePolicyAnnotation(policy),
             };
             sample.DetachFromScope();
 
@@ -96,4 +100,6 @@ public class PolicyTrainingSample : ITensorGroup
     /// The negative natural log probability of the chosen move. Used for debugging
     /// </summary>
     public float ChosenMoveNLProb;
+
+    public AnnotatingDataMove PolicyAnnotation;
 }
