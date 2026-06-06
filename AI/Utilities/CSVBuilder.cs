@@ -24,24 +24,38 @@ public sealed class CSVBuilder
     }
 
     /// <summary>
+    /// Adds a named column before any rows are written.
+    /// </summary>
+    public CSVBuilder AddColumn(string colName)
+    {
+        if (_columnLookup.ContainsKey(colName))
+            return this;
+
+        int columnIndex = _columns.Count;
+        _columns.Add(colName);
+        _columnLookup[colName] = columnIndex;
+        for (int i = 0; i < _rows.Count; i++)
+        {
+            string[] row = _rows[i];
+            Array.Resize(ref row, _columns.Count);
+            _rows[i] = row;
+        }
+
+        if (_currentRow != null)
+            _currentRow = _rows[^1];
+
+        return this;
+    }
+
+    /// <summary>
     /// Sets the value for the named column in the current row.
     /// </summary>
     public CSVBuilder SetCell<T>(string colName, T value)
     {
         if (!_columnLookup.TryGetValue(colName, out int columnIndex))
         {
-            columnIndex = _columns.Count;
-            _columns.Add(colName);
-            _columnLookup[colName] = columnIndex;
-            for (int i = 0; i < _rows.Count; i++)
-            {
-                string[] row = _rows[i];
-                Array.Resize(ref row, _columns.Count);
-                _rows[i] = row;
-            }
-
-            if (_currentRow != null)
-                _currentRow = _rows[^1];
+            AddColumn(colName);
+            columnIndex = _columnLookup[colName];
         }
 
         if (_currentRow == null)
