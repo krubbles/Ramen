@@ -3,7 +3,6 @@ namespace Ramen.ConsoleApp;
 using System.Globalization;
 using Ramen.AI;
 using Ramen.Game;
-using static TorchSharp.torch;
 
 public sealed class ConsoleBalatroApp
 {
@@ -13,8 +12,6 @@ public sealed class ConsoleBalatroApp
     readonly GameState _gameState;
     readonly bool _saveGameOnExit;
     bool _gameSaved;
-    PpoPolicyValueModel _firstRoundAutoModel;
-    PpoPolicyValueModel _defaultAutoModel;
 
     public const string TempGameDatabaseName = "ConsoleAppTemp";
 
@@ -57,7 +54,6 @@ public sealed class ConsoleBalatroApp
         finally
         {
             SaveGame();
-            DisposeAutoModels();
         }
     }
 
@@ -93,7 +89,6 @@ public sealed class ConsoleBalatroApp
                 WriteRoundMoneyGained();
                 EndRoundMove endRoundMove = new();
                 endRoundMove.Apply(_gameState);
-                DisposeFirstRoundAutoModel();
             }
             else if (_gameState.Stage == StageOfGame.EnterShop)
             {
@@ -128,10 +123,6 @@ public sealed class ConsoleBalatroApp
                     moveSucceeded = HandleUseHand(input, isDiscard: false);
                 else if (commandName == "discard")
                     moveSucceeded = HandleUseHand(input, isDiscard: true);
-                else if (commandName == "auto")
-                    moveSucceeded = HandleAutoRound();
-                else if (commandName == "reward")
-                    moveSucceeded = HandleReward();
                 else
                 {
                     WriteGeneratedLine("Unknown command.");
@@ -165,10 +156,6 @@ public sealed class ConsoleBalatroApp
                     moveSucceeded = HandleReroll();
                 else if (commandName == "exit")
                     moveSucceeded = HandleExitShop();
-                else if (commandName == "auto")
-                    moveSucceeded = HandleAutoShop();
-                else if (commandName == "reward")
-                    moveSucceeded = HandleReward();
                 else
                 {
                     WriteGeneratedLine("Unknown command.");
@@ -202,7 +189,6 @@ public sealed class ConsoleBalatroApp
         WriteGeneratedLine("Use 'play [hand]' to play a hand.");
         if (_gameState.HandState.RemainingDiscards > 0)
             WriteGeneratedLine("Use 'discard [hand]' to discard a hand.");
-        WriteGeneratedLine("Use 'reward' to show the value network's expected reward for this position.");
         WriteGeneratedLine();
     }
 
@@ -241,223 +227,7 @@ public sealed class ConsoleBalatroApp
         if (_gameState.ShopState.CurrentRerollCost <= _gameState.ShopState.Money)
             WriteGeneratedLine("Use 'reroll' to reroll the shop");
         WriteGeneratedLine("Use 'exit' to exit the shop");
-        WriteGeneratedLine("Use 'reward' to show the value network's expected reward for this position.");
         WriteGeneratedLine();
-    }
-
-    bool HandleAutoRound()
-    {
-        PpoPolicyValueModel autoModel = EnsureAutoModel();
-        using var scope = NewDisposeScope();
-        using var noGrad = no_grad();
-
-        GameStateEmbedder embedder = new(1);
-        embedder.AddGameState(_gameState);
-        GameStateTensors gameStateTensors = embedder.ToTensors(includePlayHandScores: true);
-
-        Tensor logits = autoModel.GetPolicyLogits(gameStateTensors).to(CPU);
-        // mask out discards if none remaining
-        if (_gameState.HandState.RemainingDiscards == 0)
-        {
-            float[] logitData = logits.data<float>().ToArray();
-            for (int i = 1; i < logitData.Length; i += 2)
-                logitData[i] = float.NegativeInfinity;
-            logits = tensor(logitData).reshape([1, logitData.Length]);
-        }
-
-        long bestIndex = logits[0].argmax().item<long>();
-        bool isDiscard = bestIndex % 2 == 1;
-        int[] cardIndices = Combinatorics.GetCombinations(
-            setSize: GameData.HandSize,
-            minSubsetSize: 1,
-            maxSubsetSize: 5)[(int)(bestIndex / 2)];
-
-        Card[] handArray = _gameState.HandState.Hand.ToArray();
-        string cardText = string.Join(" ", System.Linq.Enumerable.Select(cardIndices, ci => handArray[ci].ToString()));
-        string command = isDiscard ? $"discard {cardText}" : $"play {cardText}";
-        WriteGeneratedLine($"[auto] {command}");
-        return HandleUseHand(command, isDiscard);
-    }
-
-    bool HandleAutoShop()
-    {
-        PpoPolicyValueModel autoModel = EnsureAutoModel();
-        using var scope = NewDisposeScope();
-        using var noGrad = no_grad();
-
-        GameStateEmbedder embedder = new(1);
-        embedder.AddGameState(_gameState);
-        GameStateTensors gameStateTensors = embedder.ToTensors();
-
-        Tensor logits = autoModel.GetStorePolicyLogits(gameStateTensors);
-        Tensor illegalMask = BuildAutoStoreMask(gameStateTensors);
-
-        long bestIndex = (logits + illegalMask).to(CPU)[0].argmax().item<long>();
-
-        string command = (int)bestIndex switch
-        {
-            0 => "exit",
-            1 => "reroll",
-            2 => "buy 1",
-            3 => "buy 2",
-            _ => "exit",
-        };
-        WriteGeneratedLine($"[auto] {command}");
-
-        return command switch
-        {
-            "reroll" => HandleReroll(),
-            "buy 1" => HandleBuy("buy 1"),
-            "buy 2" => HandleBuy("buy 2"),
-            _ => HandleExitShop(),
-        };
-    }
-
-    bool HandleReward()
-    {
-        PpoPolicyValueModel autoModel = EnsureAutoModel();
-        using var scope = NewDisposeScope();
-        using var noGrad = no_grad();
-
-        GameStateEmbedder embedder = new(1);
-        embedder.AddGameState(_gameState);
-        GameStateTensors gameStateTensors = embedder.ToTensors(PpoPolicyValueModel.EvalDevice);
-        Tensor values = autoModel.GetValues(gameStateTensors).to(CPU);
-        float[] valueData = values.data<float>().ToArray();
-        gameStateTensors.Dispose();
-
-        WriteGeneratedLine($"[reward] Expected reward: {valueData[0]:F4}");
-        return false;
-    }
-
-    static Tensor BuildAutoStoreMask(GameStateTensors gameStateTensors)
-    {
-        using var scope = NewDisposeScope();
-        Device device = PpoPolicyValueModel.EvalDevice;
-        Tensor money = gameStateTensors.Money.to(device).to_type(ScalarType.Int64);
-        Tensor rerollPrice = gameStateTensors.RerollPrice.to(device).to_type(ScalarType.Int64);
-        Tensor storeJokers = gameStateTensors.StoreJokers.to(device).to_type(ScalarType.Int64);
-        Tensor storePrices = gameStateTensors.StorePrices.to(device).to_type(ScalarType.Int64);
-        Tensor ownedJokers = gameStateTensors.OwnedJokers.to(device).to_type(ScalarType.Int64);
-
-        Tensor exitMask = zeros([money.size(0), 1], dtype: ScalarType.Float32, device: device);
-        Tensor rerollMask = money.lt(rerollPrice).to_type(ScalarType.Float32).unsqueeze(-1);
-        Tensor nullStoreMask = storeJokers.eq(0).to_type(ScalarType.Float32);
-        Tensor unaffordableStoreMask = money.unsqueeze(-1).lt(storePrices).to_type(ScalarType.Float32);
-        Tensor ownedJokerCount = ownedJokers.ne(0).to_type(ScalarType.Int64).sum(dim: 1, keepdim: true);
-        Tensor rosterFullMask = ownedJokerCount.ge(GameStateEmbedder.MaxOwnedJokerCount).to_type(ScalarType.Float32).expand_as(nullStoreMask);
-        Tensor storeMask = (nullStoreMask + unaffordableStoreMask + rosterFullMask).clamp(0f, 1f);
-        Tensor stacked = cat([exitMask, rerollMask, storeMask], dim: 1) * -1e9f;
-        stacked.MoveToOuterDisposeScope();
-        return stacked;
-    }
-
-    PpoPolicyValueModel EnsureAutoModel()
-    {
-        if (ShouldUseFirstRoundAutoModel())
-            return EnsureFirstRoundAutoModel();
-
-        DisposeFirstRoundAutoModel();
-        return EnsureDefaultAutoModel();
-    }
-
-
-    PpoPolicyValueModel EnsureFirstRoundAutoModel()
-    {
-        if (_firstRoundAutoModel != null)
-            return _firstRoundAutoModel;
-
-        string repoRoot = FindRepoRoot();
-        LatestCheckpointInfo checkpoint = Program.FindLatestPpoCheckpoint(repoRoot);
-
-        WriteGeneratedLine($"[auto] Loading round 1 model from {checkpoint.CheckpointPath}");
-        _firstRoundAutoModel = new();
-        _firstRoundAutoModel.Load(checkpoint.CheckpointPath);
-        return _firstRoundAutoModel;
-    }
-
-
-    PpoPolicyValueModel EnsureDefaultAutoModel()
-    {
-        if (_defaultAutoModel != null)
-            return _defaultAutoModel;
-
-        string repoRoot = FindRepoRoot();
-        string weightsDir = System.IO.Path.Combine(
-            repoRoot,
-            "Analysis",
-            "2026-04-27_ppo_roundsurvival_multiround_donefix_fresh_s20_randdeck52wr_r32768_b1024_e4_lr3e5_eps0p3_ent1e5_ss40",
-            "weights");
-        string checkpointPath = FindLatestNumericCheckpointPath(weightsDir);
-
-        WriteGeneratedLine($"[auto] Loading model from {checkpointPath}");
-        _defaultAutoModel = new();
-        _defaultAutoModel.Load(checkpointPath);
-        return _defaultAutoModel;
-    }
-
-
-    bool ShouldUseFirstRoundAutoModel()
-    {
-        return _gameState.Round == 1 && _gameState.Stage == StageOfGame.InRoundPlayerChoice;
-    }
-
-
-    void DisposeFirstRoundAutoModel()
-    {
-        if (_firstRoundAutoModel == null)
-            return;
-
-        _firstRoundAutoModel.Dispose();
-        _firstRoundAutoModel = null;
-        TensorManager.DisposeAll();
-        GC.Collect();
-    }
-
-
-    void DisposeAutoModels()
-    {
-        DisposeFirstRoundAutoModel();
-
-        if (_defaultAutoModel == null)
-            return;
-
-        _defaultAutoModel.Dispose();
-        _defaultAutoModel = null;
-        TensorManager.DisposeAll();
-        GC.Collect();
-    }
-
-
-    static string FindLatestNumericCheckpointPath(string weightsDir)
-    {
-        string[] checkpointPaths = System.IO.Directory.GetFiles(weightsDir, "*.bin");
-        string bestPath = checkpointPaths[0];
-        int bestStep = -1;
-        for (int checkpointIndex = 0; checkpointIndex < checkpointPaths.Length; ++checkpointIndex)
-        {
-            string checkpointPath = checkpointPaths[checkpointIndex];
-            string fileName = System.IO.Path.GetFileNameWithoutExtension(checkpointPath);
-            if (!int.TryParse(fileName, out int step) || step <= bestStep)
-                continue;
-
-            bestStep = step;
-            bestPath = checkpointPath;
-        }
-
-        return bestPath;
-    }
-
-    static string FindRepoRoot()
-    {
-        string dir = AppContext.BaseDirectory;
-        while (dir != null)
-        {
-            if (System.IO.File.Exists(System.IO.Path.Combine(dir, "Ramen.sln")))
-                return dir;
-            dir = System.IO.Directory.GetParent(dir)?.FullName;
-        }
-        throw new System.IO.DirectoryNotFoundException("Could not find repo root (Ramen.sln).");
     }
 
     bool HandleUseHand(string input, bool isDiscard)
