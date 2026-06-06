@@ -99,17 +99,18 @@ public static class PolicyValueNetworkTraining
 
     public static RolloutAnalysis DoPPORollout(IPolicyNetwork network, PpoTrainingSettings settings)
     {
+        using AdamW optimizer = BuildAdamWOptimizer(network, settings);
+        return DoPPORollout(network, settings, optimizer);
+    }
+
+    public static RolloutAnalysis DoPPORollout(IPolicyNetwork network, PpoTrainingSettings settings, AdamW optimizer)
+    {
         using var scope = NewDisposeScope();
 
         AverageRewardRolloutAnalyzer averageRewardAnalyzer = new();
         AverageEntropyRolloutAnalyzer averageEntropyAnalyzer = new();
         IRolloutAnalyzer[] analyzers = [averageRewardAnalyzer, averageEntropyAnalyzer];
         List<PolicyTrainingSample> rollout = GenerateRollout(network, settings, analyzers);
-
-        if (network is not Module networkModule)
-            throw new InvalidOperationException($"{nameof(network)} must be a TorchSharp module to train.");
-
-        using AdamW optimizer = BuildAdamWOptimizer(networkModule, settings);
 
         PolicyTrainingSample stacked = TensorGroupExtentions.Stack(rollout, disposeInputs: false, concat: true);
         int sampleCount = rollout.Count;
@@ -163,8 +164,11 @@ public static class PolicyValueNetworkTraining
             AverageEntropy: averageEntropyAnalyzer.Value);
     }
 
-    static AdamW BuildAdamWOptimizer(Module networkModule, PpoTrainingSettings settings)
+    public static AdamW BuildAdamWOptimizer(IPolicyNetwork network, PpoTrainingSettings settings)
     {
+        if (network is not Module networkModule)
+            throw new InvalidOperationException($"{nameof(network)} must be a TorchSharp module to train.");
+
         List<Parameter> weightDecayParameters = [];
         List<Parameter> noWeightDecayParameters = [];
         foreach (Parameter parameter in networkModule.parameters())
