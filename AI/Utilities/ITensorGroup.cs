@@ -26,14 +26,14 @@ public static class TensorGroupExtentions
                 ITensorGroup[] tensors = new ITensorGroup[tensorGroups.Count];
                 for (int i = 0; i < tensorGroups.Count; ++i)
                     tensors[i] = field.GetValue(tensorGroups[i]) as ITensorGroup;
-                field.SetValue(result, Stack(tensors, disposeInputs, concat, dim));
+                field.SetValue(result, Stack(tensors, disposeInputs: false, concat, dim));
             }
+        }
 
-            if (disposeInputs)
-            {
-                foreach (ITensorGroup tensorGroup in tensorGroups)
-                    tensorGroup.Dispose();
-            }
+        if (disposeInputs)
+        {
+            foreach (ITensorGroup tensorGroup in tensorGroups)
+                tensorGroup.Dispose();
         }
 
         return result;

@@ -26,6 +26,12 @@ public static class PolicyValueNetworkTraining
             PolicyTrainingSample[] stepSamples = agent.MakeMoveAndTrainingSample(gameStates, settings.SampledSoftmaxCount);
             for (int slot = 0; slot < RolloutBatchSize; ++slot)
             {
+                if (completedSamples.Count >= settings.RolloutStateCount)
+                {
+                    stepSamples[slot].Dispose();
+                    continue;
+                }
+
                 activeSamples[slot].Add(stepSamples[slot]);
 
                 if (!IsTrajectoryDone(gameStates[slot]))
@@ -47,10 +53,13 @@ public static class PolicyValueNetworkTraining
 
                 gameStates[slot] = new(settings.GameData);
                 activeSamples[slot] = [];
-
-                if (completedSamples.Count >= settings.RolloutStateCount)
-                    break;
             }
+        }
+
+        for (int slot = 0; slot < RolloutBatchSize; ++slot)
+        {
+            for (int sampleIndex = 0; sampleIndex < activeSamples[slot].Count; ++sampleIndex)
+                activeSamples[slot][sampleIndex].Dispose();
         }
 
         return (trajectoryGameStates, completedSamples);
@@ -111,7 +120,7 @@ public static class PolicyValueNetworkTraining
         (List<GameState> trajectories, List<PolicyTrainingSample> trainingSamples) = GenerateRollout(network, settings);
         List<float> gradNorms = [];
 
-        PolicyTrainingSample stackedSamples = TensorGroupExtentions.Stack(trainingSamples, disposeInputs: false, concat: true);
+        PolicyTrainingSample stackedSamples = TensorGroupExtentions.Stack(trainingSamples, disposeInputs: true, concat: true);
         int sampleCount = trainingSamples.Count;
         for (int epoch = 0; epoch < settings.EpochCount; ++epoch)
         {

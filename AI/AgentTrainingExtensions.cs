@@ -60,7 +60,7 @@ public static class AgentTrainingExtensions
                 SamplingProb = sampleSamplingProb,
                 StateTensors = sampleStateTensors,
                 MoveIndices = sampleMoveIndices,
-                Value = value[stateIndex..(stateIndex + 1)].clone(),
+                Value = sampleValue,
                 ChosenMoveNLProb = -MathF.Log(chosenProbsManaged[stateIndex] + 1e-9f),
             };
             sample.DetachFromScope();
