@@ -28,9 +28,12 @@ public static class PolicyValueNetworkTraining
             {
                 activeSamples[slot].Add(stepSamples[slot]);
 
-                gameStates[slot].AdvanceToNextPlayerChoice();
                 if (!IsTrajectoryDone(gameStates[slot]))
-                    continue;
+                {
+                    gameStates[slot].AdvanceToNextPlayerChoice();
+                    if (!IsTrajectoryDone(gameStates[slot]))
+                        continue;
+                }
 
                 float reward = GetReward(gameStates[slot]);
                 SetTargetsAndAdvantages(activeSamples[slot], reward, settings.AdvantageFalloff);
@@ -83,7 +86,8 @@ public static class PolicyValueNetworkTraining
 
     static bool IsFirstRoundWin(GameState gameState)
     {
-        return gameState.Round == 1 && gameState.Stage == StageOfGame.EndRound;
+        return gameState.Round == 1 &&
+            gameState.ScoringState.CurrentRoundTotalScore >= gameState.ScoringState.CurrentRoundThresholdScore;
     }
 
     public static RolloutData DoPPORollout(IPolicyNetwork network, PpoTrainingSettings settings)
@@ -152,6 +156,8 @@ public static class PolicyValueNetworkTraining
 
     static float GetGradNorm(Module networkModule)
     {
+        using var dScope = NewDisposeScope();
+
         double squaredNormSum = 0;
         foreach (Parameter parameter in networkModule.parameters())
         {
@@ -159,9 +165,9 @@ public static class PolicyValueNetworkTraining
             if (grad is null)
                 continue;
 
-            using Tensor gradNorm = grad.detach().to_type(ScalarType.Float32).norm(2);
-            float norm = gradNorm.item<float>();
-            squaredNormSum += norm * norm;
+            Tensor gradFloat = grad.detach().to_type(ScalarType.Float32);
+            Tensor gradSquaredSum = (gradFloat * gradFloat).sum();
+            squaredNormSum += gradSquaredSum.item<float>();
         }
 
         return (float)Math.Sqrt(squaredNormSum);

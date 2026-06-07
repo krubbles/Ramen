@@ -31,7 +31,13 @@ public static class RolloutAnalyzers
                     !AnnotationDataUtils.TryDecodePolicyAnnotation(annotation, out float[] policy))
                     continue;
 
-                entropySum -= policy[0] * MathF.Log(MathF.Max(policy[0], 1e-9f));
+                for (int policyIndex = 0; policyIndex < policy.Length; ++policyIndex)
+                {
+                    float probability = policy[policyIndex];
+                    if (probability > 0f)
+                        entropySum -= probability * MathF.Log(probability);
+                }
+
                 annotationCount++;
             }
         }
