@@ -238,7 +238,7 @@ public struct PpoTrainingSettings
     public float AdamBeta2 = 0.97f;
     public float WeightDecay = 0.01f;
     public float PpoEpsilon = 0.2f;
-    public float GradNormClip = 20f;
+    public float GradNormClip = 30f;
     public float EntropyCoefficient = 0f;
     public float ValueLossCoefficient = 1f;
     public float AdvantageFalloff = 1f;
