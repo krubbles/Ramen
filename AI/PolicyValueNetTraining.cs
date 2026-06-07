@@ -37,7 +37,12 @@ public static class PolicyValueNetworkTraining
 
                 float reward = GetReward(gameStates[slot]);
                 SetTargetsAndAdvantages(activeSamples[slot], reward, settings.AdvantageFalloff);
-                completedSamples.AddRange(activeSamples[slot]);
+                int remainingSampleCount = settings.RolloutStateCount - completedSamples.Count;
+                int samplesToAdd = Math.Min(remainingSampleCount, activeSamples[slot].Count);
+                for (int sampleIndex = 0; sampleIndex < samplesToAdd; ++sampleIndex)
+                    completedSamples.Add(activeSamples[slot][sampleIndex]);
+                for (int sampleIndex = samplesToAdd; sampleIndex < activeSamples[slot].Count; ++sampleIndex)
+                    activeSamples[slot][sampleIndex].Dispose();
                 trajectoryGameStates.Add(gameStates[slot]);
 
                 gameStates[slot] = new(settings.GameData);
