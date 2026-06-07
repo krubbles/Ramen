@@ -142,7 +142,19 @@ public static class PolicyValueNetworkTraining
                 Tensor loss = policyLoss + settings.ValueLossCoefficient * valueLoss;
 
                 loss.backward();
-                gradNorms.Add(GetGradNorm(networkModule));
+                float gradNorm = GetGradNorm(networkModule);
+                if (settings.GradNormClip > 0f && gradNorm > settings.GradNormClip)
+                {
+                    float gradScale = settings.GradNormClip / (gradNorm + 1e-6f);
+                    foreach (Parameter parameter in networkModule.parameters())
+                    {
+                        Tensor grad = parameter.grad;
+                        if (grad is not null)
+                            grad.mul_(gradScale);
+                    }
+                }
+
+                gradNorms.Add(gradNorm);
                 optimizer.step();
             }
 
@@ -221,6 +233,7 @@ public struct PpoTrainingSettings
     public float AdamBeta2 = 0.97f;
     public float WeightDecay = 0.01f;
     public float PpoEpsilon = 0.2f;
+    public float GradNormClip = 20f;
     public float EntropyCoefficient = 0f;
     public float ValueLossCoefficient = 1f;
     public float AdvantageFalloff = 1f;
