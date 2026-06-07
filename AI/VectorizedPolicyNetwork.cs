@@ -24,6 +24,7 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
         public int TrunkBlockCount;
         public float TrunkResidualRatio;
         public ResidualBlock.ActivationType TrunkActivationType;
+        public bool TrunkPerLayerEmbedding;
         public int MoveResidualWidth;
         public int MoveBlockCount;
         public float MoveResidualRatio;
@@ -40,7 +41,9 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
         _device = settings.Device ?? CPU;
 
         _stateVectorizer = new GameStateVectorizer(
-            embeddingWidth: settings.StateResidualWidth,
+            embeddingWidth: settings.TrunkPerLayerEmbedding
+                ? settings.StateResidualWidth * settings.TrunkBlockCount
+                : settings.StateResidualWidth,
             scoreBucketCount: settings.ScoreBucketCount,
             device: _device);
         _moveVectorizer = new MoveVectorizer(
@@ -135,9 +138,24 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
     {
         using var scope = NewDisposeScope();
 
-        Tensor trunkOutput = _stateVectorizer.forward(gameStateTensors);
-        for (int blockIndex = 0; blockIndex < _trunkBlocks.Count; ++blockIndex)
-            trunkOutput = _trunkBlocks[blockIndex].forward(trunkOutput);
+        Tensor stateEmbedding = _stateVectorizer.forward(gameStateTensors);
+        Tensor trunkOutput;
+        if (_settings.TrunkPerLayerEmbedding)
+        {
+            Tensor perLayerEmbedding = stateEmbedding.view([
+                stateEmbedding.size(0),
+                _settings.TrunkBlockCount,
+                _settings.StateResidualWidth]);
+            trunkOutput = zeros([stateEmbedding.size(0), _settings.StateResidualWidth], device: _device);
+            for (int blockIndex = 0; blockIndex < _trunkBlocks.Count; ++blockIndex)
+                trunkOutput = _trunkBlocks[blockIndex].forward(trunkOutput + perLayerEmbedding.narrow(1, blockIndex, 1).squeeze(1));
+        }
+        else
+        {
+            trunkOutput = stateEmbedding;
+            for (int blockIndex = 0; blockIndex < _trunkBlocks.Count; ++blockIndex)
+                trunkOutput = _trunkBlocks[blockIndex].forward(trunkOutput);
+        }
 
         trunkOutput.MoveToOuterDisposeScope();
         return trunkOutput;
@@ -211,6 +229,8 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
             throw new ArgumentOutOfRangeException(nameof(settings.ScoreBucketCount), "Score bucket count must be at least 2.");
         if (settings.TrunkBlockCount < 0)
             throw new ArgumentOutOfRangeException(nameof(settings.TrunkBlockCount), "Trunk block count must be non-negative.");
+        if (settings.TrunkPerLayerEmbedding && settings.TrunkBlockCount == 0)
+            throw new ArgumentOutOfRangeException(nameof(settings.TrunkBlockCount), "Trunk block count must be positive when trunk per-layer embedding is enabled.");
         if (settings.TrunkResidualRatio <= 0f)
             throw new ArgumentOutOfRangeException(nameof(settings.TrunkResidualRatio), "Trunk hidden-to-residual width ratio must be positive.");
         if (settings.MoveResidualWidth <= 0)
