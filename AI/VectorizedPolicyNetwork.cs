@@ -194,7 +194,7 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
         for (int blockIndex = 0; blockIndex < _moveBlocks.Count; ++blockIndex)
             moveNetworkOutput = _moveBlocks[blockIndex].forward(moveNetworkOutput);
 
-        Tensor actionLogits = _logitHead.forward(moveNetworkOutput);
+        Tensor actionLogits = _logitHead.forward(functional.gelu(moveNetworkOutput));
 
         actionLogits.MoveToOuterDisposeScope();
         return actionLogits;
