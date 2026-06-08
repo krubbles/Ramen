@@ -12,7 +12,6 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
     readonly Linear _valueHead;
     readonly LayerNorm _trunkLayerNorm;
     readonly Linear _trunkProjection;
-    readonly Parameter _trunkGain;
     readonly Linear _logitHead;
     readonly Settings _settings;
     readonly Device _device;
@@ -29,6 +28,7 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
         public int MoveBlockCount;
         public float MoveResidualRatio;
         public ResidualBlock.ActivationType MoveActivationType;
+        public bool LeafPerLayerEmbedding;
         public bool AddWinningMoveEmbedding;
         public Device Device;
     }
@@ -42,12 +42,14 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
 
         _stateVectorizer = new GameStateVectorizer(
             embeddingWidth: settings.TrunkPerLayerEmbedding
-                ? settings.StateResidualWidth * settings.TrunkBlockCount
+                ? settings.StateResidualWidth * (settings.TrunkBlockCount + 1)
                 : settings.StateResidualWidth,
             scoreBucketCount: settings.ScoreBucketCount,
             device: _device);
         _moveVectorizer = new MoveVectorizer(
-            moveEmbeddingWidth: settings.MoveResidualWidth,
+            moveEmbeddingWidth: settings.LeafPerLayerEmbedding
+                ? settings.MoveResidualWidth * (settings.MoveBlockCount + 1)
+                : settings.MoveResidualWidth,
             scoreBucketCount: settings.ScoreBucketCount,
             addWinningMoveEmbedding: settings.AddWinningMoveEmbedding,
             device: _device);
@@ -72,11 +74,13 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
 
         _valueHead = Linear(settings.StateResidualWidth, 1, device: _device);
         _trunkLayerNorm = LayerNorm(settings.StateResidualWidth, device: _device);
-        _trunkProjection = Linear(settings.StateResidualWidth, settings.MoveResidualWidth, device: _device);
+        _trunkProjection = Linear(
+            settings.StateResidualWidth,
+            settings.LeafPerLayerEmbedding
+                ? settings.MoveResidualWidth * (settings.MoveBlockCount + 1)
+                : settings.MoveResidualWidth,
+            device: _device);
         _logitHead = Linear(settings.MoveResidualWidth, 2, device: _device);
-
-        float trunkGainInitialization = settings.MoveResidualWidth / (float)settings.StateResidualWidth * 0.5f;
-        _trunkGain = Parameter(full([settings.MoveResidualWidth], trunkGainInitialization, device: _device));
 
         RegisterComponents();
     }
@@ -144,11 +148,12 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
         {
             Tensor perLayerEmbedding = stateEmbedding.view([
                 stateEmbedding.size(0),
-                _settings.TrunkBlockCount,
+                _settings.TrunkBlockCount + 1,
                 _settings.StateResidualWidth]);
             trunkOutput = zeros([stateEmbedding.size(0), _settings.StateResidualWidth], device: _device);
             for (int blockIndex = 0; blockIndex < _trunkBlocks.Count; ++blockIndex)
                 trunkOutput = _trunkBlocks[blockIndex].forward(trunkOutput + perLayerEmbedding.narrow(1, blockIndex, 1).squeeze(1));
+            trunkOutput = trunkOutput + perLayerEmbedding.narrow(1, _settings.TrunkBlockCount, 1).squeeze(1);
         }
         else
         {
@@ -204,13 +209,45 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
     {
         using var scope = NewDisposeScope();
 
-        Tensor trunkLeaf = _trunkProjection.forward(_trunkLayerNorm.forward(trunkOutput)) * _trunkGain;
-        Tensor moveNetworkOutput = moveEmbeddings + trunkLeaf.unsqueeze(1).expand(
-            trunkOutput.size(0),
-            moveEmbeddings.size(1),
-            _settings.MoveResidualWidth);
-        for (int blockIndex = 0; blockIndex < _moveBlocks.Count; ++blockIndex)
-            moveNetworkOutput = _moveBlocks[blockIndex].forward(moveNetworkOutput);
+        Tensor trunkLeaf = _trunkProjection.forward(_trunkLayerNorm.forward(trunkOutput));
+        Tensor moveNetworkOutput;
+        if (_settings.LeafPerLayerEmbedding)
+        {
+            Tensor perLayerMoveEmbedding = moveEmbeddings.view([
+                moveEmbeddings.size(0),
+                moveEmbeddings.size(1),
+                _settings.MoveBlockCount + 1,
+                _settings.MoveResidualWidth]);
+            Tensor perLayerTrunkLeaf = trunkLeaf.view([
+                trunkOutput.size(0),
+                _settings.MoveBlockCount + 1,
+                _settings.MoveResidualWidth]);
+
+            moveNetworkOutput = perLayerMoveEmbedding.narrow(2, 0, 1).squeeze(2) +
+                perLayerTrunkLeaf.narrow(1, 0, 1).squeeze(1).unsqueeze(1).expand(
+                    trunkOutput.size(0),
+                    moveEmbeddings.size(1),
+                    _settings.MoveResidualWidth);
+            for (int blockIndex = 0; blockIndex < _moveBlocks.Count; ++blockIndex)
+            {
+                moveNetworkOutput = _moveBlocks[blockIndex].forward(moveNetworkOutput);
+                moveNetworkOutput = moveNetworkOutput +
+                    perLayerMoveEmbedding.narrow(2, blockIndex + 1, 1).squeeze(2) +
+                    perLayerTrunkLeaf.narrow(1, blockIndex + 1, 1).squeeze(1).unsqueeze(1).expand(
+                        trunkOutput.size(0),
+                        moveEmbeddings.size(1),
+                        _settings.MoveResidualWidth);
+            }
+        }
+        else
+        {
+            moveNetworkOutput = moveEmbeddings + trunkLeaf.unsqueeze(1).expand(
+                trunkOutput.size(0),
+                moveEmbeddings.size(1),
+                _settings.MoveResidualWidth);
+            for (int blockIndex = 0; blockIndex < _moveBlocks.Count; ++blockIndex)
+                moveNetworkOutput = _moveBlocks[blockIndex].forward(moveNetworkOutput);
+        }
 
         Tensor actionLogits = _logitHead.forward(functional.gelu(moveNetworkOutput));
 
