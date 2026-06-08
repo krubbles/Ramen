@@ -119,6 +119,8 @@ public static class PolicyValueNetworkTraining
 
         (List<GameState> trajectories, List<PolicyTrainingSample> trainingSamples) = GenerateRollout(network, settings);
         List<float> gradNorms = [];
+        double clippedSampleCount = 0;
+        double totalRatioSampleCount = 0;
 
         PolicyTrainingSample stackedSamples = TensorGroupExtentions.Stack(trainingSamples, disposeInputs: true, concat: true);
         int sampleCount = trainingSamples.Count;
@@ -147,6 +149,10 @@ public static class PolicyValueNetworkTraining
 
                 Tensor advantages = batch.PolicyAdvantage.to(sampledLogits.device).reshape([-1]);
                 Tensor clippedRatio = clamp(ratio, 1f - settings.PpoEpsilon, 1f + settings.PpoEpsilon);
+                Tensor clipMask = (ratio - clippedRatio).abs().gt(0f);
+                Tensor clipCount = clipMask.to_type(ScalarType.Float32).sum();
+                clippedSampleCount += clipCount.item<float>();
+                totalRatioSampleCount += batchEnd - batchStart;
                 Tensor policyReward = min(ratio * advantages, clippedRatio * advantages).mean();
                 Tensor entropy = -(exp(logProbs) * logProbs).sum(dim: 1).mean();
                 Tensor policyLoss = -policyReward - settings.EntropyCoefficient * entropy;
@@ -177,7 +183,8 @@ public static class PolicyValueNetworkTraining
         }
 
         stackedSamples.Dispose();
-        return new() { Trajectories = trajectories, GradNorms = gradNorms };
+        float clipRate = totalRatioSampleCount == 0 ? 0f : (float)(clippedSampleCount / totalRatioSampleCount);
+        return new() { Trajectories = trajectories, GradNorms = gradNorms, ClipRate = clipRate };
     }
 
     static float GetGradNorm(Module networkModule)
@@ -204,14 +211,27 @@ public static class PolicyValueNetworkTraining
         if (network is not Module networkModule)
             throw new InvalidOperationException($"{nameof(network)} must be a TorchSharp module to train.");
 
+        HashSet<Parameter> linearWeightDecayParameters = [];
+        foreach ((string _, Module module) in networkModule.named_modules())
+        {
+            if (module is not TorchSharp.Modules.Linear)
+                continue;
+
+            foreach (Parameter parameter in module.parameters())
+            {
+                if (parameter.dim() > 1)
+                    linearWeightDecayParameters.Add(parameter);
+            }
+        }
+
         List<Parameter> weightDecayParameters = [];
         List<Parameter> noWeightDecayParameters = [];
         foreach (Parameter parameter in networkModule.parameters())
         {
-            if (parameter.dim() <= 1)
-                noWeightDecayParameters.Add(parameter);
-            else
+            if (linearWeightDecayParameters.Contains(parameter))
                 weightDecayParameters.Add(parameter);
+            else
+                noWeightDecayParameters.Add(parameter);
         }
 
         return optim.AdamW(
@@ -259,4 +279,5 @@ public struct PpoTrainingSettings
 
 public readonly record struct RolloutData(
     IReadOnlyList<GameState> Trajectories,
-    IReadOnlyList<float> GradNorms);
+    IReadOnlyList<float> GradNorms,
+    float ClipRate);
