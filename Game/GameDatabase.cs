@@ -38,6 +38,20 @@ public class GameDatabase : IEnumerable<GameState>
         }
     }
 
+    public GameDatabase(FileInfo file, bool load = true, bool delete = false)
+    {
+        Directory.CreateDirectory(file.DirectoryName);
+
+        _filePath = file.FullName;
+
+        if (!load && File.Exists(_filePath))
+        {
+            if (delete)
+                File.Delete(_filePath);
+            else throw new ArgumentException($"Trying to create a game database where one already exists");
+        }
+    }
+
     public void AddGame(GameState gameState)
     {
         if (_activeEnumerators > 0)

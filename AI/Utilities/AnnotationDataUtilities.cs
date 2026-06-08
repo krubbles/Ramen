@@ -3,8 +3,9 @@ namespace Ramen.AI;
 public enum AnnotationDataType : ushort
 {
     Policy = 1,
-    ExpectedReward = 3,
-    MoveRewards = 4,
+    ExpectedReward = 2,
+    MoveRewards = 3,
+    RolloutIndex = 4,
 }
 
 public static class AnnotationDataUtils
@@ -58,6 +59,24 @@ public static class AnnotationDataUtils
         }
 
         expectedReward = BitConverter.ToSingle(annotation.Data, 0);
+        return true;
+    }
+
+    public static AnnotatingDataMove CreateRolloutIndexAnnotation(int rolloutIndex)
+    {
+        byte[] data = BitConverter.GetBytes(rolloutIndex);
+        return new((ushort)AnnotationDataType.RolloutIndex, data);
+    }
+
+    public static bool TryDecodeRolloutIndexAnnotation(AnnotatingDataMove annotation, out int rolloutIndex)
+    {
+        if (annotation == null || annotation.DataTypeID != (ushort)AnnotationDataType.RolloutIndex)
+        {
+            rolloutIndex = 0;
+            return false;
+        }
+
+        rolloutIndex = BitConverter.ToInt32(annotation.Data, 0);
         return true;
     }
 
