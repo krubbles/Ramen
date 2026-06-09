@@ -138,13 +138,12 @@ public static class PolicyValueNetworkTraining
                 optimizer.zero_grad();
 
                 (Tensor sampledLogits, Tensor values) = network.GetPolicyValue(batch.StateTensors, batch.MoveIndices);
-                Tensor oldProbs = batch.SamplingProb.to(sampledLogits.device);
-                oldProbs /= oldProbs.sum(dim: 1, keepdim: true).clamp_min(1e-9f);
-
-                Tensor logProbsOld = log(oldProbs.clamp_min(1e-9f));
-                Tensor logProbs = functional.log_softmax(sampledLogits, dim: 1);
+                Tensor samplingProbs = batch.SamplingProb.to(sampledLogits.device).clamp_min(1e-9f);
+                Tensor adjustedLogits = sampledLogits - log(samplingProbs);
+                Tensor logProbs = functional.log_softmax(adjustedLogits, dim: 1);
+                Tensor logProbsOld = -log(tensor(sampledLogits.size(1), dtype: ScalarType.Float32, device: sampledLogits.device));
                 Tensor logPiNew = logProbs.select(dim: 1, index: 0);
-                Tensor logPiOld = logProbsOld.select(dim: 1, index: 0);
+                Tensor logPiOld = logProbsOld.expand_as(logPiNew);
                 Tensor ratio = exp(logPiNew - logPiOld);
 
                 Tensor advantages = batch.PolicyAdvantage.to(sampledLogits.device).reshape([-1]);
