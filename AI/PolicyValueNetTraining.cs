@@ -137,16 +137,29 @@ public static class PolicyValueNetworkTraining
                 PolicyTrainingSample batch = shuffled.GetBatch(batchStart, batchEnd);
                 optimizer.zero_grad();
 
-                (Tensor sampledLogits, Tensor values) = network.GetPolicyValue(batch.StateTensors, batch.MoveIndices);
-                Tensor samplingProbs = batch.SamplingProb.to(sampledLogits.device).clamp_min(1e-9f);
-                Tensor adjustedLogits = sampledLogits - log(samplingProbs);
+
+                Tensor samplingProbs = batch.SamplingProb.clamp_min(1e-9f);
+
+                (Tensor logits, Tensor values) = network.GetPolicyValue(batch.StateTensors, batch.MoveIndices);
+
+                // index zero always contains the selected move
+                Tensor positiveLogit = logits[TensorIndex.Colon, 0];
+                Tensor negativeLogits = logits[TensorIndex.Colon, 1..];
+
+                Tensor negativeLogitsMass = logsumexp(negativeLogits, dim: 1, keepdim: true);
+                Tensor negativeLogitsLogQ = negativeLogits - log(samplingProbs[TensorIndex.Colon, 1..]);
+                Tensor negativeLogitsLogQMass = logsumexp(negativeLogitsLogQ, dim: 1, keepdim: true);
+                Tensor negitiveLogitsLogQAdjustment = (negativeLogitsLogQMass - negativeLogitsMass).detach();
+                Tensor negativeLogitsLogQAdjusted = negativeLogitsLogQ - negitiveLogitsLogQAdjustment;
+
+                Tensor adjustedLogits = cat([positiveLogit.unsqueeze(1), negativeLogitsLogQAdjusted], dim: 1);
                 Tensor logProbs = functional.log_softmax(adjustedLogits, dim: 1);
-                Tensor logProbsOld = -log(tensor(sampledLogits.size(1), dtype: ScalarType.Float32, device: sampledLogits.device));
+
                 Tensor logPiNew = logProbs.select(dim: 1, index: 0);
-                Tensor logPiOld = logProbsOld.expand_as(logPiNew);
+                Tensor logPiOld = log(samplingProbs[TensorIndex.Colon, 0]);
                 Tensor ratio = exp(logPiNew - logPiOld);
 
-                Tensor advantages = batch.PolicyAdvantage.to(sampledLogits.device).reshape([-1]);
+                Tensor advantages = batch.PolicyAdvantage.to(logits.device).reshape([-1]);
                 Tensor clippedRatio = clamp(ratio, 1f - settings.PpoEpsilon, 1f + settings.PpoEpsilon);
                 Tensor clipMask = (ratio - clippedRatio).abs().gt(0f);
                 Tensor clipCount = clipMask.to_type(ScalarType.Float32).sum();
