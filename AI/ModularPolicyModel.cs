@@ -153,9 +153,10 @@ public sealed class ModularPolicyModel : Module, IPolicyNetwork
         Tensor stackedMoveFeatures = stack([playMoveFeatures, discardMoveFeatures], dim: 2);
         Tensor flattenedMoveFeatures = stackedMoveFeatures.view([stackedMoveFeatures.size(0), moveCount * 2, stackedMoveFeatures.size(3)]);
         Tensor flattenedLogits = RunMoveProcessor(flattenedMoveFeatures);
+        Tensor maskedLogits = PolicyLogitMask.Apply(gameStateTensors, flattenedLogits);
 
-        flattenedLogits.MoveToOuterDisposeScope();
-        return flattenedLogits;
+        maskedLogits.MoveToOuterDisposeScope();
+        return maskedLogits;
     }
 
 
@@ -182,9 +183,10 @@ public sealed class ModularPolicyModel : Module, IPolicyNetwork
             selectedHandIndices: selectedHandIndices,
             actionIndices: actionIndices);
         Tensor selectedMoveLogits = RunMoveProcessor(selectedMoveFeatures);
+        Tensor maskedLogits = PolicyLogitMask.Apply(gameStateTensors, selectedMoveLogits, moveIndices);
 
-        selectedMoveLogits.MoveToOuterDisposeScope();
-        return selectedMoveLogits;
+        maskedLogits.MoveToOuterDisposeScope();
+        return maskedLogits;
     }
 
 

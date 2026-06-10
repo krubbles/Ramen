@@ -80,11 +80,12 @@ public sealed class PolicyNetworkAgent : IAgent, IDisposable
         (Tensor logits, Tensor value) = Network.GetPolicyValue(gameStateTensors);
         Profiling.Exit("GetPolicyLogits");
 
-        int moveCount = (int)logits.size(1);
-        Tensor illegalMoveMask = BuildIllegalMoveMask(gameStates, moveCount, logits.device);
-        logits += illegalMoveMask;
-
-        Tensor probs = (logits / MathF.Max(temp, 0.0001f)).softmax(1);
+        const float IllegalMoveLogitEpsilon = 1e-2f;
+        Tensor probs = (logits / MathF.Max(temp, 0.0001f)).softmax(1).max(1e-9f);
+        Tensor legalProbabilityMask = logits
+            .ge(PolicyLogitMask.IllegalMoveLogit + IllegalMoveLogitEpsilon)
+            .to_type(probs.dtype);
+        probs *= legalProbabilityMask;
         probs.ToOuterScope();
         value.ToOuterScope();
         gameStateTensors.ToOuterScope();
@@ -100,25 +101,5 @@ public sealed class PolicyNetworkAgent : IAgent, IDisposable
             gameStateEmbedder.AddGameState(gameStates[stateIndex]);
 
         return gameStateEmbedder.ToTensors(includePlayHandScores: true);
-    }
-
-    static Tensor BuildIllegalMoveMask(ReadOnlySpan<GameState> gameStates, int moveCount, Device device)
-    {
-        using var scope = NewDisposeScope();
-        using var profileScope = ProfileScope.New(nameof(BuildIllegalMoveMask));
-
-        float[,] mask = new float[gameStates.Length, 2];
-        for (int stateIndex = 0; stateIndex < gameStates.Length; ++stateIndex)
-        {
-            if (gameStates[stateIndex].HandState.RemainingHands == 0)
-                mask[stateIndex, 0] = -1e6f;
-            if (gameStates[stateIndex].HandState.RemainingDiscards == 0)
-                mask[stateIndex, 1] = -1e6f;
-        }
-
-        Tensor actionMask = tensor(mask, device: CPU).to(device);
-        Tensor result = actionMask.repeat([1, moveCount / 2]);
-        result.MoveToOuterDisposeScope();
-        return result;
     }
 }

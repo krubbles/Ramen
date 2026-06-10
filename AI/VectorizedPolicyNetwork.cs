@@ -173,9 +173,10 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
 
         Tensor moveEmbeddings = _moveVectorizer.forward(gameStateTensors);
         Tensor flattenedLogits = BuildPolicyLogits(trunkOutput, moveEmbeddings);
+        Tensor maskedLogits = PolicyLogitMask.Apply(gameStateTensors, flattenedLogits);
 
-        flattenedLogits.MoveToOuterDisposeScope();
-        return flattenedLogits;
+        maskedLogits.MoveToOuterDisposeScope();
+        return maskedLogits;
     }
 
 
@@ -187,9 +188,10 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
         Tensor actionLogits = BuildActionLogits(trunkOutput, moveEmbeddings);
         Tensor selectedActionIndices = moveIndices.to(_device).to_type(ScalarType.Int64).remainder(2).unsqueeze(-1);
         Tensor selectedLogits = actionLogits.gather(dim: 2, index: selectedActionIndices).squeeze(2);
+        Tensor maskedLogits = PolicyLogitMask.Apply(gameStateTensors, selectedLogits, moveIndices);
 
-        selectedLogits.MoveToOuterDisposeScope();
-        return selectedLogits;
+        maskedLogits.MoveToOuterDisposeScope();
+        return maskedLogits;
     }
 
 
