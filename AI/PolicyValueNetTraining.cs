@@ -141,7 +141,9 @@ public static class PolicyValueNetworkTraining
 
                 (Tensor logits, Tensor values) = network.GetPolicyValue(batch.StateTensors, batch.MoveIndices);
 
+                Tensor chosenOldProb = batch.SamplingProb[TensorIndex.Colon, 0].clamp(1e-9f, 1f - 1e-6f);
                 Tensor safeNegLogitSampleProbs = batch.SamplingProb[TensorIndex.Colon, 1..].max(1e-9f);
+                Tensor oldNegativeProbabilityMass = (1f - chosenOldProb).max(1e-9f);
 
                 // index zero always contains the selected move
                 Tensor positiveLogit = logits[TensorIndex.Colon, 0];
@@ -149,12 +151,13 @@ public static class PolicyValueNetworkTraining
 
                 Tensor adjustedNegativeLogits = negativeLogits
                     - log(safeNegLogitSampleProbs)
+                    + log(oldNegativeProbabilityMass.unsqueeze(1))
                     - log(negativeLogits.size(dim: 1));
                 Tensor adjustedLogits = cat([positiveLogit.unsqueeze(1), adjustedNegativeLogits], dim: 1);
 
                 Tensor logProbs = functional.log_softmax(adjustedLogits, dim: 1);
                 Tensor logPiNew = logProbs.select(dim: 1, index: 0);
-                Tensor logPiOld = log(batch.SamplingProb[TensorIndex.Colon, 0]);
+                Tensor logPiOld = log(chosenOldProb);
                 Tensor ratio = exp(logPiNew - logPiOld);
 
                 Tensor advantages = batch.PolicyAdvantage.to(logits.device).reshape([-1]);
