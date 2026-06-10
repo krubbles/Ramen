@@ -138,25 +138,23 @@ public static class PolicyValueNetworkTraining
                 optimizer.zero_grad();
 
 
-                Tensor samplingProbs = batch.SamplingProb.clamp_min(1e-9f);
 
                 (Tensor logits, Tensor values) = network.GetPolicyValue(batch.StateTensors, batch.MoveIndices);
+
+                Tensor safeNegLogitSampleProbs = batch.SamplingProb[TensorIndex.Colon, 1..].max(1e-9f);
 
                 // index zero always contains the selected move
                 Tensor positiveLogit = logits[TensorIndex.Colon, 0];
                 Tensor negativeLogits = logits[TensorIndex.Colon, 1..];
 
-                Tensor negativeLogitsMass = logsumexp(negativeLogits, dim: 1, keepdim: true);
-                Tensor negativeLogitsLogQ = negativeLogits - log(samplingProbs[TensorIndex.Colon, 1..]);
-                Tensor negativeLogitsLogQMass = logsumexp(negativeLogitsLogQ, dim: 1, keepdim: true);
-                Tensor negitiveLogitsLogQAdjustment = (negativeLogitsLogQMass - negativeLogitsMass).detach();
-                Tensor negativeLogitsLogQAdjusted = negativeLogitsLogQ - negitiveLogitsLogQAdjustment;
+                Tensor adjustedNegativeLogits = negativeLogits
+                    - log(safeNegLogitSampleProbs)
+                    - log(negativeLogits.size(dim: 1));
+                Tensor adjustedLogits = cat([positiveLogit.unsqueeze(1), adjustedNegativeLogits], dim: 1);
 
-                Tensor adjustedLogits = cat([positiveLogit.unsqueeze(1), negativeLogitsLogQAdjusted], dim: 1);
                 Tensor logProbs = functional.log_softmax(adjustedLogits, dim: 1);
-
                 Tensor logPiNew = logProbs.select(dim: 1, index: 0);
-                Tensor logPiOld = log(samplingProbs[TensorIndex.Colon, 0]);
+                Tensor logPiOld = log(batch.SamplingProb[TensorIndex.Colon, 0]);
                 Tensor ratio = exp(logPiNew - logPiOld);
 
                 Tensor advantages = batch.PolicyAdvantage.to(logits.device).reshape([-1]);
