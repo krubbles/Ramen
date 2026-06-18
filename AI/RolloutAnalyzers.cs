@@ -47,14 +47,14 @@ public static class RolloutAnalyzers
 
     public static float AverageGradNorm(RolloutData rolloutData)
     {
-        IReadOnlyList<float> gradNorms = rolloutData.GradNorms;
-        if (gradNorms.Count == 0)
+        IReadOnlyList<PpoStepData> stepData = rolloutData.StepData;
+        if (stepData.Count == 0)
             return 0f;
 
         float gradNormSum = 0f;
-        for (int gradNormIndex = 0; gradNormIndex < gradNorms.Count; ++gradNormIndex)
-            gradNormSum += gradNorms[gradNormIndex];
+        for (int stepIndex = 0; stepIndex < stepData.Count; ++stepIndex)
+            gradNormSum += stepData[stepIndex].GradNorm;
 
-        return gradNormSum / gradNorms.Count;
+        return gradNormSum / stepData.Count;
     }
 }

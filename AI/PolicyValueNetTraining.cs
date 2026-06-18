@@ -43,10 +43,15 @@ public static class PolicyValueNetworkTraining
 
                 float reward = GetReward(gameStates[slot]);
                 SetTargetsAndAdvantages(activeSamples[slot], reward, settings.AdvantageFalloff);
+                int rolloutGameIndex = trajectoryGameStates.Count;
                 int remainingSampleCount = settings.RolloutStateCount - completedSamples.Count;
                 int samplesToAdd = Math.Min(remainingSampleCount, activeSamples[slot].Count);
                 for (int sampleIndex = 0; sampleIndex < samplesToAdd; ++sampleIndex)
-                    completedSamples.Add(activeSamples[slot][sampleIndex]);
+                {
+                    PolicyTrainingSample sample = activeSamples[slot][sampleIndex];
+                    sample.StateIds = tensor([rolloutGameIndex * 10_000 + sampleIndex], dtype: ScalarType.Int64, device: CPU).DetachFromScope();
+                    completedSamples.Add(sample);
+                }
                 for (int sampleIndex = samplesToAdd; sampleIndex < activeSamples[slot].Count; ++sampleIndex)
                     activeSamples[slot][sampleIndex].Dispose();
                 trajectoryGameStates.Add(gameStates[slot]);
@@ -118,7 +123,7 @@ public static class PolicyValueNetworkTraining
             throw new InvalidOperationException($"{nameof(network)} must be a TorchSharp module to train.");
 
         (List<GameState> trajectories, List<PolicyTrainingSample> trainingSamples) = GenerateRollout(network, settings);
-        List<float> gradNorms = [];
+        List<PpoStepData> stepData = [];
         double clippedSampleCount = 0;
         double totalRatioSampleCount = 0;
 
@@ -149,6 +154,7 @@ public static class PolicyValueNetworkTraining
                 Tensor logPiNew = logProbs.gather(dim: 1, index: chosenMoveIndices).squeeze(1);
                 Tensor logPiOld = batch.SamplingLogProb[TensorIndex.Colon, 0].to(logPiNew.device);
                 Tensor ratio = exp(logPiNew - logPiOld);
+                Tensor kld = (logPiOld - logPiNew).mean();
 
                 Tensor advantages = batch.PolicyAdvantage.to(logits.device).reshape([-1]);
                 Tensor clippedRatio = clamp(ratio, 1f - settings.PpoEpsilon, 1f + settings.PpoEpsilon);
@@ -177,7 +183,16 @@ public static class PolicyValueNetworkTraining
                     }
                 }
 
-                gradNorms.Add(gradNorm);
+                long[] stateIdsLong = [.. batch.StateIds.to(CPU).data<long>()];
+                int[] stateIds = new int[stateIdsLong.Length];
+                for (int stateIdIndex = 0; stateIdIndex < stateIds.Length; ++stateIdIndex)
+                    stateIds[stateIdIndex] = (int)stateIdsLong[stateIdIndex];
+
+                stepData.Add(new(
+                    GradNorm: gradNorm,
+                    Kld: kld.item<float>(),
+                    Entropy: entropy.item<float>(),
+                    StateIds: stateIds));
                 optimizer.step();
             }
 
@@ -187,7 +202,7 @@ public static class PolicyValueNetworkTraining
 
         stackedSamples.Dispose();
         float clipRate = totalRatioSampleCount == 0 ? 0f : (float)(clippedSampleCount / totalRatioSampleCount);
-        return new() { Trajectories = trajectories, GradNorms = gradNorms, ClipRate = clipRate };
+        return new() { Trajectories = trajectories, StepData = stepData, ClipRate = clipRate };
     }
 
     static float GetGradNorm(Module networkModule)
@@ -281,5 +296,11 @@ public struct PpoTrainingSettings
 
 public readonly record struct RolloutData(
     IReadOnlyList<GameState> Trajectories,
-    IReadOnlyList<float> GradNorms,
+    IReadOnlyList<PpoStepData> StepData,
     float ClipRate);
+
+public readonly record struct PpoStepData(
+    float GradNorm,
+    float Kld,
+    float Entropy,
+    IReadOnlyList<int> StateIds);
