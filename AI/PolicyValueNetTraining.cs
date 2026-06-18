@@ -24,7 +24,7 @@ public static class PolicyValueNetworkTraining
 
         while (completedSamples.Count < settings.RolloutStateCount)
         {
-            PolicyTrainingSample[] stepSamples = agent.MakeMoveAndTrainingSample(gameStates);
+            PolicyTrainingSample[] stepSamples = agent.MakeMoveAndTrainingSample(gameStates, settings.UseSampledSoftmax, settings.SampledSoftmaxCount);
             for (int slot = 0; slot < RolloutBatchSize; ++slot)
             {
                 if (completedSamples.Count >= settings.RolloutStateCount)
@@ -152,22 +152,52 @@ public static class PolicyValueNetworkTraining
 
 
 
-                (Tensor logits, Tensor values) = network.GetPolicyValue(batch.StateTensors);
+                Tensor logProbs;
+                Tensor logPiNew;
+                Tensor logPiOld;
+                Tensor values;
+                if (settings.UseSampledSoftmax)
+                {
+                    Tensor logits;
+                    (logits, values) = network.GetPolicyValue(batch.StateTensors, batch.MoveIndices);
 
-                Tensor logProbs = functional.log_softmax(logits, dim: 1);
-                Tensor chosenMoveIndices = batch.MoveIndices[TensorIndex.Colon, 0]
-                    .to(logits.device)
-                    .to_type(ScalarType.Int64)
-                    .unsqueeze(1);
-                Tensor logPiNew = logProbs.gather(dim: 1, index: chosenMoveIndices).squeeze(1);
-                Tensor logPiOld = batch.SamplingLogProb[TensorIndex.Colon, 0].to(logPiNew.device);
+                    Tensor chosenOldProb = batch.SamplingProb[TensorIndex.Colon, 0].to(logits.device).clamp(1e-9f, 1f - 1e-6f);
+                    Tensor safeNegLogitSampleProbs = batch.SamplingProb[TensorIndex.Colon, 1..].to(logits.device).max(1e-9f);
+                    Tensor oldNegativeProbabilityMass = (1f - chosenOldProb).max(1e-9f);
+
+                    // Index zero always contains the selected move.
+                    Tensor positiveLogit = logits[TensorIndex.Colon, 0];
+                    Tensor negativeLogits = logits[TensorIndex.Colon, 1..];
+                    Tensor adjustedNegativeLogits = negativeLogits
+                        - log(safeNegLogitSampleProbs)
+                        + log(oldNegativeProbabilityMass.unsqueeze(1))
+                        - log(negativeLogits.size(dim: 1));
+                    Tensor adjustedLogits = cat([positiveLogit.unsqueeze(1), adjustedNegativeLogits], dim: 1);
+
+                    logProbs = functional.log_softmax(adjustedLogits, dim: 1);
+                    logPiNew = logProbs.select(dim: 1, index: 0);
+                    logPiOld = log(chosenOldProb);
+                }
+                else
+                {
+                    Tensor logits;
+                    (logits, values) = network.GetPolicyValue(batch.StateTensors);
+
+                    logProbs = functional.log_softmax(logits, dim: 1);
+                    Tensor chosenMoveIndices = batch.MoveIndices[TensorIndex.Colon, 0]
+                        .to(logits.device)
+                        .to_type(ScalarType.Int64)
+                        .unsqueeze(1);
+                    logPiNew = logProbs.gather(dim: 1, index: chosenMoveIndices).squeeze(1);
+                    logPiOld = batch.SamplingLogProb[TensorIndex.Colon, 0].to(logPiNew.device);
+                }
                 Tensor ratio = exp(logPiNew - logPiOld);
                 Tensor kld = (logPiOld - logPiNew).mean();
                 float kldValue = kld.item<float>();
                 kldSum += kldValue;
                 kldCount++;
 
-                Tensor advantages = batch.PolicyAdvantage.to(logits.device).reshape([-1]);
+                Tensor advantages = batch.PolicyAdvantage.to(logPiNew.device).reshape([-1]);
                 Tensor clippedRatio = clamp(ratio, 1f - settings.PpoEpsilon, 1f + settings.PpoEpsilon);
                 Tensor clipMask = (ratio - clippedRatio).abs().gt(0f);
                 Tensor clipCount = clipMask.to_type(ScalarType.Float32).sum();
@@ -298,6 +328,8 @@ public static class PolicyValueNetworkTraining
 public struct PpoTrainingSettings
 {
     public int RolloutStateCount = 1 << 16;
+    public bool UseSampledSoftmax = false;
+    public int SampledSoftmaxCount = 40;
     public int EpochCount = 3;
     public int BatchSize = 256;
     public float LearningRate = 1e-5f;
