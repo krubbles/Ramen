@@ -80,7 +80,6 @@ public class PolicyTrainingSample : ITensorGroup
 {
     // The chosen move and its old-policy log probability.
     public GameStateTensors StateTensors;
-    public Tensor StateIds;
     public Tensor MoveIndices;
     public Tensor SamplingLogProb;
 

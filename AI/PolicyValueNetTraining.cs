@@ -7,10 +7,11 @@ public static class PolicyValueNetworkTraining
 {
     public const int RolloutBatchSize = 64;
 
-    static (List<GameState> trajectories, List<PolicyTrainingSample> trainingSamples) GenerateRollout(IPolicyNetwork network, PpoTrainingSettings settings)
+    static (List<GameState> trajectories, List<PolicyTrainingSample> trainingSamples, List<PpoStateData> stateData) GenerateRollout(IPolicyNetwork network, PpoTrainingSettings settings)
     {
         using PolicyNetworkAgent agent = new(network, ownsNetwork: false);
         List<PolicyTrainingSample> completedSamples = [];
+        List<PpoStateData> stateData = [];
         List<GameState> trajectoryGameStates = [];
         GameState[] gameStates = new GameState[RolloutBatchSize];
         List<PolicyTrainingSample>[] activeSamples = new List<PolicyTrainingSample>[RolloutBatchSize];
@@ -49,7 +50,11 @@ public static class PolicyValueNetworkTraining
                 for (int sampleIndex = 0; sampleIndex < samplesToAdd; ++sampleIndex)
                 {
                     PolicyTrainingSample sample = activeSamples[slot][sampleIndex];
-                    sample.StateIds = tensor([rolloutGameIndex * 10_000 + sampleIndex], dtype: ScalarType.Int64, device: CPU).DetachFromScope();
+                    stateData.Add(new(
+                        GameInRolloutIndex: rolloutGameIndex,
+                        MoveIndex: sampleIndex,
+                        Advantage: sample.PolicyAdvantage.item<float>(),
+                        ChosenMoveProb: MathF.Exp(sample.SamplingLogProb[0, 0].item<float>())));
                     completedSamples.Add(sample);
                 }
                 for (int sampleIndex = samplesToAdd; sampleIndex < activeSamples[slot].Count; ++sampleIndex)
@@ -67,7 +72,7 @@ public static class PolicyValueNetworkTraining
                 activeSamples[slot][sampleIndex].Dispose();
         }
 
-        return (trajectoryGameStates, completedSamples);
+        return (trajectoryGameStates, completedSamples, stateData);
     }
 
     static void SetTargetsAndAdvantages(List<PolicyTrainingSample> samples, float finalReward, float advantageFalloff)
@@ -122,7 +127,7 @@ public static class PolicyValueNetworkTraining
         if (network is not Module networkModule)
             throw new InvalidOperationException($"{nameof(network)} must be a TorchSharp module to train.");
 
-        (List<GameState> trajectories, List<PolicyTrainingSample> trainingSamples) = GenerateRollout(network, settings);
+        (List<GameState> trajectories, List<PolicyTrainingSample> trainingSamples, List<PpoStateData> stateData) = GenerateRollout(network, settings);
         List<PpoStepData> stepData = [];
         double clippedSampleCount = 0;
         double totalRatioSampleCount = 0;
@@ -183,16 +188,10 @@ public static class PolicyValueNetworkTraining
                     }
                 }
 
-                long[] stateIdsLong = [.. batch.StateIds.to(CPU).data<long>()];
-                int[] stateIds = new int[stateIdsLong.Length];
-                for (int stateIdIndex = 0; stateIdIndex < stateIds.Length; ++stateIdIndex)
-                    stateIds[stateIdIndex] = (int)stateIdsLong[stateIdIndex];
-
                 stepData.Add(new(
                     GradNorm: gradNorm,
                     Kld: kld.item<float>(),
-                    Entropy: entropy.item<float>(),
-                    StateIds: stateIds));
+                    Entropy: entropy.item<float>()));
                 optimizer.step();
             }
 
@@ -202,7 +201,7 @@ public static class PolicyValueNetworkTraining
 
         stackedSamples.Dispose();
         float clipRate = totalRatioSampleCount == 0 ? 0f : (float)(clippedSampleCount / totalRatioSampleCount);
-        return new() { Trajectories = trajectories, StepData = stepData, ClipRate = clipRate };
+        return new() { Trajectories = trajectories, StateData = stateData, StepData = stepData, ClipRate = clipRate };
     }
 
     static float GetGradNorm(Module networkModule)
@@ -296,11 +295,17 @@ public struct PpoTrainingSettings
 
 public readonly record struct RolloutData(
     IReadOnlyList<GameState> Trajectories,
+    IReadOnlyList<PpoStateData> StateData,
     IReadOnlyList<PpoStepData> StepData,
     float ClipRate);
+
+public readonly record struct PpoStateData(
+    int GameInRolloutIndex,
+    int MoveIndex,
+    float Advantage,
+    float ChosenMoveProb);
 
 public readonly record struct PpoStepData(
     float GradNorm,
     float Kld,
-    float Entropy,
-    IReadOnlyList<int> StateIds);
+    float Entropy);
