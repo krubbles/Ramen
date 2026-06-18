@@ -131,15 +131,18 @@ public static class PolicyValueNetworkTraining
         List<PpoStepData> stepData = [];
         double clippedSampleCount = 0;
         double totalRatioSampleCount = 0;
+        double kldSum = 0;
+        int kldCount = 0;
+        bool stoppedEarly = false;
 
         PolicyTrainingSample stackedSamples = TensorGroupExtentions.Stack(trainingSamples, disposeInputs: true, concat: true);
         int sampleCount = trainingSamples.Count;
-        for (int epoch = 0; epoch < settings.EpochCount; ++epoch)
+        for (int epoch = 0; epoch < settings.EpochCount && !stoppedEarly; ++epoch)
         {
             Tensor shuffledIndices = randperm(sampleCount, dtype: ScalarType.Int64, device: CPU);
             PolicyTrainingSample shuffled = stackedSamples.IndexSelect(dim: 0, indices: shuffledIndices);
 
-            for (int batchStart = 0; batchStart < sampleCount; batchStart += settings.BatchSize)
+            for (int batchStart = 0; batchStart < sampleCount && !stoppedEarly; batchStart += settings.BatchSize)
             {
                 using var batchScope = NewDisposeScope();
 
@@ -160,6 +163,9 @@ public static class PolicyValueNetworkTraining
                 Tensor logPiOld = batch.SamplingLogProb[TensorIndex.Colon, 0].to(logPiNew.device);
                 Tensor ratio = exp(logPiNew - logPiOld);
                 Tensor kld = (logPiOld - logPiNew).mean();
+                float kldValue = kld.item<float>();
+                kldSum += kldValue;
+                kldCount++;
 
                 Tensor advantages = batch.PolicyAdvantage.to(logits.device).reshape([-1]);
                 Tensor clippedRatio = clamp(ratio, 1f - settings.PpoEpsilon, 1f + settings.PpoEpsilon);
@@ -177,6 +183,17 @@ public static class PolicyValueNetworkTraining
 
                 loss.backward();
                 float gradNorm = GetGradNorm(networkModule);
+                stepData.Add(new(
+                    GradNorm: gradNorm,
+                    Kld: kldValue,
+                    Entropy: entropy.item<float>()));
+
+                if (settings.KldEarlyStopThreshold > 0f && kldValue > settings.KldEarlyStopThreshold)
+                {
+                    stoppedEarly = true;
+                    continue;
+                }
+
                 if (settings.GradNormClip > 0f && gradNorm > settings.GradNormClip)
                 {
                     float gradScale = settings.GradNormClip / (gradNorm + 1e-6f);
@@ -188,10 +205,6 @@ public static class PolicyValueNetworkTraining
                     }
                 }
 
-                stepData.Add(new(
-                    GradNorm: gradNorm,
-                    Kld: kld.item<float>(),
-                    Entropy: entropy.item<float>()));
                 optimizer.step();
             }
 
@@ -201,7 +214,16 @@ public static class PolicyValueNetworkTraining
 
         stackedSamples.Dispose();
         float clipRate = totalRatioSampleCount == 0 ? 0f : (float)(clippedSampleCount / totalRatioSampleCount);
-        return new() { Trajectories = trajectories, StateData = stateData, StepData = stepData, ClipRate = clipRate };
+        float averageKld = kldCount == 0 ? 0f : (float)(kldSum / kldCount);
+        return new()
+        {
+            Trajectories = trajectories,
+            StateData = stateData,
+            StepData = stepData,
+            ClipRate = clipRate,
+            StoppedEarly = stoppedEarly,
+            AverageKld = averageKld
+        };
     }
 
     static float GetGradNorm(Module networkModule)
@@ -283,7 +305,8 @@ public struct PpoTrainingSettings
     public float AdamBeta2 = 0.97f;
     public float WeightDecay = 0.01f;
     public float PpoEpsilon = 0.2f;
-    public float GradNormClip = 30f;
+    public float GradNormClip = 1.5f;
+    public float KldEarlyStopThreshold = 0.5f;
     public float EntropyCoefficient = 0f;
     public float ValueLossCoefficient = 1f;
     public float AdvantageFalloff = 1f;
@@ -297,7 +320,9 @@ public readonly record struct RolloutData(
     IReadOnlyList<GameState> Trajectories,
     IReadOnlyList<PpoStateData> StateData,
     IReadOnlyList<PpoStepData> StepData,
-    float ClipRate);
+    float ClipRate,
+    bool StoppedEarly,
+    float AverageKld);
 
 public readonly record struct PpoStateData(
     int GameInRolloutIndex,
