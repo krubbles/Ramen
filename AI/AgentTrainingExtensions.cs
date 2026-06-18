@@ -7,9 +7,9 @@ public static class AgentTrainingExtensions
 {
     /// <summary>
     /// Makes moves based on the policy model's predicted probability distribution for a batch of game states.
-    /// Also generates a GRPO training sample with <paramref name="sampleCount"/> sampled moves.
+    /// Also generates a PPO training sample for the chosen move.
     /// </summary>
-    public static PolicyTrainingSample[] MakeMoveAndTrainingSample(this PolicyNetworkAgent agent, GameState[] gameStates, int sampleCount)
+    public static PolicyTrainingSample[] MakeMoveAndTrainingSample(this PolicyNetworkAgent agent, GameState[] gameStates)
     {
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
@@ -23,24 +23,19 @@ public static class AgentTrainingExtensions
             gameStates[i].AdvanceToNextPlayerChoice();
 
         // get a batch of policy probabilities for each state as a single batched tensor
-        (GameStateTensors gameStateTensors, Tensor probs, Tensor value) = agent.GetPolicyProbDist(temp: 1f, gameStates); // returned tensors are on the gpu.
+        (GameStateTensors gameStateTensors, Tensor logProbs, Tensor value) = agent.GetPolicyProbDist(temp: 1f, gameStates); // returned tensors are on the gpu.
+        Tensor probs = exp(logProbs);
 
 
-        int moveCount = (int)probs.size(1);
-        int clampedSampleCount = Math.Clamp(sampleCount, 1, moveCount);
+        Tensor chosenMoveIndices = multinomial(probs, num_samples: 1, replacement: false).select(dim: 1, index: 0);
+        Tensor sampleIndices = chosenMoveIndices.unsqueeze(1);
+        Tensor chosenLogProbs = logProbs.gather(dim: 1, sampleIndices).select(dim: 1, index: 0);
 
-        // sample move indices using the policy. Index 0 for each item in the batch is the chosen move,
-        // the remaining are used for sampled softmax training
-        Tensor sampleIndices = multinomial(probs, clampedSampleCount, replacement: false);
-
-        Tensor chosenMoveIndices = sampleIndices.select(dim: 1, index: 0);
-        Tensor sampledProbs = probs.gather(dim: 1, sampleIndices);
-        Tensor chosenProbs = sampledProbs.select(dim: 1, index: 0);
-
-        // readback the chosen move index and prob, so the move can be made and nl prob can be stored in the sample
+        // Read back the chosen move index and log-prob, so the move can be made and nl prob can be stored in the sample.
         Profiling.Enter("ChosenMoveReadback");
         long[] chosenMoveIndicesManaged = [.. chosenMoveIndices.to(CPU).data<long>()];
-        float[] chosenProbsManaged = [.. chosenProbs.to(CPU).data<float>()];
+        float[] chosenLogProbsManaged = [.. chosenLogProbs.to(CPU).data<float>()];
+        int moveCount = (int)probs.size(1);
         float[] policyData = [.. probs.to(CPU).data<float>()];
         Profiling.Exit("ChosenMoveReadback");
 
@@ -49,7 +44,7 @@ public static class AgentTrainingExtensions
         for (int stateIndex = 0; stateIndex < gameStates.Length; ++stateIndex)
         {
             // Clone per-sample slices so each sample owns compact tensors instead of views to full step batches.
-            Tensor sampleSamplingProb = sampledProbs[stateIndex..(stateIndex + 1)].clone();
+            Tensor sampleSamplingLogProb = chosenLogProbs[stateIndex..(stateIndex + 1)].unsqueeze(1).clone();
             GameStateTensors sampleStateTensors = gameStateTensors.GetBatch(stateIndex, stateIndex + 1).Clone();
             Tensor sampleMoveIndices = sampleIndices[stateIndex..(stateIndex + 1)].clone();
             Tensor sampleValue = value[stateIndex..(stateIndex + 1)].clone();
@@ -57,11 +52,11 @@ public static class AgentTrainingExtensions
             Array.Copy(policyData, stateIndex * moveCount, policy, 0, moveCount);
             PolicyTrainingSample sample = new()
             {
-                SamplingProb = sampleSamplingProb,
+                SamplingLogProb = sampleSamplingLogProb,
                 StateTensors = sampleStateTensors,
                 MoveIndices = sampleMoveIndices,
                 Value = sampleValue,
-                ChosenMoveNLProb = -MathF.Log(chosenProbsManaged[stateIndex] + 1e-9f),
+                ChosenMoveNLProb = -chosenLogProbsManaged[stateIndex],
             };
             sample.DetachFromScope();
 
@@ -83,11 +78,10 @@ public static class AgentTrainingExtensions
 
 public class PolicyTrainingSample : ITensorGroup
 {
-    // a sampled set of states, with their corresponding move indices and sampling probabilities.
-    // the chosen move is always at index 0.
+    // The chosen move and its old-policy log probability.
     public GameStateTensors StateTensors;
     public Tensor MoveIndices;
-    public Tensor SamplingProb;
+    public Tensor SamplingLogProb;
 
     // the networks predicted value
     public Tensor Value;

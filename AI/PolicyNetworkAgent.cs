@@ -50,7 +50,8 @@ public sealed class PolicyNetworkAgent : IAgent, IDisposable
 
     void ProcessPolicyBatch(float temp, ReadOnlySpan<GameState> gameStates, float[][] results, int resultStartIndex)
     {
-        (GameStateTensors _, Tensor probs, Tensor _) = GetPolicyProbDist(temp, gameStates);
+        (GameStateTensors _, Tensor logProbs, Tensor _) = GetPolicyProbDist(temp, gameStates);
+        Tensor probs = exp(logProbs);
         probs = probs.to(CPU);
 
         int batchSize = (int)probs.size(0);
@@ -68,7 +69,7 @@ public sealed class PolicyNetworkAgent : IAgent, IDisposable
         }
     }
 
-    public (GameStateTensors gameStateTensors, Tensor probs, Tensor value) GetPolicyProbDist(float temp, params ReadOnlySpan<GameState> gameStates)
+    public (GameStateTensors gameStateTensors, Tensor logProbs, Tensor value) GetPolicyProbDist(float temp, params ReadOnlySpan<GameState> gameStates)
     {
         using var scope = NewDisposeScope();
         using var noGrad = no_grad();
@@ -81,15 +82,17 @@ public sealed class PolicyNetworkAgent : IAgent, IDisposable
         Profiling.Exit("GetPolicyLogits");
 
         const float IllegalMoveLogitEpsilon = 1e-2f;
-        Tensor probs = (logits / MathF.Max(temp, 0.0001f)).softmax(1).max(1e-9f);
-        Tensor legalProbabilityMask = logits
-            .ge(PolicyLogitMask.IllegalMoveLogit + IllegalMoveLogitEpsilon)
-            .to_type(probs.dtype);
-        probs *= legalProbabilityMask;
-        probs.ToOuterScope();
+        Tensor legalMoveMask = logits.ge(PolicyLogitMask.IllegalMoveLogit + IllegalMoveLogitEpsilon);
+        Tensor scaledLogits = logits / MathF.Max(temp, 0.0001f);
+        Tensor maskedLogits = where(
+            legalMoveMask,
+            scaledLogits,
+            ones_like(scaledLogits) * PolicyLogitMask.IllegalMoveLogit);
+        Tensor logProbs = TorchSharp.torch.nn.functional.log_softmax(maskedLogits, dim: 1);
+        logProbs.ToOuterScope();
         value.ToOuterScope();
         gameStateTensors.ToOuterScope();
-        return (gameStateTensors, probs, value);
+        return (gameStateTensors, logProbs, value);
     }
 
     static GameStateTensors CreateGameStateTensors(ReadOnlySpan<GameState> gameStates)
