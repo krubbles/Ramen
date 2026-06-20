@@ -75,11 +75,18 @@ public sealed class PolicyNetworkAgent : IAgent, IDisposable
         using var noGrad = no_grad();
         using var profileScope = ProfileScope.New(nameof(GetPolicyProbDist));
 
-        GameStateTensors gameStateTensors = CreateGameStateTensors(gameStates);
+        GameStateTensors gameStateTensors;
+        using (ProfileScope.New("CreateGameStateTensors"))
+        {
+            gameStateTensors = CreateGameStateTensors(gameStates);
+        }
 
-        Profiling.Enter("GetPolicyLogits");
-        (Tensor logits, Tensor value) = Network.GetPolicyValue(gameStateTensors);
-        Profiling.Exit("GetPolicyLogits");
+        Tensor logits;
+        Tensor value;
+        using (ProfileScope.New("GetPolicyLogits"))
+        {
+            (logits, value) = Network.GetPolicyValue(gameStateTensors);
+        }
 
         const float IllegalMoveLogitEpsilon = 1e-2f;
         Tensor legalMoveMask = logits.ge(PolicyLogitMask.IllegalMoveLogit + IllegalMoveLogitEpsilon);
@@ -88,7 +95,11 @@ public sealed class PolicyNetworkAgent : IAgent, IDisposable
             legalMoveMask,
             scaledLogits,
             ones_like(scaledLogits) * PolicyLogitMask.IllegalMoveLogit);
-        Tensor logProbs = TorchSharp.torch.nn.functional.log_softmax(maskedLogits, dim: 1);
+        Tensor logProbs;
+        using (ProfileScope.New("PolicyLogSoftmax"))
+        {
+            logProbs = TorchSharp.torch.nn.functional.log_softmax(maskedLogits, dim: 1);
+        }
         logProbs.ToOuterScope();
         value.ToOuterScope();
         gameStateTensors.ToOuterScope();
@@ -97,8 +108,6 @@ public sealed class PolicyNetworkAgent : IAgent, IDisposable
 
     static GameStateTensors CreateGameStateTensors(ReadOnlySpan<GameState> gameStates)
     {
-        using var profileScope = ProfileScope.New(nameof(CreateGameStateTensors));
-
         GameStateEmbedder gameStateEmbedder = new(gameStates.Length);
         for (int stateIndex = 0; stateIndex < gameStates.Length; ++stateIndex)
             gameStateEmbedder.AddGameState(gameStates[stateIndex]);

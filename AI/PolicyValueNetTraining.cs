@@ -9,6 +9,7 @@ public static class PolicyValueNetworkTraining
 
     static (List<GameState> trajectories, List<PolicyTrainingSample> trainingSamples, List<PpoStateData> stateData) GenerateRollout(IPolicyNetwork network, PpoTrainingSettings settings)
     {
+        using var profileScope = ProfileScope.New(nameof(GenerateRollout));
         using PolicyNetworkAgent agent = new(network, ownsNetwork: false);
         List<PolicyTrainingSample> completedSamples = [];
         List<PpoStateData> stateData = [];
@@ -122,6 +123,7 @@ public static class PolicyValueNetworkTraining
 
     public static RolloutData DoPPORollout(IPolicyNetwork network, PpoTrainingSettings settings, AdamW optimizer)
     {
+        using var profileScope = ProfileScope.New(nameof(DoPPORollout));
         using var scope = NewDisposeScope();
 
         if (network is not Module networkModule)
@@ -129,120 +131,184 @@ public static class PolicyValueNetworkTraining
 
         (List<GameState> trajectories, List<PolicyTrainingSample> trainingSamples, List<PpoStateData> stateData) = GenerateRollout(network, settings);
         List<PpoStepData> stepData = [];
+        List<Tensor> gradNormTensors = [];
+        List<Tensor> entropyTensors = [];
+        List<float> kldValues = [];
         double clippedSampleCount = 0;
         double totalRatioSampleCount = 0;
         double kldSum = 0;
         int kldCount = 0;
         bool stoppedEarly = false;
 
-        PolicyTrainingSample stackedSamples = TensorGroupExtentions.Stack(trainingSamples, disposeInputs: true, concat: true);
-        int sampleCount = trainingSamples.Count;
-        for (int epoch = 0; epoch < settings.EpochCount && !stoppedEarly; ++epoch)
+        using (ProfileScope.New("PpoUpdate"))
         {
-            Tensor shuffledIndices = randperm(sampleCount, dtype: ScalarType.Int64, device: CPU);
-            PolicyTrainingSample shuffled = stackedSamples.IndexSelect(dim: 0, indices: shuffledIndices);
-
-            for (int batchStart = 0; batchStart < sampleCount && !stoppedEarly; batchStart += settings.BatchSize)
+            PolicyTrainingSample stackedSamples;
+            using (ProfileScope.New("StackSamples"))
             {
-                using var batchScope = NewDisposeScope();
-
-                int batchEnd = Math.Min(batchStart + settings.BatchSize, sampleCount);
-                PolicyTrainingSample batch = shuffled.GetBatch(batchStart, batchEnd);
-                optimizer.zero_grad();
-
-
-
-                Tensor logProbs;
-                Tensor logPiNew;
-                Tensor logPiOld;
-                Tensor values;
-                if (settings.UseSampledSoftmax)
+                stackedSamples = TensorGroupExtentions.Stack(trainingSamples, disposeInputs: true, concat: true);
+            }
+            int sampleCount = trainingSamples.Count;
+            for (int epoch = 0; epoch < settings.EpochCount && !stoppedEarly; ++epoch)
+            {
+                Tensor shuffledIndices;
+                PolicyTrainingSample shuffled;
+                using (ProfileScope.New("ShuffleSamples"))
                 {
-                    Tensor logits;
-                    (logits, values) = network.GetPolicyValue(batch.StateTensors, batch.MoveIndices);
-
-                    Tensor chosenOldProb = batch.SamplingProb[TensorIndex.Colon, 0].to(logits.device).clamp(1e-9f, 1f - 1e-6f);
-                    Tensor safeNegLogitSampleProbs = batch.SamplingProb[TensorIndex.Colon, 1..].to(logits.device).max(1e-9f);
-                    Tensor oldNegativeProbabilityMass = (1f - chosenOldProb).max(1e-9f);
-
-                    // Index zero always contains the selected move.
-                    Tensor positiveLogit = logits[TensorIndex.Colon, 0];
-                    Tensor negativeLogits = logits[TensorIndex.Colon, 1..];
-                    Tensor adjustedNegativeLogits = negativeLogits
-                        - log(safeNegLogitSampleProbs)
-                        + log(oldNegativeProbabilityMass.unsqueeze(1))
-                        - log(negativeLogits.size(dim: 1));
-                    Tensor adjustedLogits = cat([positiveLogit.unsqueeze(1), adjustedNegativeLogits], dim: 1);
-
-                    logProbs = functional.log_softmax(adjustedLogits, dim: 1);
-                    logPiNew = logProbs.select(dim: 1, index: 0);
-                    logPiOld = log(chosenOldProb);
-                }
-                else
-                {
-                    Tensor logits;
-                    (logits, values) = network.GetPolicyValue(batch.StateTensors);
-
-                    logProbs = functional.log_softmax(logits, dim: 1);
-                    Tensor chosenMoveIndices = batch.MoveIndices[TensorIndex.Colon, 0]
-                        .to(logits.device)
-                        .to_type(ScalarType.Int64)
-                        .unsqueeze(1);
-                    logPiNew = logProbs.gather(dim: 1, index: chosenMoveIndices).squeeze(1);
-                    logPiOld = batch.SamplingLogProb[TensorIndex.Colon, 0].to(logPiNew.device);
-                }
-                Tensor ratio = exp(logPiNew - logPiOld);
-                Tensor kld = (logPiOld - logPiNew).mean();
-                float kldValue = kld.item<float>();
-                kldSum += kldValue;
-                kldCount++;
-
-                Tensor advantages = batch.PolicyAdvantage.to(logPiNew.device).reshape([-1]);
-                Tensor clippedRatio = clamp(ratio, 1f - settings.PpoEpsilon, 1f + settings.PpoEpsilon);
-                Tensor clipMask = (ratio - clippedRatio).abs().gt(0f);
-                Tensor clipCount = clipMask.to_type(ScalarType.Float32).sum();
-                clippedSampleCount += clipCount.item<float>();
-                totalRatioSampleCount += batchEnd - batchStart;
-                Tensor policyReward = min(ratio * advantages, clippedRatio * advantages).mean();
-                Tensor entropy = -(exp(logProbs) * logProbs).sum(dim: 1).mean();
-                Tensor policyLoss = -policyReward - settings.EntropyCoefficient * entropy;
-
-                Tensor valueTargets = batch.ValueTarget.to(values.device).reshape([-1]);
-                Tensor valueLoss = functional.mse_loss(values.reshape([-1]), valueTargets);
-                Tensor loss = policyLoss + settings.ValueLossCoefficient * valueLoss;
-
-                loss.backward();
-                float gradNorm = GetGradNorm(networkModule);
-                stepData.Add(new(
-                    GradNorm: gradNorm,
-                    Kld: kldValue,
-                    Entropy: entropy.item<float>()));
-
-                if (settings.KldEarlyStopThreshold > 0f && kldValue > settings.KldEarlyStopThreshold)
-                {
-                    stoppedEarly = true;
-                    continue;
+                    shuffledIndices = randperm(sampleCount, dtype: ScalarType.Int64, device: CPU);
+                    shuffled = stackedSamples.IndexSelect(dim: 0, indices: shuffledIndices);
                 }
 
-                if (settings.GradNormClip > 0f && gradNorm > settings.GradNormClip)
+                for (int batchStart = 0; batchStart < sampleCount && !stoppedEarly; batchStart += settings.BatchSize)
                 {
-                    float gradScale = settings.GradNormClip / (gradNorm + 1e-6f);
-                    foreach (Parameter parameter in networkModule.parameters())
+                    using var batchScope = NewDisposeScope();
+
+                    int batchEnd = Math.Min(batchStart + settings.BatchSize, sampleCount);
+                    PolicyTrainingSample batch;
+                    using (ProfileScope.New("GetPpoBatch"))
                     {
-                        Tensor grad = parameter.grad;
-                        if (grad is not null)
-                            grad.mul_(gradScale);
+                        batch = shuffled.GetBatch(batchStart, batchEnd);
+                    }
+                    optimizer.zero_grad();
+
+
+                    Tensor logProbs;
+                    Tensor logPiNew;
+                    Tensor logPiOld;
+                    Tensor values;
+                    using (ProfileScope.New("PpoForward"))
+                    {
+                        if (settings.UseSampledSoftmax)
+                        {
+                            Tensor logits;
+                            (logits, values) = network.GetPolicyValue(batch.StateTensors, batch.MoveIndices);
+
+                            Tensor chosenOldProb = batch.SamplingProb[TensorIndex.Colon, 0].to(logits.device).clamp(1e-9f, 1f - 1e-6f);
+                            Tensor safeNegLogitSampleProbs = batch.SamplingProb[TensorIndex.Colon, 1..].to(logits.device).max(1e-9f);
+                            Tensor oldNegativeProbabilityMass = (1f - chosenOldProb).max(1e-9f);
+
+                            // Index zero always contains the selected move.
+                            Tensor positiveLogit = logits[TensorIndex.Colon, 0];
+                            Tensor negativeLogits = logits[TensorIndex.Colon, 1..];
+                            Tensor adjustedNegativeLogits = negativeLogits
+                                - log(safeNegLogitSampleProbs)
+                                + log(oldNegativeProbabilityMass.unsqueeze(1))
+                                - log(negativeLogits.size(dim: 1));
+                            Tensor adjustedLogits = cat([positiveLogit.unsqueeze(1), adjustedNegativeLogits], dim: 1);
+
+                            logProbs = functional.log_softmax(adjustedLogits, dim: 1);
+                            logPiNew = logProbs.select(dim: 1, index: 0);
+                            logPiOld = log(chosenOldProb);
+                        }
+                        else
+                        {
+                            Tensor logits;
+                            (logits, values) = network.GetPolicyValue(batch.StateTensors);
+
+                            logProbs = functional.log_softmax(logits, dim: 1);
+                            Tensor chosenMoveIndices = batch.MoveIndices[TensorIndex.Colon, 0]
+                                .to(logits.device)
+                                .to_type(ScalarType.Int64)
+                                .unsqueeze(1);
+                            logPiNew = logProbs.gather(dim: 1, index: chosenMoveIndices).squeeze(1);
+                            logPiOld = batch.SamplingLogProb[TensorIndex.Colon, 0].to(logPiNew.device);
+                        }
+                    }
+                    Tensor kld;
+                    Tensor clipCount;
+                    Tensor entropy;
+                    Tensor loss;
+                    using (ProfileScope.New("PpoLoss"))
+                    {
+                        Tensor ratio = exp(logPiNew - logPiOld);
+                        kld = (logPiOld - logPiNew).mean();
+
+                        Tensor advantages = batch.PolicyAdvantage.to(logPiNew.device).reshape([-1]);
+                        Tensor clippedRatio = clamp(ratio, 1f - settings.PpoEpsilon, 1f + settings.PpoEpsilon);
+                        Tensor clipMask = (ratio - clippedRatio).abs().gt(0f);
+                        clipCount = clipMask.to_type(ScalarType.Float32).sum();
+                        totalRatioSampleCount += batchEnd - batchStart;
+                        Tensor policyReward = min(ratio * advantages, clippedRatio * advantages).mean();
+                        entropy = -(exp(logProbs) * logProbs).sum(dim: 1).mean();
+                        Tensor policyLoss = -policyReward - settings.EntropyCoefficient * entropy;
+
+                        Tensor valueTargets = batch.ValueTarget.to(values.device).reshape([-1]);
+                        Tensor valueLoss = functional.mse_loss(values.reshape([-1]), valueTargets);
+                        loss = policyLoss + settings.ValueLossCoefficient * valueLoss;
+                    }
+
+                    float kldValue;
+                    using (ProfileScope.New("PpoScalarReadbacks"))
+                    {
+                        kldValue = kld.item<float>();
+                        clippedSampleCount += clipCount.item<float>();
+                    }
+                    kldSum += kldValue;
+                    kldCount++;
+
+                    using (ProfileScope.New("PpoBackward"))
+                    {
+                        loss.backward();
+                    }
+                    Tensor gradNormTensor;
+                    using (ProfileScope.New("GetGradNorm"))
+                    {
+                        gradNormTensor = GetGradNormTensor(networkModule).ToOuterScope();
+                    }
+                    gradNormTensors.Add(gradNormTensor);
+                    entropyTensors.Add(entropy.ToOuterScope());
+                    kldValues.Add(kldValue);
+
+                    if (settings.KldEarlyStopThreshold > 0f && kldValue > settings.KldEarlyStopThreshold)
+                    {
+                        stoppedEarly = true;
+                        continue;
+                    }
+
+                    if (settings.GradNormClip > 0f)
+                    {
+                        using (ProfileScope.New("GradClip"))
+                        {
+                            Tensor gradScale = min(ones_like(gradNormTensor), settings.GradNormClip / (gradNormTensor + 1e-6f));
+                            foreach (Parameter parameter in networkModule.parameters())
+                            {
+                                Tensor grad = parameter.grad;
+                                if (grad is not null)
+                                    grad.mul_(gradScale);
+                            }
+                        }
+                    }
+
+                    using (ProfileScope.New("OptimizerStep"))
+                    {
+                        optimizer.step();
                     }
                 }
 
-                optimizer.step();
+                shuffled.Dispose();
+                shuffledIndices.Dispose();
             }
 
-            shuffled.Dispose();
-            shuffledIndices.Dispose();
+            stackedSamples.Dispose();
         }
 
-        stackedSamples.Dispose();
+        if (gradNormTensors.Count > 0)
+        {
+            using (ProfileScope.New("GradNormReadback"))
+            {
+                Tensor stackedGradNorms = stack([.. gradNormTensors], dim: 0).to(CPU);
+                Tensor stackedEntropies = stack([.. entropyTensors], dim: 0).to(CPU);
+                float[] gradNormValues = [.. stackedGradNorms.data<float>()];
+                float[] entropyValues = [.. stackedEntropies.data<float>()];
+                for (int stepIndex = 0; stepIndex < gradNormValues.Length; ++stepIndex)
+                {
+                    stepData.Add(new(
+                        GradNorm: gradNormValues[stepIndex],
+                        Kld: kldValues[stepIndex],
+                        Entropy: entropyValues[stepIndex]));
+                }
+            }
+        }
+
         float clipRate = totalRatioSampleCount == 0 ? 0f : (float)(clippedSampleCount / totalRatioSampleCount);
         float averageKld = kldCount == 0 ? 0f : (float)(kldSum / kldCount);
         return new()
@@ -256,11 +322,11 @@ public static class PolicyValueNetworkTraining
         };
     }
 
-    static float GetGradNorm(Module networkModule)
+    static Tensor GetGradNormTensor(Module networkModule)
     {
         using var dScope = NewDisposeScope();
 
-        double squaredNormSum = 0;
+        Tensor squaredNormSum = null;
         foreach (Parameter parameter in networkModule.parameters())
         {
             Tensor grad = parameter.grad;
@@ -269,10 +335,15 @@ public static class PolicyValueNetworkTraining
 
             Tensor gradFloat = grad.detach().to_type(ScalarType.Float32);
             Tensor gradSquaredSum = (gradFloat * gradFloat).sum();
-            squaredNormSum += gradSquaredSum.item<float>();
+            squaredNormSum = squaredNormSum is null ? gradSquaredSum : squaredNormSum + gradSquaredSum;
         }
 
-        return (float)Math.Sqrt(squaredNormSum);
+        if (squaredNormSum is null)
+            squaredNormSum = tensor(0f);
+
+        Tensor gradNorm = sqrt(squaredNormSum);
+        gradNorm.ToOuterScope();
+        return gradNorm;
     }
 
     public static AdamW BuildAdamWOptimizer(IPolicyNetwork network, PpoTrainingSettings settings)
