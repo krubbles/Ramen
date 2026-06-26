@@ -10,6 +10,10 @@ public sealed class MoveVectorizer : Module
     public const int RemainingHandDiscardEmbeddingCount = RemainingDiscardBucketCount * RemainingDiscardBucketCount;
     public const float InitializationMean = 0f;
     public const float InitializationStdDev = 0.03f;
+    public static readonly float CardSetProjectionStdDev = MathF.Sqrt(1f / GameData.MaxPlayedHandSize);
+    public const float ScoreEmbeddingStdDev = 1f;
+    public const float RemainingHandDiscardEmbeddingStdDev = 1f;
+    public const float WinningMoveEmbeddingStdDev = 1f;
     public const float ScoreClampEpsilon = 1e-6f;
 
     public static readonly int PlayableHandCount = Combinatorics.CalculateCombinationCount(
@@ -49,7 +53,7 @@ public sealed class MoveVectorizer : Module
         _cardSetProjection = Linear(CardOneHotWidth, moveEmbeddingWidth, device: _device);
         _scoreBucketEmbedding = Embedding(scoreBucketCount, moveEmbeddingWidth, device: _device);
         _remainingHandDiscardEmbedding = Embedding(RemainingHandDiscardEmbeddingCount, moveEmbeddingWidth, device: _device);
-        _winningMoveEmbedding = Parameter(randn([moveEmbeddingWidth], device: _device) * InitializationStdDev + InitializationMean);
+        _winningMoveEmbedding = Parameter(randn([moveEmbeddingWidth], device: _device) * WinningMoveEmbeddingStdDev + InitializationMean);
         _combinationMatrix = CombinationMatrices.GetCombinationMatrices(
                 setSize: GameData.HandSize,
                 minSubsetSize: 1,
@@ -58,11 +62,11 @@ public sealed class MoveVectorizer : Module
         TensorManager.PersistForever(_combinationMatrix);
 
         using var noGrad = no_grad();
-        _cardSetProjection.weight.normal_(InitializationMean, InitializationStdDev);
+        _cardSetProjection.weight.normal_(InitializationMean, CardSetProjectionStdDev);
         _cardSetProjection.bias.fill_(0f);
-        _scoreBucketEmbedding.weight.normal_(InitializationMean, InitializationStdDev);
-        _remainingHandDiscardEmbedding.weight.normal_(InitializationMean, InitializationStdDev);
-        _winningMoveEmbedding.normal_(InitializationMean, InitializationStdDev);
+        _scoreBucketEmbedding.weight.normal_(InitializationMean, ScoreEmbeddingStdDev);
+        _remainingHandDiscardEmbedding.weight.normal_(InitializationMean, RemainingHandDiscardEmbeddingStdDev);
+        _winningMoveEmbedding.normal_(InitializationMean, WinningMoveEmbeddingStdDev);
 
         RegisterComponents();
     }

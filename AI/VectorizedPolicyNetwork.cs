@@ -11,6 +11,7 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
     readonly ModuleList<ResidualBlock> _moveBlocks = new();
     readonly Linear _valueHead;
     readonly LayerNorm _trunkLayerNorm;
+    readonly LayerNorm _moveEmbeddingLayerNorm;
     readonly Linear _trunkProjection;
     readonly Linear _logitHead;
     readonly Settings _settings;
@@ -72,13 +73,16 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
                 device: _device));
         }
 
+        int moveEmbeddingWidth = settings.LeafPerLayerEmbedding
+            ? settings.MoveResidualWidth * (settings.MoveBlockCount + 1)
+            : settings.MoveResidualWidth;
+
         _valueHead = Linear(settings.StateResidualWidth, 1, device: _device);
-        _trunkLayerNorm = LayerNorm(settings.StateResidualWidth, device: _device);
+        _trunkLayerNorm = LayerNorm(moveEmbeddingWidth, device: _device);
+        _moveEmbeddingLayerNorm = LayerNorm(moveEmbeddingWidth, device: _device);
         _trunkProjection = Linear(
             settings.StateResidualWidth,
-            settings.LeafPerLayerEmbedding
-                ? settings.MoveResidualWidth * (settings.MoveBlockCount + 1)
-                : settings.MoveResidualWidth,
+            moveEmbeddingWidth,
             device: _device);
         _logitHead = Linear(settings.MoveResidualWidth, 2, device: _device);
 
@@ -171,7 +175,7 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
     {
         using var scope = NewDisposeScope();
 
-        Tensor moveEmbeddings = _moveVectorizer.forward(gameStateTensors);
+        Tensor moveEmbeddings = _moveEmbeddingLayerNorm.forward(_moveVectorizer.forward(gameStateTensors));
         Tensor flattenedLogits = BuildPolicyLogits(trunkOutput, moveEmbeddings);
         Tensor maskedLogits = PolicyLogitMask.Apply(gameStateTensors, flattenedLogits);
 
@@ -184,7 +188,7 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
     {
         using var scope = NewDisposeScope();
 
-        Tensor moveEmbeddings = _moveVectorizer.forward(gameStateTensors, moveIndices);
+        Tensor moveEmbeddings = _moveEmbeddingLayerNorm.forward(_moveVectorizer.forward(gameStateTensors, moveIndices));
         Tensor actionLogits = BuildActionLogits(trunkOutput, moveEmbeddings);
         Tensor selectedActionIndices = moveIndices.to(_device).to_type(ScalarType.Int64).remainder(2).unsqueeze(-1);
         Tensor selectedLogits = actionLogits.gather(dim: 2, index: selectedActionIndices).squeeze(2);
@@ -211,7 +215,7 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
     {
         using var scope = NewDisposeScope();
 
-        Tensor trunkLeaf = _trunkProjection.forward(_trunkLayerNorm.forward(trunkOutput));
+        Tensor trunkLeaf = _trunkLayerNorm.forward(_trunkProjection.forward(trunkOutput));
         Tensor moveNetworkOutput;
         if (_settings.LeafPerLayerEmbedding)
         {

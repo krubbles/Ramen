@@ -9,6 +9,10 @@ public sealed class GameStateVectorizer : Module
     public const int RemainingHandDiscardEmbeddingCount = RemainingDiscardBucketCount * RemainingDiscardBucketCount;
     public const float InitializationMean = 0f;
     public const float InitializationStdDev = 0.03f;
+    public static readonly float HandCardEmbeddingStdDev = MathF.Sqrt(1f / GameData.HandSize);
+    public static readonly float DeckCardEmbeddingStdDev = MathF.Sqrt(1f / (Card.RankCount * Card.SuitCount));
+    public const float ScoreEmbeddingStdDev = 1f;
+    public const float RemainingHandDiscardEmbeddingStdDev = 1f;
     public const float ScoreClampEpsilon = 1e-6f;
 
     readonly Embedding _remainingHandDiscardEmbedding;
@@ -39,10 +43,10 @@ public sealed class GameStateVectorizer : Module
         _deckCardEmbedding = Embedding(Card.RankCount * Card.SuitCount + 1, embeddingWidth, device: _device);
 
         using var noGrad = no_grad();
-        InitializeEmbedding(_remainingHandDiscardEmbedding, hasNullCard: false);
-        InitializeEmbedding(_scoreBucketEmbedding, hasNullCard: false);
-        InitializeEmbedding(_handCardEmbedding, hasNullCard: true);
-        InitializeEmbedding(_deckCardEmbedding, hasNullCard: true);
+        InitializeEmbedding(_remainingHandDiscardEmbedding, RemainingHandDiscardEmbeddingStdDev, hasNullCard: false);
+        InitializeEmbedding(_scoreBucketEmbedding, ScoreEmbeddingStdDev, hasNullCard: false);
+        InitializeEmbedding(_handCardEmbedding, HandCardEmbeddingStdDev, hasNullCard: true);
+        InitializeEmbedding(_deckCardEmbedding, DeckCardEmbeddingStdDev, hasNullCard: true);
 
         RegisterComponents();
     }
@@ -63,9 +67,9 @@ public sealed class GameStateVectorizer : Module
     }
 
 
-    void InitializeEmbedding(Embedding embedding, bool hasNullCard)
+    void InitializeEmbedding(Embedding embedding, float stdDev, bool hasNullCard)
     {
-        embedding.weight.normal_(InitializationMean, InitializationStdDev);
+        embedding.weight.normal_(InitializationMean, stdDev);
         if (hasNullCard)
             embedding.weight[0].fill_(0f);
     }

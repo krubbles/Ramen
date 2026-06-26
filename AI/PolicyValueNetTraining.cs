@@ -223,8 +223,8 @@ public static class PolicyValueNetworkTraining
                         kld = (logPiOld - logPiNew).mean();
 
                         Tensor advantages = batch.PolicyAdvantage.to(logPiNew.device).reshape([-1]);
-                        Tensor clippedRatio = clamp(ratio, 1f - settings.PpoEpsilon, 1f + settings.PpoEpsilon);
-                        Tensor clipMask = (ratio - clippedRatio).abs().gt(0f);
+                        Tensor clippedRatio = clamp(ratio, 1f - settings.PpoClipLowEpsilon, 1f + settings.PpoClipHighEpsilon);
+                        Tensor clipMask = ratio.lt(1f - settings.PpoClipLowEpsilon).logical_or(ratio.gt(1f + settings.PpoClipHighEpsilon));
                         clipCount = clipMask.to_type(ScalarType.Float32).sum();
                         totalRatioSampleCount += batchEnd - batchStart;
                         Tensor policyReward = min(ratio * advantages, clippedRatio * advantages).mean();
@@ -407,7 +407,8 @@ public struct PpoTrainingSettings
     public float AdamBeta1 = 0.9f;
     public float AdamBeta2 = 0.97f;
     public float WeightDecay = 0.01f;
-    public float PpoEpsilon = 0.2f;
+    public float PpoClipLowEpsilon = 0.2f;
+    public float PpoClipHighEpsilon = 0.2f;
     public float GradNormClip = 1.5f;
     public float KldEarlyStopThreshold = 0.5f;
     public float EntropyCoefficient = 0f;
