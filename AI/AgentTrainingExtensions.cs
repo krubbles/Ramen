@@ -40,7 +40,21 @@ public static class AgentTrainingExtensions
         Tensor chosenLogProbs;
         using (ProfileScope.New("SampleMoveIndices"))
         {
-            sampleIndices = multinomial(probs, clampedSampleCount, replacement: false);
+            // Sample on CPU: MPS multinomial can rarely return a zero-probability first draw, which later becomes a huge KLD spike.
+            Tensor cpuProbs = probs.to(CPU);
+            Tensor chosenSampleIndices = multinomial(cpuProbs, 1, replacement: true);
+            if (clampedSampleCount == 1)
+            {
+                sampleIndices = chosenSampleIndices;
+            }
+            else
+            {
+                Tensor notChosenMask = arange(moveCount, dtype: ScalarType.Int64, device: CPU).unsqueeze(0) != chosenSampleIndices;
+                Tensor negativeProbs = cpuProbs * notChosenMask.to_type(ScalarType.Float32);
+                Tensor negativeSampleIndices = multinomial(negativeProbs, clampedSampleCount - 1, replacement: true);
+                sampleIndices = cat([chosenSampleIndices, negativeSampleIndices], dim: 1);
+            }
+            sampleIndices = sampleIndices.to(probs.device);
             chosenMoveIndices = sampleIndices.select(dim: 1, index: 0);
             sampledProbs = probs.gather(dim: 1, sampleIndices);
             chosenLogProbs = logProbs.gather(dim: 1, chosenMoveIndices.unsqueeze(1)).select(dim: 1, index: 0);
