@@ -11,6 +11,12 @@ public readonly record struct MoERoutingStats(
 
 public sealed class DeepSeekMoEResidualBlock : Module<Tensor, Tensor>
 {
+    /// <summary>
+    /// Diagnostic: logs expert dispatch buffer padding for each block forward.
+    /// </summary>
+    public static bool LogDispatchPadding =
+        Environment.GetEnvironmentVariable("RAMEN_LOG_DISPATCH_PADDING") == "1";
+
     readonly LayerNorm _inputLayerNorm;
     readonly LayerNorm _routerLayerNorm;
     readonly FeedForwardExpert _sharedExpert;
@@ -21,6 +27,7 @@ public sealed class DeepSeekMoEResidualBlock : Module<Tensor, Tensor>
     readonly int _residualWidth;
     readonly int _routerInputWidth;
     readonly int _routedExpertCount;
+    readonly float _expertCapacityFactor;
     readonly int _chosenExpertCount;
     readonly float _routingBiasUpdateSpeed;
 
@@ -45,11 +52,13 @@ public sealed class DeepSeekMoEResidualBlock : Module<Tensor, Tensor>
         float routingBiasUpdateSpeed,
         ResidualBlock.ActivationType activationType,
         float routedExpertHiddenRatio = 0.5f,
+        float expertCapacityFactor = 4f,
         Device device = null) : base(nameof(DeepSeekMoEResidualBlock))
     {
         _residualWidth = residualWidth;
         _routerInputWidth = routerInputWidth;
         _routedExpertCount = routedExpertCount;
+        _expertCapacityFactor = expertCapacityFactor;
         _chosenExpertCount = chosenExpertCount;
         _routingBiasUpdateSpeed = routingBiasUpdateSpeed;
 
@@ -185,8 +194,32 @@ public sealed class DeepSeekMoEResidualBlock : Module<Tensor, Tensor>
         while (expertBatchSize < expectedExpertLoad)
             expertBatchSize *= 2;
         expertBatchSize *= 2;
-        while (expertBatchSize < maxExpertLoad)
+
+        // Capacity is capped at a multiple of the mean load rather than following the
+        // observed maximum. Unbalanced routing pushes the maximum toward the total token
+        // count, which would size the buffer at expertCount * tokenCount -- 16x waste in
+        // practice, and multiplied again by tokensPerRouterInput on the move blocks.
+        // Assignments past the cap are dropped: they route to a trailing slot whose
+        // weight is zero, so they contribute nothing and receive no gradient. The
+        // load-balancing bias drives the overflow to zero within the first few rollouts.
+        long capacityCeiling = expertBatchSize;
+        while (capacityCeiling < expectedExpertLoad * _expertCapacityFactor)
+            capacityCeiling *= 2;
+        while (expertBatchSize < maxExpertLoad && expertBatchSize < capacityCeiling)
             expertBatchSize *= 2;
+
+        if (LogDispatchPadding)
+        {
+            long realRows = flatRoutedExpertIndices.size(0);
+            long paddedRows = _routedExpertCount * expertBatchSize;
+            long elements = paddedRows * tokensPerRouterInput * _residualWidth;
+            Console.WriteLine(
+                $"  width {_residualWidth} experts {_routedExpertCount} top{_chosenExpertCount}: " +
+                $"expected {expectedExpertLoad} max {maxExpertLoad} batchSize {expertBatchSize} | " +
+                $"rows {realRows} -> {paddedRows} ({paddedRows / (double)realRows:F2}x) | " +
+                $"tokensPerGroup {tokensPerRouterInput} | " +
+                $"packed {elements * 4 / 1024.0 / 1024.0:F1} MB");
+        }
 
         (Tensor sortedExpertIndices, Tensor sortedRouteIndices) =
             flatRoutedExpertIndices.sort();
@@ -197,8 +230,12 @@ public sealed class DeepSeekMoEResidualBlock : Module<Tensor, Tensor>
                 dtype: ScalarType.Int64,
                 device: input.device) -
             expertStarts.index_select(dim: 0, index: sortedExpertIndices);
-        Tensor packedRouteIndices =
-            sortedExpertIndices * expertBatchSize + withinExpertIndices;
+        // Overflow assignments land on the trailing slot, which is held at zero weight.
+        long packedRowCount = _routedExpertCount * expertBatchSize;
+        Tensor packedRouteIndices = where(
+            withinExpertIndices.lt(expertBatchSize),
+            sortedExpertIndices * expertBatchSize + withinExpertIndices,
+            full_like(withinExpertIndices, packedRowCount));
         Tensor groupIndices = arange(
                 routedTokenGroupCount,
                 dtype: ScalarType.Int64,
@@ -208,8 +245,9 @@ public sealed class DeepSeekMoEResidualBlock : Module<Tensor, Tensor>
             .reshape([-1])
             .index_select(dim: 0, index: sortedRouteIndices);
         Tensor flatRoutingWeights = routingWeights.reshape([-1]);
+        // One row past the packed buffer absorbs dropped assignments.
         Tensor packedInputs = zeros([
-            _routedExpertCount * expertBatchSize,
+            packedRowCount + 1,
             tokensPerRouterInput,
             _residualWidth],
             device: input.device,
@@ -221,28 +259,38 @@ public sealed class DeepSeekMoEResidualBlock : Module<Tensor, Tensor>
                 .expand([-1, tokensPerRouterInput, _residualWidth]),
             src: groupedInput.index_select(dim: 0, index: groupIndices));
         Tensor packedRoutingWeights = zeros(
-            [_routedExpertCount * expertBatchSize],
+            [packedRowCount + 1],
             device: input.device,
             dtype: input.dtype);
         packedRoutingWeights.scatter_(
             dim: 0,
             index: packedRouteIndices,
             src: flatRoutingWeights.index_select(dim: 0, index: sortedRouteIndices));
-        Tensor packedOutputs = _routedExperts.forward(packedInputs.reshape([
-                _routedExpertCount,
-                expertBatchSize,
-                tokensPerRouterInput,
-                _residualWidth])) *
-            packedRoutingWeights.reshape([
-                _routedExpertCount,
-                expertBatchSize,
-                1,
-                1]);
-        Tensor routedOutputs = packedOutputs
-            .reshape([
-                _routedExpertCount * expertBatchSize,
-                tokensPerRouterInput,
-                _residualWidth])
+        Tensor packedOutputs = _routedExperts.forward(
+                packedInputs
+                    .narrow(0, 0, packedRowCount)
+                    .reshape([
+                        _routedExpertCount,
+                        expertBatchSize,
+                        tokensPerRouterInput,
+                        _residualWidth])) *
+            packedRoutingWeights
+                .narrow(0, 0, packedRowCount)
+                .reshape([
+                    _routedExpertCount,
+                    expertBatchSize,
+                    1,
+                    1]);
+        Tensor routedOutputs = cat([
+                packedOutputs.reshape([
+                    packedRowCount,
+                    tokensPerRouterInput,
+                    _residualWidth]),
+                zeros(
+                    [1, tokensPerRouterInput, _residualWidth],
+                    device: input.device,
+                    dtype: packedOutputs.dtype)],
+                dim: 0)
             .index_select(dim: 0, index: packedRouteIndices);
         groupedRoutedOutput.index_add_(
             dim: 0,

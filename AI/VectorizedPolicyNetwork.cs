@@ -45,6 +45,11 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
         public ResidualBlock.ActivationType MoveActivationType;
         public bool LeafPerLayerEmbedding;
         public bool AddWinningMoveEmbedding;
+        /// <summary>
+        /// Expert capacity as a multiple of the mean expert load. Assignments past the
+        /// cap get no routed expert output. Zero uses the default of 4.
+        /// </summary>
+        public float ExpertCapacityFactor;
         public Device Device;
     }
 
@@ -81,6 +86,9 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
                 routedExpertHiddenRatio: settings.TrunkRoutedExpertHiddenRatio > 0f
                     ? settings.TrunkRoutedExpertHiddenRatio
                     : 0.5f,
+                expertCapacityFactor: settings.ExpertCapacityFactor > 0f
+                    ? settings.ExpertCapacityFactor
+                    : 4f,
                 device: _device));
         }
 
@@ -96,6 +104,9 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
                 routedExpertHiddenRatio: settings.MoveRoutedExpertHiddenRatio > 0f
                     ? settings.MoveRoutedExpertHiddenRatio
                     : 0.5f,
+                expertCapacityFactor: settings.ExpertCapacityFactor > 0f
+                    ? settings.ExpertCapacityFactor
+                    : 4f,
                 device: _device));
         }
 
