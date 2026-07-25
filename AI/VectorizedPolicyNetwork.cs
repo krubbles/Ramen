@@ -116,6 +116,16 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
 
     public bool UpdateExpertLoadBalance { get; set; }
 
+    public List<MoERoutingStats> DrainRoutingStats()
+    {
+        List<MoERoutingStats> stats = [];
+        for (int blockIndex = 0; blockIndex < _trunkBlocks.Count; ++blockIndex)
+            stats.AddRange(_trunkBlocks[blockIndex].DrainRoutingStats());
+        for (int blockIndex = 0; blockIndex < _moveBlocks.Count; ++blockIndex)
+            stats.AddRange(_moveBlocks[blockIndex].DrainRoutingStats());
+        return stats;
+    }
+
 
     public Tensor GetPolicyLogits(GameStateTensors gameStateTensors)
     {

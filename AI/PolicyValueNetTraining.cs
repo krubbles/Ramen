@@ -319,6 +319,9 @@ public static class PolicyValueNetworkTraining
 
         float clipRate = totalRatioSampleCount == 0 ? 0f : (float)(clippedSampleCount / totalRatioSampleCount);
         float averageKld = kldCount == 0 ? 0f : (float)(kldSum / kldCount);
+        MoELoadBalanceSummary? loadBalance = network is IAuxiliaryLossFreeLoadBalancedNetwork trainingLoadBalancedNetwork
+            ? SummarizeRoutingStats(trainingLoadBalancedNetwork.DrainRoutingStats())
+            : null;
         return new()
         {
             Trajectories = trajectories,
@@ -326,8 +329,41 @@ public static class PolicyValueNetworkTraining
             StepData = stepData,
             ClipRate = clipRate,
             StoppedEarly = stoppedEarly,
-            AverageKld = averageKld
+            AverageKld = averageKld,
+            LoadBalance = loadBalance
         };
+    }
+
+    static MoELoadBalanceSummary? SummarizeRoutingStats(List<MoERoutingStats> stats)
+    {
+        if (stats.Count == 0)
+            return null;
+
+        int expertCount = stats[0].ExpertTokenFractions.Length;
+        float[] fractionSums = new float[expertCount];
+        double lossSum = 0;
+        double utilizationSum = 0;
+        float minUtilization = 1f;
+        for (int statIndex = 0; statIndex < stats.Count; ++statIndex)
+        {
+            MoERoutingStats stat = stats[statIndex];
+            lossSum += stat.LoadBalancingLoss;
+            float utilization = stat.ActiveExpertCount / (float)expertCount;
+            utilizationSum += utilization;
+            minUtilization = Math.Min(minUtilization, utilization);
+            for (int expertIndex = 0; expertIndex < expertCount; ++expertIndex)
+                fractionSums[expertIndex] += stat.ExpertTokenFractions[expertIndex];
+        }
+
+        float[] meanFractions = new float[expertCount];
+        for (int expertIndex = 0; expertIndex < expertCount; ++expertIndex)
+            meanFractions[expertIndex] = fractionSums[expertIndex] / stats.Count;
+
+        return new(
+            AverageLoadBalancingLoss: (float)(lossSum / stats.Count),
+            MinExpertUtilization: minUtilization,
+            MeanExpertUtilization: (float)(utilizationSum / stats.Count),
+            ExpertTokenFractions: meanFractions);
     }
 
     static Tensor GetGradNormTensor(Module networkModule)
@@ -434,7 +470,14 @@ public readonly record struct RolloutData(
     IReadOnlyList<PpoStepData> StepData,
     float ClipRate,
     bool StoppedEarly,
-    float AverageKld);
+    float AverageKld,
+    MoELoadBalanceSummary? LoadBalance = null);
+
+public readonly record struct MoELoadBalanceSummary(
+    float AverageLoadBalancingLoss,
+    float MinExpertUtilization,
+    float MeanExpertUtilization,
+    float[] ExpertTokenFractions);
 
 public readonly record struct PpoStateData(
     int GameInRolloutIndex,

@@ -16,4 +16,5 @@ public interface IPolicyNetwork
 public interface IAuxiliaryLossFreeLoadBalancedNetwork
 {
     bool UpdateExpertLoadBalance { get; set; }
+    List<MoERoutingStats> DrainRoutingStats();
 }

@@ -3,6 +3,12 @@ namespace Ramen.AI;
 using TorchSharp.Modules;
 using static TorchSharp.torch.nn;
 
+public readonly record struct MoERoutingStats(
+    float[] ExpertTokenFractions,
+    float LoadBalancingLoss,
+    int ActiveExpertCount,
+    long RoutedTokenCount);
+
 public sealed class DeepSeekMoEResidualBlock : Module<Tensor, Tensor>
 {
     readonly LayerNorm _inputLayerNorm;
@@ -11,6 +17,7 @@ public sealed class DeepSeekMoEResidualBlock : Module<Tensor, Tensor>
     readonly BatchedFeedForwardExperts _routedExperts;
     readonly Linear _router;
     readonly Tensor _routingBias;
+    readonly List<MoERoutingStats> _routingStats = [];
     readonly int _residualWidth;
     readonly int _routerInputWidth;
     readonly int _routedExpertCount;
@@ -22,6 +29,13 @@ public sealed class DeepSeekMoEResidualBlock : Module<Tensor, Tensor>
     public int RoutedExpertHiddenWidth => _residualWidth / 2;
     public int RoutedExpertCount => _routedExpertCount;
     public int ChosenExpertCount => _chosenExpertCount;
+
+    public List<MoERoutingStats> DrainRoutingStats()
+    {
+        List<MoERoutingStats> stats = [.. _routingStats];
+        _routingStats.Clear();
+        return stats;
+    }
 
     public DeepSeekMoEResidualBlock(
         int residualWidth,
@@ -110,6 +124,40 @@ public sealed class DeepSeekMoEResidualBlock : Module<Tensor, Tensor>
 
         if (updateLoadBalance)
         {
+            using var noGrad = no_grad();
+
+            long totalAssignments = flatRoutedExpertIndices.size(0);
+            Tensor weightSums = zeros_like(expertLoads);
+            weightSums.index_add_(
+                dim: 0,
+                index: flatRoutedExpertIndices,
+                source: routingWeights.reshape([-1]).to_type(ScalarType.Float32),
+                alpha: 1);
+
+            // Both vectors come back in a single device->host copy; the per-expert
+            // reduction is a few dozen floats, so finishing it here is cheaper than
+            // the extra kernel launches and sync points it would cost on device.
+            float[] loadsThenWeights = [.. stack([expertLoads, weightSums]).reshape([-1]).cpu().data<float>()];
+            float[] expertTokenFractions = new float[_routedExpertCount];
+            float loadBalancingLoss = 0f;
+            int activeExpertCount = 0;
+            for (int expertIndex = 0; expertIndex < _routedExpertCount; ++expertIndex)
+            {
+                float expertLoad = loadsThenWeights[expertIndex];
+                float tokenFraction = expertLoad / totalAssignments;
+                expertTokenFractions[expertIndex] = tokenFraction;
+                loadBalancingLoss +=
+                    tokenFraction * (loadsThenWeights[_routedExpertCount + expertIndex] / totalAssignments);
+                if (expertLoad > 0f)
+                    ++activeExpertCount;
+            }
+
+            _routingStats.Add(new(
+                ExpertTokenFractions: expertTokenFractions,
+                LoadBalancingLoss: loadBalancingLoss * _routedExpertCount,
+                ActiveExpertCount: activeExpertCount,
+                RoutedTokenCount: totalAssignments));
+
             float meanExpertLoad = routedExpertIndices.numel() / (float)_routedExpertCount;
             Tensor biasUpdates = where(
                 expertLoads.lt(meanExpertLoad),
@@ -118,7 +166,6 @@ public sealed class DeepSeekMoEResidualBlock : Module<Tensor, Tensor>
                     expertLoads.gt(meanExpertLoad),
                     full_like(expertLoads, -_routingBiasUpdateSpeed),
                     zeros_like(expertLoads)));
-            using var noGrad = no_grad();
             _routingBias.add_(biasUpdates);
         }
 
