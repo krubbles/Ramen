@@ -37,6 +37,18 @@ public sealed class ShopState
     /// </summary>
     public int FreeRerollsRemaining { get; internal set; }
 
+
+    /// <summary>
+    /// The minimum amount of money the player can have.
+    /// </summary>
+    public int MinimumMoney { get; internal set; } = 0;
+
+    /// <summary>
+    /// How much the player can actually spend, accounting for how far into debt
+    /// <see cref="MinimumMoney"/> allows them to go.
+    /// </summary>
+    public int SpendableMoney => Money - MinimumMoney;
+
     /// <summary>
     /// How much it would cost to reroll the store right now.
     /// </summary>
@@ -61,10 +73,10 @@ public sealed class ShopState
         bool canBuyJoker = GameState.JokerState.Jokers.Count < GameState.GameData.MaxJokers;
         for (int offeringIndex = 0; offeringIndex < ShopOfferings.Count; ++offeringIndex)
         {
-            if (canBuyJoker && GetShopOfferingPrice(offeringIndex) <= Money)
+            if (canBuyJoker && GetShopOfferingPrice(offeringIndex) <= SpendableMoney)
                 moves.Add(new BuyShopOfferMove(offeringIndex));
         }
-        if (CurrentRerollCost <= Money)
+        if (CurrentRerollCost <= SpendableMoney)
             moves.Add(new RerollMove());
         moves.Add(new ExitShopMove());
     }
@@ -92,8 +104,8 @@ public sealed class ShopState
             FreeRerollsRemaining--;
         else
         {
-            if (Money < CurrentRerollCost)
-                throw new InvalidOperationException($"Not enough money to reroll the store. Current cost: {CurrentRerollCost}, Money: {Money}");
+            if (SpendableMoney < CurrentRerollCost)
+                throw new InvalidOperationException($"Not enough money to reroll the store. Current cost: {CurrentRerollCost}, Money: {Money}, Minimum: {MinimumMoney}");
             Money -= CurrentRerollCost;
             RerollsThisRoundCount++;
         }
@@ -113,8 +125,8 @@ public sealed class ShopState
         if (GameState.JokerState.Jokers.Count >= GameState.GameData.MaxJokers)
             throw new InvalidOperationException($"Cannot buy joker: already at the maximum of {GameState.GameData.MaxJokers} jokers.");
         int price = GetShopOfferingPrice(index);
-        if (Money < price)
-            throw new InvalidOperationException($"Not enough money to buy shop offering. Price: {price}, Money: {Money}");
+        if (SpendableMoney < price)
+            throw new InvalidOperationException($"Not enough money to buy shop offering. Price: {price}, Money: {Money}, Minimum: {MinimumMoney}");
 
         Money -= price;
         JokerInstance joker = ShopOfferings[index];

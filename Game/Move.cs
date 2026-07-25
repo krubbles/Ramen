@@ -12,6 +12,7 @@ public abstract class Move
     ulong _rngState;
     StageOfGame _stage;
     int _moveStep = -1;
+    bool _isDerived;
 
     /// <summary>
     /// Applies this move to the given <paramref name="gameState"/>. Throws if the move has already been applied.
@@ -23,11 +24,23 @@ public abstract class Move
             throw new InvalidOperationException("Trying to apply move that has already been applied.");
 
         this.gameState = gameState;
+        // Read before the depth is raised: a move is derived exactly when some other
+        // move was already mid-application as this one was applied.
+        _isDerived = gameState.MoveState.IsApplyingMove;
         _rngState = gameState.Random.GetState();
         _stage = gameState.Stage;
         _moveStep = gameState.MoveState.MoveHistory.Count;
         gameState.MoveState.MoveHistory.Add(this);
-        Apply();
+
+        gameState.MoveState.BeginOperation();
+        try
+        {
+            Apply();
+        }
+        finally
+        {
+            gameState.MoveState.EndOperation();
+        }
 
         gameState.MoveState.RunActivatedCallbacks();
     }
@@ -45,12 +58,20 @@ public abstract class Move
         if (gameState.MoveState.MoveHistory[_moveStep] != this)
             throw new InvalidOperationException("Cannot revert move, it cannot be found in the move history.");
 
-        gameState.MoveState.RevertToStep(_moveStep + 1);
+        gameState.MoveState.BeginOperation();
+        try
+        {
+            gameState.MoveState.RevertToStep(_moveStep + 1);
 
-        this.gameState.Random.SetState(_rngState);
-        Revert();
-        this.gameState.Random.SetState(_rngState);
-        gameState.Stage = _stage;
+            this.gameState.Random.SetState(_rngState);
+            Revert();
+            this.gameState.Random.SetState(_rngState);
+            gameState.Stage = _stage;
+        }
+        finally
+        {
+            gameState.MoveState.EndOperation();
+        }
 
         this.gameState = null;
         _moveStep = -1;
@@ -62,6 +83,23 @@ public abstract class Move
     }
 
     public bool IsApplied => _moveStep >= 0;
+
+    /// <summary>
+    /// Whether this move was applied as a side effect of another move, rather than as a
+    /// game transition in its own right. Detected automatically at application time, so
+    /// moves do not have to declare it.
+    /// <para>
+    /// Derived moves take part in rollback normally: they sit after their parent in
+    /// <see cref="MoveState.MoveHistory"/>, so reverting the parent reverts them first.
+    /// They are NOT serialized, because replaying the parent regenerates them; writing
+    /// them out would apply them twice on deserialization.
+    /// </para>
+    /// <para>
+    /// Only meaningful while the move is applied. A reverted move keeps whatever value it
+    /// last had until it is applied again.
+    /// </para>
+    /// </summary>
+    public bool IsDerived => _isDerived;
 
     protected abstract void Apply();
 
@@ -117,6 +155,7 @@ public abstract class Move
         { MoveType.Reroll, new RerollMove.Serializer() },
         { MoveType.EnterShop, new EnterShopMove.Serializer() },
         { MoveType.EndRound, new EndRoundMove.Serializer() },
+        { MoveType.SetJokerState, new SetJokerStateMove.Serializer() },
     };
 }
 
@@ -138,6 +177,7 @@ public enum MoveType : byte
     Reroll,
     EnterShop,
     EndRound,
+    SetJokerState,
 }
 
 /// <summary>

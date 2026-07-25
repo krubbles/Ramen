@@ -24,6 +24,11 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
         public int TrunkBlockCount;
         public int TrunkRoutedExpertCount;
         public int TrunkChosenExpertCount;
+        /// <summary>
+        /// Routed expert hidden width as a fraction of the residual width. Zero uses the
+        /// 0.5 default. The shared expert is unaffected.
+        /// </summary>
+        public float TrunkRoutedExpertHiddenRatio;
         public float TrunkRoutingBiasUpdateSpeed;
         public ResidualBlock.ActivationType TrunkActivationType;
         public bool TrunkPerLayerEmbedding;
@@ -31,6 +36,11 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
         public int MoveBlockCount;
         public int MoveRoutedExpertCount;
         public int MoveChosenExpertCount;
+        /// <summary>
+        /// Routed expert hidden width as a fraction of the residual width. Zero uses the
+        /// 0.5 default. The shared expert is unaffected.
+        /// </summary>
+        public float MoveRoutedExpertHiddenRatio;
         public float MoveRoutingBiasUpdateSpeed;
         public ResidualBlock.ActivationType MoveActivationType;
         public bool LeafPerLayerEmbedding;
@@ -68,6 +78,9 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
                 chosenExpertCount: settings.TrunkChosenExpertCount,
                 routingBiasUpdateSpeed: settings.TrunkRoutingBiasUpdateSpeed,
                 activationType: settings.TrunkActivationType,
+                routedExpertHiddenRatio: settings.TrunkRoutedExpertHiddenRatio > 0f
+                    ? settings.TrunkRoutedExpertHiddenRatio
+                    : 0.5f,
                 device: _device));
         }
 
@@ -80,6 +93,9 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
                 chosenExpertCount: settings.MoveChosenExpertCount,
                 routingBiasUpdateSpeed: settings.MoveRoutingBiasUpdateSpeed,
                 activationType: settings.MoveActivationType,
+                routedExpertHiddenRatio: settings.MoveRoutedExpertHiddenRatio > 0f
+                    ? settings.MoveRoutedExpertHiddenRatio
+                    : 0.5f,
                 device: _device));
         }
 

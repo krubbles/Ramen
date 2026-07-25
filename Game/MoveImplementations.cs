@@ -686,6 +686,64 @@ public sealed class ShuffleMove : Move
 }
 
 /// <summary>
+/// Sets the persistent <see cref="JokerInstance.State"/> of a joker, so that counters
+/// and accumulating bonuses are undone when the move that produced them is reverted.
+/// <para>
+/// Jokers mutate their state while an outer move is being applied, so this is applied as
+/// a derived move: it is never serialized, and replaying the outer move recreates it.
+/// </para>
+/// </summary>
+public sealed class SetJokerStateMove : Move
+{
+    public readonly JokerInstance Joker;
+    public readonly int NewState;
+
+    int _previousState;
+
+    public SetJokerStateMove(JokerInstance joker, int newState)
+    {
+        Joker = joker;
+        NewState = newState;
+    }
+
+    public override MoveType GetMoveType() => MoveType.SetJokerState;
+
+    protected override void Apply()
+    {
+        _previousState = Joker.State;
+        Joker.State = NewState;
+    }
+
+    protected override void Revert()
+    {
+        Joker.State = _previousState;
+    }
+
+    public override string ToString()
+    {
+        return $"Set Joker State: {Joker.JokerData?.Name} {_previousState} -> {NewState}";
+    }
+
+    internal sealed class Serializer : IMoveSerializer
+    {
+        public MoveType MoveType => MoveType.SetJokerState;
+
+        public void Serialize(GameStateSerializer gsSerializer, Move move)
+        {
+            throw new NotSupportedException(
+                $"{nameof(SetJokerStateMove)} is a derived move and must not be serialized. " +
+                "It is regenerated when the move that produced it is replayed.");
+        }
+
+        public Move Deserialize(GameStateSerializer gsSerializer)
+        {
+            throw new NotSupportedException(
+                $"{nameof(SetJokerStateMove)} is a derived move and is never written to the stream.");
+        }
+    }
+}
+
+/// <summary>
 /// A move that stores arbitrary data without affecting game state.
 /// </summary>
 public sealed class AnnotatingDataMove : Move

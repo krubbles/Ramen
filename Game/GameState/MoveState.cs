@@ -15,6 +15,21 @@ public sealed class MoveState
     // This makes sure that each callback is only called once per move. Not persistent state.
     readonly HashSet<Action> _activatedCallbacks = new();
 
+    // How many moves are part-way through being applied or reverted. Used to tell a move
+    // applied as a side effect of another move from one applied on its own, and to hold
+    // callbacks until the outermost operation finishes. Not persistent state.
+    int _operationDepth;
+
+    /// <summary>
+    /// Whether a move is currently being applied or reverted. A move applied while this
+    /// is true is a side effect of that move, and is marked <see cref="Move.IsDerived"/>.
+    /// </summary>
+    public bool IsApplyingMove => _operationDepth > 0;
+
+    internal void BeginOperation() => _operationDepth++;
+
+    internal void EndOperation() => _operationDepth--;
+
     public MoveState(GameState gameState)
     {
         GameState = gameState;
@@ -58,6 +73,11 @@ public sealed class MoveState
 
     internal void RunActivatedCallbacks()
     {
+        // Only the outermost move flushes, so a derived move does not fire its parent's
+        // callbacks part-way through the parent's application.
+        if (IsApplyingMove)
+            return;
+
         foreach (Action action in _activatedCallbacks)
             action.Invoke();
         _activatedCallbacks.Clear();
@@ -66,8 +86,10 @@ public sealed class MoveState
     public string GameToString()
     {
         StringBuilder sb = new();
-        Move[] moves = MoveHistory.ToArray();
-        moves[0].Revert(GameState);
+        // Only the non-derived moves are replayed; applying them regenerates the
+        // derived ones, the same way deserialization does.
+        Move[] moves = MoveHistory.FindAll(move => !move.IsDerived).ToArray();
+        MoveHistory[0].Revert(GameState);
         foreach (Move move in moves)
         {
             sb.AppendLine(GameState.ToString());
@@ -79,11 +101,21 @@ public sealed class MoveState
 
     internal void Serialize(GameStateSerializer serializer)
     {
-        serializer.Stream.WriteStartTag("MS");
-        serializer.Stream.WriteStruct<int>(MoveHistory.Count);
+        // Derived moves are side effects of the moves they follow, so replaying the
+        // parent recreates them. Writing them out would apply them a second time.
+        int serializedMoveCount = 0;
         foreach (Move move in MoveHistory)
         {
-            Move.Serialize(serializer, move);
+            if (!move.IsDerived)
+                serializedMoveCount++;
+        }
+
+        serializer.Stream.WriteStartTag("MS");
+        serializer.Stream.WriteStruct<int>(serializedMoveCount);
+        foreach (Move move in MoveHistory)
+        {
+            if (!move.IsDerived)
+                Move.Serialize(serializer, move);
         }
         serializer.Stream.WriteEndTag("MS");
     }

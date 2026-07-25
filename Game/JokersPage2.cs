@@ -65,10 +65,43 @@ public partial class Joker // Page 2 Jokers
     // cards (OnBeginScoringCard / OnScoreCard) and has no held-in-hand phase.
     public static readonly Joker Mime = null;
 
-    // Go up to -$20 in debt.
-    // Needs a debt allowance in ShopState: purchases and rerolls are gated on
-    // price <= Money, so money can never go negative.
-    public static readonly Joker CreditCard = null;
+    /// <summary>
+    /// How far into debt a single Credit Card lets the player go.
+    /// </summary>
+    public const int CreditCardDebtAllowance = 20;
+
+    /// <summary>
+    /// Go up to -$20 in debt. Copies do not stack; the floor is -$20 no matter how many
+    /// Credit Cards are held.
+    /// </summary>
+    public static readonly Joker CreditCard = new()
+    {
+        Name = "CreditCard",
+        Rarity = Rarity.Common,
+        BasePrice = 1,
+        OnAdd = (gameState, joker) => RecomputeMinimumMoney(gameState),
+        OnRemove = (gameState, joker) => RecomputeMinimumMoney(gameState)
+    };
+
+    /// <summary>
+    /// Recomputes the debt floor from the jokers currently held. Both joker hooks run
+    /// after the list has been updated, so this stays correct however copies are added
+    /// or removed.
+    /// </summary>
+    static void RecomputeMinimumMoney(GameState gameState)
+    {
+        List<JokerInstance> jokers = gameState.JokerState.Jokers;
+        int minimumMoney = 0;
+        for (int i = 0; i < jokers.Count; ++i)
+        {
+            if (jokers[i].JokerData == CreditCard)
+            {
+                minimumMoney = -CreditCardDebtAllowance;
+                break;
+            }
+        }
+        gameState.ShopState.MinimumMoney = minimumMoney;
+    }
 
     // When Blind is selected, destroy the joker to the right and permanently add double
     // its sell value to this joker's mult.
@@ -102,20 +135,52 @@ public partial class Joker // Page 2 Jokers
     // Needs a blind-selected hook and a way to add cards to the deck mid-run.
     public static readonly Joker MarbleJoker = null;
 
-    // X4 Mult every 6 hands played.
-    // Needs a hands-played counter that survives move rollback. JokerInstance.State is
-    // not restored by Move.Revert, so a counter would desync whenever a hand is undone.
-    public static readonly Joker LoyaltyCard = null;
+    /// <summary>
+    /// Number of hands played between Loyalty Card payouts.
+    /// </summary>
+    public const int LoyaltyCardHandInterval = 6;
+
+    /// <summary>
+    /// X4 Mult every 6 hands played. The hand counter lives in
+    /// <see cref="JokerInstance.State"/> and is advanced through a
+    /// <see cref="SetJokerStateMove"/> so it rolls back with the hand that advanced it.
+    /// </summary>
+    public static readonly Joker LoyaltyCard = new()
+    {
+        Name = "LoyaltyCard",
+        Rarity = Rarity.Uncommon,
+        BasePrice = 5,
+        OnJokerTrigger = (gameState, joker) =>
+        {
+            int handsPlayed = joker.State + 1;
+            if (handsPlayed >= LoyaltyCardHandInterval)
+            {
+                gameState.ScoringState.CurrentHandMult *= 4;
+                handsPlayed = 0;
+            }
+            new SetJokerStateMove(joker, handsPlayed).Apply(gameState);
+        }
+    };
 
     // 1 in 4 chance for each played 8 to create a Tarot card when scored.
     // Needs consumables; the engine has no tarot cards or consumable slots.
     public static readonly Joker EightBall = null;
 
-    // +0-23 Mult.
-    // Needs the random draw to be recorded on the move. Move.Revert does not rewind the
-    // RNG, so a reverted and replayed hand would roll a different mult and break the
-    // move-replay hash check.
-    public static readonly Joker Misprint = null;
+    /// <summary>
+    /// +0-23 Mult, rolled per hand. Safe to roll inline: <see cref="Move.Apply"/> records
+    /// the RNG state and <see cref="Move.Revert"/> restores it, so a reverted and
+    /// replayed hand rolls the same value.
+    /// </summary>
+    public static readonly Joker Misprint = new()
+    {
+        Name = "Misprint",
+        Rarity = Rarity.Common,
+        BasePrice = 4,
+        OnJokerTrigger = (gameState, joker) =>
+        {
+            gameState.ScoringState.AddMultToCurrentHand(gameState.Random.Next(24));
+        }
+    };
 
     /// <summary>
     /// Retriggers every scoring card on the last hand of the round.
@@ -169,8 +234,11 @@ public partial class Joker // Page 2 Jokers
         HalfJoker,
         JokerStencil,
         FourFingers,
+        CreditCard,
         Banner,
         MysticSummit,
+        LoyaltyCard,
+        Misprint,
         Dusk,
         RaisedFist,
     ];

@@ -44,6 +44,7 @@ public sealed class DeepSeekMoEResidualBlock : Module<Tensor, Tensor>
         int chosenExpertCount,
         float routingBiasUpdateSpeed,
         ResidualBlock.ActivationType activationType,
+        float routedExpertHiddenRatio = 0.5f,
         Device device = null) : base(nameof(DeepSeekMoEResidualBlock))
     {
         _residualWidth = residualWidth;
@@ -65,7 +66,7 @@ public sealed class DeepSeekMoEResidualBlock : Module<Tensor, Tensor>
         _routedExperts = new(
             expertCount: routedExpertCount,
             inputWidth: residualWidth,
-            hiddenWidth: residualWidth / 2,
+            hiddenWidth: Math.Max(1, (int)(residualWidth * routedExpertHiddenRatio)),
             outputWidth: residualWidth,
             activationType: activationType,
             device: targetDevice);
