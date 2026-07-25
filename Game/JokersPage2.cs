@@ -21,7 +21,8 @@ public partial class Joker // Page 2 Jokers
     };
 
     /// <summary>
-    /// X1 Mult per empty joker slot, counting the slot this joker occupies.
+    /// X1 Mult per empty joker slot. Every Joker Stencil counts as an empty slot,
+    /// including this one and any other copies.
     /// </summary>
     public static readonly Joker JokerStencil = new()
     {
@@ -30,8 +31,15 @@ public partial class Joker // Page 2 Jokers
         BasePrice = 8,
         OnJokerTrigger = (gameState, joker) =>
         {
-            int emptySlots = gameState.GameData.MaxJokers - gameState.JokerState.Jokers.Count;
-            gameState.ScoringState.CurrentHandMult *= emptySlots + 1;
+            List<JokerInstance> jokers = gameState.JokerState.Jokers;
+            int emptySlots = gameState.GameData.MaxJokers - jokers.Count;
+            int stencilCount = 0;
+            for (int i = 0; i < jokers.Count; ++i)
+            {
+                if (jokers[i].JokerData == JokerStencil)
+                    stencilCount++;
+            }
+            gameState.ScoringState.CurrentHandMult *= emptySlots + stencilCount;
         }
     };
 
