@@ -38,10 +38,11 @@ public static class AgentTrainingExtensions
         Tensor chosenMoveIndices;
         Tensor sampledProbs;
         Tensor chosenLogProbs;
+        Tensor cpuProbs;
         using (ProfileScope.New("SampleMoveIndices"))
         {
             // Sample on CPU: MPS multinomial can rarely return a zero-probability first draw, which later becomes a huge KLD spike.
-            Tensor cpuProbs = probs.to(CPU);
+            cpuProbs = probs.to(CPU);
             Tensor chosenSampleIndices = multinomial(cpuProbs, 1, replacement: true);
             if (clampedSampleCount == 1)
             {
@@ -54,25 +55,29 @@ public static class AgentTrainingExtensions
                 Tensor negativeSampleIndices = multinomial(negativeProbs, clampedSampleCount - 1, replacement: true);
                 sampleIndices = cat([chosenSampleIndices, negativeSampleIndices], dim: 1);
             }
-            sampleIndices = sampleIndices.to(probs.device);
             chosenMoveIndices = sampleIndices.select(dim: 1, index: 0);
-            sampledProbs = probs.gather(dim: 1, sampleIndices);
-            chosenLogProbs = logProbs.gather(dim: 1, chosenMoveIndices.unsqueeze(1)).select(dim: 1, index: 0);
+            sampledProbs = cpuProbs.gather(dim: 1, sampleIndices);
+            Tensor chosenMoveIndicesDevice = chosenMoveIndices.to(logProbs.device);
+            chosenLogProbs = logProbs.gather(dim: 1, chosenMoveIndicesDevice.unsqueeze(1)).select(dim: 1, index: 0);
         }
 
         // Read back the chosen move index and log-prob, so the move can be made and nl prob can be stored in the sample.
         long[] chosenMoveIndicesManaged;
         float[] chosenLogProbsManaged;
+        Tensor cpuChosenLogProbs;
         using (ProfileScope.New("ChosenMoveReadback"))
         {
-            chosenMoveIndicesManaged = [.. chosenMoveIndices.to(CPU).data<long>()];
-            chosenLogProbsManaged = [.. chosenLogProbs.to(CPU).data<float>()];
+            chosenMoveIndicesManaged = [.. chosenMoveIndices.data<long>()];
+            cpuChosenLogProbs = chosenLogProbs.to(CPU);
+            chosenLogProbsManaged = [.. cpuChosenLogProbs.data<float>()];
         }
 
         float[] policyData;
+        Tensor cpuValue;
         using (ProfileScope.New("FullPolicyReadback"))
         {
-            policyData = [.. probs.to(CPU).data<float>()];
+            policyData = [.. cpuProbs.data<float>()];
+            cpuValue = value.to(CPU);
         }
 
         Profiling.Enter("BuildSamples");
@@ -88,10 +93,10 @@ public static class AgentTrainingExtensions
             using (ProfileScope.New("CloneSampleTensors"))
             {
                 sampleSamplingProb = sampledProbs[stateIndex..(stateIndex + 1)].clone();
-                sampleSamplingLogProb = chosenLogProbs[stateIndex..(stateIndex + 1)].unsqueeze(1).clone();
+                sampleSamplingLogProb = cpuChosenLogProbs[stateIndex..(stateIndex + 1)].unsqueeze(1).clone();
                 sampleStateTensors = gameStateTensors.GetBatch(stateIndex, stateIndex + 1).Clone();
                 sampleMoveIndices = sampleIndices[stateIndex..(stateIndex + 1)].clone();
-                sampleValue = value[stateIndex..(stateIndex + 1)].clone();
+                sampleValue = cpuValue[stateIndex..(stateIndex + 1)].clone();
             }
             float[] policy;
             using (ProfileScope.New("CopyPolicyRow"))

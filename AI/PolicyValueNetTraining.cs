@@ -5,7 +5,7 @@ using static TorchSharp.torch.nn;
 
 public static class PolicyValueNetworkTraining
 {
-    public const int RolloutBatchSize = 64;
+    public const int RolloutBatchSize = 128;
 
     static (List<GameState> trajectories, List<PolicyTrainingSample> trainingSamples, List<PpoStateData> stateData) GenerateRollout(IPolicyNetwork network, PpoTrainingSettings settings)
     {
@@ -179,25 +179,26 @@ public static class PolicyValueNetworkTraining
                     {
                         if (settings.UseSampledSoftmax)
                         {
-                            Tensor logits;
-                            (logits, values) = network.GetPolicyValue(batch.StateTensors, batch.MoveIndices);
+                            Tensor sampledLogits;
+                            (sampledLogits, values) = network.GetPolicyValue(batch.StateTensors, batch.MoveIndices);
 
-                            Tensor chosenOldProb = batch.SamplingProb[TensorIndex.Colon, 0].to(logits.device).clamp(1e-9f, 1f - 1e-6f);
-                            Tensor safeNegLogitSampleProbs = batch.SamplingProb[TensorIndex.Colon, 1..].to(logits.device).max(1e-9f);
+                            Tensor chosenOldProb = batch.SamplingProb[TensorIndex.Colon, 0].to(sampledLogits.device).clamp(1e-9f, 1f - 1e-6f);
+                            Tensor safeNegLogitSampleProbs = batch.SamplingProb[TensorIndex.Colon, 1..].to(sampledLogits.device).max(1e-9f);
                             Tensor oldNegativeProbabilityMass = (1f - chosenOldProb).max(1e-9f);
 
                             // Index zero always contains the selected move.
-                            Tensor positiveLogit = logits[TensorIndex.Colon, 0];
-                            Tensor negativeLogits = logits[TensorIndex.Colon, 1..];
+                            Tensor positiveLogit = sampledLogits[TensorIndex.Colon, 0];
+                            Tensor negativeLogits = sampledLogits[TensorIndex.Colon, 1..];
                             Tensor adjustedNegativeLogits = negativeLogits
                                 - log(safeNegLogitSampleProbs)
                                 + log(oldNegativeProbabilityMass.unsqueeze(1))
                                 - log(negativeLogits.size(dim: 1));
                             Tensor adjustedLogits = cat([positiveLogit.unsqueeze(1), adjustedNegativeLogits], dim: 1);
 
-                            logProbs = functional.log_softmax(adjustedLogits, dim: 1);
-                            logPiNew = logProbs.select(dim: 1, index: 0);
+                            Tensor sampledLogProbs = functional.log_softmax(adjustedLogits, dim: 1);
+                            logPiNew = sampledLogProbs.select(dim: 1, index: 0);
                             logPiOld = log(chosenOldProb);
+                            logProbs = null;
                         }
                         else
                         {
@@ -228,8 +229,12 @@ public static class PolicyValueNetworkTraining
                         clipCount = clipMask.to_type(ScalarType.Float32).sum();
                         totalRatioSampleCount += batchEnd - batchStart;
                         Tensor policyReward = min(ratio * advantages, clippedRatio * advantages).mean();
-                        entropy = -(exp(logProbs) * logProbs).sum(dim: 1).mean();
-                        Tensor policyLoss = -policyReward - settings.EntropyCoefficient * entropy;
+                        entropy = settings.UseSampledSoftmax
+                            ? -logPiNew.mean()
+                            : -(exp(logProbs) * logProbs).sum(dim: 1).mean();
+                        Tensor policyLoss = -policyReward;
+                        if (settings.EntropyCoefficient != 0f)
+                            policyLoss -= settings.EntropyCoefficient * entropy;
 
                         Tensor valueTargets = batch.ValueTarget.to(values.device).reshape([-1]);
                         Tensor valueLoss = functional.mse_loss(values.reshape([-1]), valueTargets);

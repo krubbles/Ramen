@@ -144,36 +144,54 @@ public class GameStateEmbedder
         if (AddedGameStateCount >= _remainingHands.Length)
             throw new InvalidOperationException("GameStateEmbedder is already full.");
 
+        WriteGameState(gameState, AddedGameStateCount);
+        AddedGameStateCount++;
+    }
+
+
+    public void AddGameStates(IReadOnlyList<GameState> gameStates)
+    {
+        if (gameStates.Count > _remainingHands.Length - AddedGameStateCount)
+            throw new InvalidOperationException("GameStateEmbedder does not have capacity for all game states.");
+
+        int startIndex = AddedGameStateCount;
+        Parallel.For(0, gameStates.Count, stateIndex =>
+            WriteGameState(gameStates[stateIndex], startIndex + stateIndex));
+        AddedGameStateCount += gameStates.Count;
+    }
+
+
+    void WriteGameState(GameState gameState, int stateIndex)
+    {
         // in round data
 
         ReadOnlySpan<Card> hand = gameState.HandState.Hand;
         for (int cardIndex = 0; cardIndex < hand.Length; ++cardIndex)
-            _fullHand[AddedGameStateCount, cardIndex] = hand[cardIndex].ToIndex();
+            _fullHand[stateIndex, cardIndex] = hand[cardIndex].ToIndex();
 
         ReadOnlySpan<Card> deck = gameState.DeckState.RemainingDeck;
         for (int cardIndex = 0; cardIndex < deck.Length; ++cardIndex)
-            _remainingDeck[AddedGameStateCount, cardIndex] = deck[cardIndex].ToIndex();
+            _remainingDeck[stateIndex, cardIndex] = deck[cardIndex].ToIndex();
 
-        _remainingHands[AddedGameStateCount] = gameState.HandState.RemainingHands;
-        _remainingDiscards[AddedGameStateCount] = gameState.HandState.RemainingDiscards;
+        _remainingHands[stateIndex] = gameState.HandState.RemainingHands;
+        _remainingDiscards[stateIndex] = gameState.HandState.RemainingDiscards;
 
-        _score[AddedGameStateCount] = (float)gameState.ScoringState.CurrentRoundTotalScore;
-        _scoreThreshold[AddedGameStateCount] = (float)gameState.ScoringState.CurrentRoundThresholdScore;
-        WritePlayHandScores(gameState, AddedGameStateCount);
+        _score[stateIndex] = (float)gameState.ScoringState.CurrentRoundTotalScore;
+        _scoreThreshold[stateIndex] = (float)gameState.ScoringState.CurrentRoundThresholdScore;
+        WritePlayHandScores(gameState, stateIndex);
 
         // store data
 
-        WriteJokerSlots(gameState.ShopState.ShopOfferings, gameState.GameData, _storeJokers, AddedGameStateCount);
-        WriteStorePrices(gameState.ShopState.ShopOfferings, _storePrices, AddedGameStateCount);
-        _rerollPrice[AddedGameStateCount] = gameState.ShopState.CurrentRerollCost;
+        WriteJokerSlots(gameState.ShopState.ShopOfferings, gameState.GameData, _storeJokers, stateIndex);
+        WriteStorePrices(gameState.ShopState.ShopOfferings, _storePrices, stateIndex);
+        _rerollPrice[stateIndex] = gameState.ShopState.CurrentRerollCost;
 
 
-        WriteJokerSlots(gameState.JokerState.Jokers, gameState.GameData, _ownedJokers, AddedGameStateCount);
-        _money[AddedGameStateCount] = gameState.ShopState.Money;
-        _round[AddedGameStateCount] = gameState.Round;
-        _isInStore[AddedGameStateCount] =
+        WriteJokerSlots(gameState.JokerState.Jokers, gameState.GameData, _ownedJokers, stateIndex);
+        _money[stateIndex] = gameState.ShopState.Money;
+        _round[stateIndex] = gameState.Round;
+        _isInStore[stateIndex] =
             (gameState.Stage == StageOfGame.EnterShop || gameState.Stage == StageOfGame.InShop) ? 1 : 0;
-        AddedGameStateCount++;
     }
 
 

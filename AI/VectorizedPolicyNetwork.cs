@@ -94,8 +94,9 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
     {
         using var scope = NewDisposeScope();
 
-        Tensor trunkOutput = BuildTrunkOutput(gameStateTensors);
-        Tensor policyLogits = BuildPolicyLogits(gameStateTensors, trunkOutput);
+        GameStateTensors networkInputs = MoveNetworkInputsToDevice(gameStateTensors);
+        Tensor trunkOutput = BuildTrunkOutput(networkInputs);
+        Tensor policyLogits = BuildPolicyLogits(networkInputs, trunkOutput);
         Tensor value = _valueHead.forward(trunkOutput);
 
         policyLogits.MoveToOuterDisposeScope();
@@ -108,8 +109,9 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
     {
         using var scope = NewDisposeScope();
 
-        Tensor trunkOutput = BuildTrunkOutput(gameStateTensors);
-        Tensor policyLogits = BuildPolicyLogits(gameStateTensors, trunkOutput);
+        GameStateTensors networkInputs = MoveNetworkInputsToDevice(gameStateTensors);
+        Tensor trunkOutput = BuildTrunkOutput(networkInputs);
+        Tensor policyLogits = BuildPolicyLogits(networkInputs, trunkOutput);
 
         policyLogits.MoveToOuterDisposeScope();
         return policyLogits;
@@ -120,8 +122,9 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
     {
         using var scope = NewDisposeScope();
 
-        Tensor trunkOutput = BuildTrunkOutput(gameStateTensors);
-        Tensor selectedPolicyLogits = BuildSelectedPolicyLogits(gameStateTensors, trunkOutput, moveIndices);
+        GameStateTensors networkInputs = MoveNetworkInputsToDevice(gameStateTensors);
+        Tensor trunkOutput = BuildTrunkOutput(networkInputs);
+        Tensor selectedPolicyLogits = BuildSelectedPolicyLogits(networkInputs, trunkOutput, moveIndices);
         Tensor value = _valueHead.forward(trunkOutput);
 
         selectedPolicyLogits.MoveToOuterDisposeScope();
@@ -129,6 +132,23 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
         return (selectedPolicyLogits, value);
     }
 
+    GameStateTensors MoveNetworkInputsToDevice(GameStateTensors gameStateTensors)
+    {
+        using var dScope = NewDisposeScope();
+
+        GameStateTensors networkInputs = new()
+        {
+            FullHand = gameStateTensors.FullHand.to(_device),
+            RemainingDeck = gameStateTensors.RemainingDeck.to(_device),
+            Score = gameStateTensors.Score.to(_device),
+            ScoreThreshold = gameStateTensors.ScoreThreshold.to(_device),
+            PlayHandScores = gameStateTensors.PlayHandScores.to(_device),
+            RemainingHands = gameStateTensors.RemainingHands.to(_device),
+            RemainingDiscards = gameStateTensors.RemainingDiscards.to(_device),
+        };
+        networkInputs.ToOuterScope();
+        return networkInputs;
+    }
 
     public void Save(string filePath)
     {

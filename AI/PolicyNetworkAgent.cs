@@ -72,7 +72,6 @@ public sealed class PolicyNetworkAgent : IAgent, IDisposable
     public (GameStateTensors gameStateTensors, Tensor logProbs, Tensor value) GetPolicyProbDist(float temp, params ReadOnlySpan<GameState> gameStates)
     {
         using var scope = NewDisposeScope();
-        using var noGrad = no_grad();
         using var profileScope = ProfileScope.New(nameof(GetPolicyProbDist));
 
         GameStateTensors gameStateTensors;
@@ -81,6 +80,7 @@ public sealed class PolicyNetworkAgent : IAgent, IDisposable
             gameStateTensors = CreateGameStateTensors(gameStates);
         }
 
+        using var inferenceMode = inference_mode();
         Tensor logits;
         Tensor value;
         using (ProfileScope.New("GetPolicyLogits"))
@@ -108,9 +108,9 @@ public sealed class PolicyNetworkAgent : IAgent, IDisposable
 
     static GameStateTensors CreateGameStateTensors(ReadOnlySpan<GameState> gameStates)
     {
-        GameStateEmbedder gameStateEmbedder = new(gameStates.Length);
-        for (int stateIndex = 0; stateIndex < gameStates.Length; ++stateIndex)
-            gameStateEmbedder.AddGameState(gameStates[stateIndex]);
+        GameState[] gameStateArray = gameStates.ToArray();
+        GameStateEmbedder gameStateEmbedder = new(gameStateArray.Length);
+        gameStateEmbedder.AddGameStates(gameStateArray);
 
         return gameStateEmbedder.ToTensors(includePlayHandScores: true);
     }
