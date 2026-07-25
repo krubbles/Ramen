@@ -3,12 +3,12 @@ namespace Ramen.AI;
 using TorchSharp.Modules;
 using static TorchSharp.torch.nn;
 
-public sealed class NewPolicyNetwork : Module, IPolicyNetwork
+public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFreeLoadBalancedNetwork
 {
     readonly GameStateVectorizer _stateVectorizer;
     readonly MoveVectorizer _moveVectorizer;
-    readonly ModuleList<ResidualBlock> _trunkBlocks = new();
-    readonly ModuleList<ResidualBlock> _moveBlocks = new();
+    readonly ModuleList<DeepSeekMoEResidualBlock> _trunkBlocks = new();
+    readonly ModuleList<DeepSeekMoEResidualBlock> _moveBlocks = new();
     readonly Linear _valueHead;
     readonly LayerNorm _trunkLayerNorm;
     readonly LayerNorm _moveEmbeddingLayerNorm;
@@ -22,12 +22,16 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
         public int StateResidualWidth;
         public int ScoreBucketCount;
         public int TrunkBlockCount;
-        public float TrunkResidualRatio;
+        public int TrunkRoutedExpertCount;
+        public int TrunkChosenExpertCount;
+        public float TrunkRoutingBiasUpdateSpeed;
         public ResidualBlock.ActivationType TrunkActivationType;
         public bool TrunkPerLayerEmbedding;
         public int MoveResidualWidth;
         public int MoveBlockCount;
-        public float MoveResidualRatio;
+        public int MoveRoutedExpertCount;
+        public int MoveChosenExpertCount;
+        public float MoveRoutingBiasUpdateSpeed;
         public ResidualBlock.ActivationType MoveActivationType;
         public bool LeafPerLayerEmbedding;
         public bool AddWinningMoveEmbedding;
@@ -57,18 +61,24 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
 
         for (int blockIndex = 0; blockIndex < settings.TrunkBlockCount; ++blockIndex)
         {
-            _trunkBlocks.append(new ResidualBlock(
+            _trunkBlocks.append(new DeepSeekMoEResidualBlock(
                 residualWidth: settings.StateResidualWidth,
-                hiddenRatio: settings.TrunkResidualRatio,
+                routerInputWidth: settings.StateResidualWidth,
+                routedExpertCount: settings.TrunkRoutedExpertCount,
+                chosenExpertCount: settings.TrunkChosenExpertCount,
+                routingBiasUpdateSpeed: settings.TrunkRoutingBiasUpdateSpeed,
                 activationType: settings.TrunkActivationType,
                 device: _device));
         }
 
         for (int blockIndex = 0; blockIndex < settings.MoveBlockCount; ++blockIndex)
         {
-            _moveBlocks.append(new ResidualBlock(
+            _moveBlocks.append(new DeepSeekMoEResidualBlock(
                 residualWidth: settings.MoveResidualWidth,
-                hiddenRatio: settings.MoveResidualRatio,
+                routerInputWidth: settings.StateResidualWidth,
+                routedExpertCount: settings.MoveRoutedExpertCount,
+                chosenExpertCount: settings.MoveChosenExpertCount,
+                routingBiasUpdateSpeed: settings.MoveRoutingBiasUpdateSpeed,
                 activationType: settings.MoveActivationType,
                 device: _device));
         }
@@ -103,6 +113,8 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
         value.MoveToOuterDisposeScope();
         return (policyLogits, value);
     }
+
+    public bool UpdateExpertLoadBalance { get; set; }
 
 
     public Tensor GetPolicyLogits(GameStateTensors gameStateTensors)
@@ -176,14 +188,25 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
                 _settings.StateResidualWidth]);
             trunkOutput = zeros([stateEmbedding.size(0), _settings.StateResidualWidth], device: _device);
             for (int blockIndex = 0; blockIndex < _trunkBlocks.Count; ++blockIndex)
-                trunkOutput = _trunkBlocks[blockIndex].forward(trunkOutput + perLayerEmbedding.narrow(1, blockIndex, 1).squeeze(1));
+            {
+                Tensor blockInput = trunkOutput + perLayerEmbedding.narrow(1, blockIndex, 1).squeeze(1);
+                trunkOutput = _trunkBlocks[blockIndex].Forward(
+                    blockInput,
+                    blockInput,
+                    UpdateExpertLoadBalance,
+                    routerInputIsBlockInput: true);
+            }
             trunkOutput = trunkOutput + perLayerEmbedding.narrow(1, _settings.TrunkBlockCount, 1).squeeze(1);
         }
         else
         {
             trunkOutput = stateEmbedding;
             for (int blockIndex = 0; blockIndex < _trunkBlocks.Count; ++blockIndex)
-                trunkOutput = _trunkBlocks[blockIndex].forward(trunkOutput);
+                trunkOutput = _trunkBlocks[blockIndex].Forward(
+                    trunkOutput,
+                    trunkOutput,
+                    UpdateExpertLoadBalance,
+                    routerInputIsBlockInput: true);
         }
 
         trunkOutput.MoveToOuterDisposeScope();
@@ -256,7 +279,11 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
                     _settings.MoveResidualWidth);
             for (int blockIndex = 0; blockIndex < _moveBlocks.Count; ++blockIndex)
             {
-                moveNetworkOutput = _moveBlocks[blockIndex].forward(moveNetworkOutput);
+                moveNetworkOutput = _moveBlocks[blockIndex].Forward(
+                    moveNetworkOutput,
+                    trunkOutput,
+                    UpdateExpertLoadBalance,
+                    routerInputIsBlockInput: false);
                 moveNetworkOutput = moveNetworkOutput +
                     perLayerMoveEmbedding.narrow(2, blockIndex + 1, 1).squeeze(2) +
                     perLayerTrunkLeaf.narrow(1, blockIndex + 1, 1).squeeze(1).unsqueeze(1).expand(
@@ -272,7 +299,11 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
                 moveEmbeddings.size(1),
                 _settings.MoveResidualWidth);
             for (int blockIndex = 0; blockIndex < _moveBlocks.Count; ++blockIndex)
-                moveNetworkOutput = _moveBlocks[blockIndex].forward(moveNetworkOutput);
+                moveNetworkOutput = _moveBlocks[blockIndex].Forward(
+                    moveNetworkOutput,
+                    trunkOutput,
+                    UpdateExpertLoadBalance,
+                    routerInputIsBlockInput: false);
         }
 
         Tensor actionLogits = _logitHead.forward(functional.gelu(moveNetworkOutput));
@@ -294,14 +325,22 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork
             throw new ArgumentOutOfRangeException(nameof(settings.TrunkBlockCount), "Trunk block count must be non-negative.");
         if (settings.TrunkPerLayerEmbedding && settings.TrunkBlockCount == 0)
             throw new ArgumentOutOfRangeException(nameof(settings.TrunkBlockCount), "Trunk block count must be positive when trunk per-layer embedding is enabled.");
-        if (settings.TrunkResidualRatio <= 0f)
-            throw new ArgumentOutOfRangeException(nameof(settings.TrunkResidualRatio), "Trunk hidden-to-residual width ratio must be positive.");
+        if (settings.TrunkRoutedExpertCount <= 0)
+            throw new ArgumentOutOfRangeException(nameof(settings.TrunkRoutedExpertCount), "Trunk routed expert count must be positive.");
+        if (settings.TrunkChosenExpertCount <= 0 || settings.TrunkChosenExpertCount > settings.TrunkRoutedExpertCount)
+            throw new ArgumentOutOfRangeException(nameof(settings.TrunkChosenExpertCount), "Trunk chosen expert count must be between one and the routed expert count.");
+        if (settings.TrunkRoutingBiasUpdateSpeed <= 0f)
+            throw new ArgumentOutOfRangeException(nameof(settings.TrunkRoutingBiasUpdateSpeed), "Trunk routing bias update speed must be positive.");
         if (settings.MoveResidualWidth <= 0)
             throw new ArgumentOutOfRangeException(nameof(settings.MoveResidualWidth), "Move residual width must be positive.");
         if (settings.MoveBlockCount < 0)
             throw new ArgumentOutOfRangeException(nameof(settings.MoveBlockCount), "Move block count must be non-negative.");
-        if (settings.MoveResidualRatio <= 0f)
-            throw new ArgumentOutOfRangeException(nameof(settings.MoveResidualRatio), "Move hidden-to-residual width ratio must be positive.");
+        if (settings.MoveRoutedExpertCount <= 0)
+            throw new ArgumentOutOfRangeException(nameof(settings.MoveRoutedExpertCount), "Move routed expert count must be positive.");
+        if (settings.MoveChosenExpertCount <= 0 || settings.MoveChosenExpertCount > settings.MoveRoutedExpertCount)
+            throw new ArgumentOutOfRangeException(nameof(settings.MoveChosenExpertCount), "Move chosen expert count must be between one and the routed expert count.");
+        if (settings.MoveRoutingBiasUpdateSpeed <= 0f)
+            throw new ArgumentOutOfRangeException(nameof(settings.MoveRoutingBiasUpdateSpeed), "Move routing bias update speed must be positive.");
 #pragma warning restore CA2208
     }
 }

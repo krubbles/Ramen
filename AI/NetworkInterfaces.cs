@@ -12,3 +12,8 @@ public interface IPolicyNetwork
     public void Save(string filePath);
     public void Load(string filePath);
 }
+
+public interface IAuxiliaryLossFreeLoadBalancedNetwork
+{
+    bool UpdateExpertLoadBalance { get; set; }
+}

@@ -177,6 +177,8 @@ public static class PolicyValueNetworkTraining
                     Tensor values;
                     using (ProfileScope.New("PpoForward"))
                     {
+                        if (network is IAuxiliaryLossFreeLoadBalancedNetwork loadBalancedNetwork)
+                            loadBalancedNetwork.UpdateExpertLoadBalance = true;
                         if (settings.UseSampledSoftmax)
                         {
                             Tensor sampledLogits;
@@ -213,6 +215,8 @@ public static class PolicyValueNetworkTraining
                             logPiNew = logProbs.gather(dim: 1, index: chosenMoveIndices).squeeze(1);
                             logPiOld = batch.SamplingLogProb[TensorIndex.Colon, 0].to(logPiNew.device);
                         }
+                        if (network is IAuxiliaryLossFreeLoadBalancedNetwork loadBalancedNetworkAfterForward)
+                            loadBalancedNetworkAfterForward.UpdateExpertLoadBalance = false;
                     }
                     Tensor kld;
                     Tensor clipCount;
@@ -255,9 +259,22 @@ public static class PolicyValueNetworkTraining
                         loss.backward();
                     }
                     Tensor gradNormTensor;
-                    using (ProfileScope.New("GetGradNorm"))
+                    if (settings.GradNormClip > 0f)
                     {
-                        gradNormTensor = GetGradNormTensor(networkModule).ToOuterScope();
+                        using (ProfileScope.New("GradNormAndClip"))
+                        {
+                            double gradNorm = utils.clip_grad_norm_(
+                                networkModule.parameters(),
+                                settings.GradNormClip);
+                            gradNormTensor = tensor((float)gradNorm).ToOuterScope();
+                        }
+                    }
+                    else
+                    {
+                        using (ProfileScope.New("GetGradNorm"))
+                        {
+                            gradNormTensor = GetGradNormTensor(networkModule).ToOuterScope();
+                        }
                     }
                     gradNormTensors.Add(gradNormTensor);
                     entropyTensors.Add(entropy.ToOuterScope());
@@ -267,20 +284,6 @@ public static class PolicyValueNetworkTraining
                     {
                         stoppedEarly = true;
                         continue;
-                    }
-
-                    if (settings.GradNormClip > 0f)
-                    {
-                        using (ProfileScope.New("GradClip"))
-                        {
-                            Tensor gradScale = min(ones_like(gradNormTensor), settings.GradNormClip / (gradNormTensor + 1e-6f));
-                            foreach (Parameter parameter in networkModule.parameters())
-                            {
-                                Tensor grad = parameter.grad;
-                                if (grad is not null)
-                                    grad.mul_(gradScale);
-                            }
-                        }
                     }
 
                     using (ProfileScope.New("OptimizerStep"))
