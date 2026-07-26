@@ -129,7 +129,9 @@ public static class PolicyValueNetworkTraining
         if (network is not Module networkModule)
             throw new InvalidOperationException($"{nameof(network)} must be a TorchSharp module to train.");
 
+        Profiling.PhaseSuffix = "_Rollout";
         (List<GameState> trajectories, List<PolicyTrainingSample> trainingSamples, List<PpoStateData> stateData) = GenerateRollout(network, settings);
+        Profiling.PhaseSuffix = "";
         List<PpoStepData> stepData = [];
         List<Tensor> gradNormTensors = [];
         List<Tensor> entropyTensors = [];
@@ -179,6 +181,7 @@ public static class PolicyValueNetworkTraining
                     {
                         if (network is IAuxiliaryLossFreeLoadBalancedNetwork loadBalancedNetwork)
                             loadBalancedNetwork.UpdateExpertLoadBalance = true;
+                        Profiling.PhaseSuffix = "_Train";
                         if (settings.UseSampledSoftmax)
                         {
                             Tensor sampledLogits;
@@ -215,6 +218,7 @@ public static class PolicyValueNetworkTraining
                             logPiNew = logProbs.gather(dim: 1, index: chosenMoveIndices).squeeze(1);
                             logPiOld = batch.SamplingLogProb[TensorIndex.Colon, 0].to(logPiNew.device);
                         }
+                        Profiling.PhaseSuffix = "";
                         if (network is IAuxiliaryLossFreeLoadBalancedNetwork loadBalancedNetworkAfterForward)
                             loadBalancedNetworkAfterForward.UpdateExpertLoadBalance = false;
                     }
@@ -339,8 +343,13 @@ public static class PolicyValueNetworkTraining
         if (stats.Count == 0)
             return null;
 
+        // Blocks may have different routed expert counts, so utilization is taken against
+        // each block's own count, and the per-expert fractions are averaged only over the
+        // blocks that share the first block's count. Fractions from blocks of a different
+        // width are not comparable index-by-index and are left out.
         int expertCount = stats[0].ExpertTokenFractions.Length;
         float[] fractionSums = new float[expertCount];
+        int fractionStatCount = 0;
         double lossSum = 0;
         double utilizationSum = 0;
         float minUtilization = 1f;
@@ -348,16 +357,20 @@ public static class PolicyValueNetworkTraining
         {
             MoERoutingStats stat = stats[statIndex];
             lossSum += stat.LoadBalancingLoss;
-            float utilization = stat.ActiveExpertCount / (float)expertCount;
+            float utilization = stat.ActiveExpertCount / (float)stat.ExpertTokenFractions.Length;
             utilizationSum += utilization;
             minUtilization = Math.Min(minUtilization, utilization);
+
+            if (stat.ExpertTokenFractions.Length != expertCount)
+                continue;
+            fractionStatCount++;
             for (int expertIndex = 0; expertIndex < expertCount; ++expertIndex)
                 fractionSums[expertIndex] += stat.ExpertTokenFractions[expertIndex];
         }
 
         float[] meanFractions = new float[expertCount];
         for (int expertIndex = 0; expertIndex < expertCount; ++expertIndex)
-            meanFractions[expertIndex] = fractionSums[expertIndex] / stats.Count;
+            meanFractions[expertIndex] = fractionSums[expertIndex] / fractionStatCount;
 
         return new(
             AverageLoadBalancingLoss: (float)(lossSum / stats.Count),

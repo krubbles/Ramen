@@ -4,6 +4,64 @@ public static class Profiling
 {
     public static bool CollectData = true;
 
+    /// <summary>
+    /// Optional device synchronization run at every scope boundary.
+    /// <para>
+    /// GPU work is queued asynchronously, so without this a scope measures how long it
+    /// took to submit work, not to run it, and all the cost piles up at whichever later
+    /// call happens to read a result back. Set this to a device round-trip when timing
+    /// individual phases; leave it null in normal runs, where it would cost throughput.
+    /// </para>
+    /// </summary>
+    public static Action SynchronizeDevice;
+
+    /// <summary>
+    /// Appended to network phase scope names so the same block can be told apart between
+    /// rollout inference and the training update. Empty outside profiling runs.
+    /// </summary>
+    public static string PhaseSuffix = "";
+
+    /// <summary>
+    /// Total wall time spent inside every scope with this tag, and how many times it ran.
+    /// </summary>
+    public static (float totalMs, int count) GetTotalMillisecondsForTag(string tagName)
+    {
+        float totalMs = 0f;
+        int count = 0;
+
+        foreach (KeyValuePair<int, List<ProfileDatum>> kvp in _data)
+        {
+            Stack<(string name, DateTime enterTime)> scopeStack = new();
+            foreach (ProfileDatum datum in kvp.Value)
+            {
+                if (datum.IsEnter)
+                {
+                    scopeStack.Push((datum.Name, datum.TimeStamp));
+                    continue;
+                }
+
+                while (scopeStack.Count > 0)
+                {
+                    (string name, DateTime enterTime) = scopeStack.Pop();
+                    if (name == tagName)
+                    {
+                        totalMs += Math.Max(0f, (float)(datum.TimeStamp - enterTime).TotalMilliseconds);
+                        count++;
+                    }
+                    if (name == datum.Name)
+                        break;
+                }
+            }
+        }
+
+        return (totalMs, count);
+    }
+
+    /// <summary>
+    /// Discards all collected samples so a following measurement starts clean.
+    /// </summary>
+    public static void Clear() => _data = new();
+
     static Dictionary<int, List<ProfileDatum>> _data = new();
 
     sealed class ScopeFrame
@@ -41,6 +99,7 @@ public static class Profiling
         if (!CollectData)
             return;
 
+        SynchronizeDevice?.Invoke();
         List<ProfileDatum> timeSeries = GetTimeSeries();
         timeSeries.Add(new ProfileDatum(IsEnter: true, name, DateTime.UtcNow));
     }
@@ -50,6 +109,7 @@ public static class Profiling
         if (!CollectData)
             return;
 
+        SynchronizeDevice?.Invoke();
         List<ProfileDatum> timeSeries = GetTimeSeries();
         timeSeries.Add(new ProfileDatum(IsEnter: false, name, DateTime.UtcNow));
     }

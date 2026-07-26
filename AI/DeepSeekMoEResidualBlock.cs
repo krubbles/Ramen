@@ -17,6 +17,18 @@ public sealed class DeepSeekMoEResidualBlock : Module<Tensor, Tensor>
     public static bool LogDispatchPadding =
         Environment.GetEnvironmentVariable("RAMEN_LOG_DISPATCH_PADDING") == "1";
 
+    /// <summary>
+    /// Benchmark only: replaces the router's expert choice with a round-robin assignment
+    /// so every expert carries an identical load.
+    /// <para>
+    /// A freshly initialized router is heavily unbalanced, which inflates the dispatch
+    /// buffer and makes timings unrepresentative of trained steady state, where the
+    /// load-balancing bias has evened routing out. Every kernel still runs; only the
+    /// distribution of the chosen indices changes.
+    /// </para>
+    /// </summary>
+    public static bool ForceBalancedRouting;
+
     readonly LayerNorm _inputLayerNorm;
     readonly LayerNorm _routerLayerNorm;
     readonly FeedForwardExpert _sharedExpert;
@@ -28,12 +40,14 @@ public sealed class DeepSeekMoEResidualBlock : Module<Tensor, Tensor>
     readonly int _routerInputWidth;
     readonly int _routedExpertCount;
     readonly float _expertCapacityFactor;
+    readonly int _sharedExpertHiddenWidth;
+    readonly int _routedExpertHiddenWidth;
     readonly int _chosenExpertCount;
     readonly float _routingBiasUpdateSpeed;
 
     public int ResidualWidth => _residualWidth;
-    public int SharedExpertHiddenWidth => _residualWidth;
-    public int RoutedExpertHiddenWidth => _residualWidth / 2;
+    public int SharedExpertHiddenWidth => _sharedExpertHiddenWidth;
+    public int RoutedExpertHiddenWidth => _routedExpertHiddenWidth;
     public int RoutedExpertCount => _routedExpertCount;
     public int ChosenExpertCount => _chosenExpertCount;
 
@@ -53,6 +67,7 @@ public sealed class DeepSeekMoEResidualBlock : Module<Tensor, Tensor>
         ResidualBlock.ActivationType activationType,
         float routedExpertHiddenRatio = 0.5f,
         float expertCapacityFactor = 4f,
+        float sharedExpertHiddenRatio = 1f,
         Device device = null) : base(nameof(DeepSeekMoEResidualBlock))
     {
         _residualWidth = residualWidth;
@@ -62,20 +77,23 @@ public sealed class DeepSeekMoEResidualBlock : Module<Tensor, Tensor>
         _chosenExpertCount = chosenExpertCount;
         _routingBiasUpdateSpeed = routingBiasUpdateSpeed;
 
+        _sharedExpertHiddenWidth = Math.Max(1, (int)(residualWidth * sharedExpertHiddenRatio));
+        _routedExpertHiddenWidth = Math.Max(1, (int)(residualWidth * routedExpertHiddenRatio));
+
         Device targetDevice = device ?? CPU;
         _inputLayerNorm = LayerNorm(residualWidth, device: targetDevice);
         if (routerInputWidth != residualWidth)
             _routerLayerNorm = LayerNorm(routerInputWidth, device: targetDevice);
         _sharedExpert = new(
             inputWidth: residualWidth,
-            hiddenWidth: residualWidth,
+            hiddenWidth: _sharedExpertHiddenWidth,
             outputWidth: residualWidth,
             activationType: activationType,
             device: targetDevice);
         _routedExperts = new(
             expertCount: routedExpertCount,
             inputWidth: residualWidth,
-            hiddenWidth: Math.Max(1, (int)(residualWidth * routedExpertHiddenRatio)),
+            hiddenWidth: _routedExpertHiddenWidth,
             outputWidth: residualWidth,
             activationType: activationType,
             device: targetDevice);
@@ -116,6 +134,18 @@ public sealed class DeepSeekMoEResidualBlock : Module<Tensor, Tensor>
             dim: 1,
             largest: true,
             sorted: false);
+        if (ForceBalancedRouting)
+        {
+            // Round-robin over experts: group g takes experts (g*k + j) mod expertCount,
+            // which are distinct whenever chosenExpertCount <= routedExpertCount.
+            long groupCount = routedExpertIndices.size(0);
+            routedExpertIndices = (arange(
+                    groupCount * _chosenExpertCount,
+                    dtype: ScalarType.Int64,
+                    device: input.device) % _routedExpertCount)
+                .reshape([groupCount, _chosenExpertCount]);
+        }
+
         Tensor routingWeights = affinities.gather(dim: 1, index: routedExpertIndices);
         routingWeights = routingWeights / routingWeights.sum(dim: 1, keepdim: true);
         Tensor flatRoutedExpertIndices = routedExpertIndices.reshape([-1]);

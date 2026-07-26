@@ -29,6 +29,11 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
         /// 0.5 default. The shared expert is unaffected.
         /// </summary>
         public float TrunkRoutedExpertHiddenRatio;
+        /// <summary>
+        /// Shared expert hidden width as a fraction of the residual width. Zero uses the
+        /// 1.0 default, which matches the residual width.
+        /// </summary>
+        public float TrunkSharedExpertHiddenRatio;
         public float TrunkRoutingBiasUpdateSpeed;
         public ResidualBlock.ActivationType TrunkActivationType;
         public bool TrunkPerLayerEmbedding;
@@ -41,6 +46,11 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
         /// 0.5 default. The shared expert is unaffected.
         /// </summary>
         public float MoveRoutedExpertHiddenRatio;
+        /// <summary>
+        /// Shared expert hidden width as a fraction of the residual width. Zero uses the
+        /// 1.0 default, which matches the residual width.
+        /// </summary>
+        public float MoveSharedExpertHiddenRatio;
         public float MoveRoutingBiasUpdateSpeed;
         public ResidualBlock.ActivationType MoveActivationType;
         public bool LeafPerLayerEmbedding;
@@ -89,6 +99,9 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
                 expertCapacityFactor: settings.ExpertCapacityFactor > 0f
                     ? settings.ExpertCapacityFactor
                     : 4f,
+                sharedExpertHiddenRatio: settings.TrunkSharedExpertHiddenRatio > 0f
+                    ? settings.TrunkSharedExpertHiddenRatio
+                    : 1f,
                 device: _device));
         }
 
@@ -107,6 +120,9 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
                 expertCapacityFactor: settings.ExpertCapacityFactor > 0f
                     ? settings.ExpertCapacityFactor
                     : 4f,
+                sharedExpertHiddenRatio: settings.MoveSharedExpertHiddenRatio > 0f
+                    ? settings.MoveSharedExpertHiddenRatio
+                    : 1f,
                 device: _device));
         }
 
@@ -214,6 +230,7 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
     Tensor BuildTrunkOutput(GameStateTensors gameStateTensors)
     {
         using var scope = NewDisposeScope();
+        using var profileScope = ProfileScope.New("TrunkBlocks" + Profiling.PhaseSuffix);
 
         Tensor stateEmbedding = _stateVectorizer.forward(gameStateTensors);
         Tensor trunkOutput;
@@ -254,6 +271,7 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
     Tensor BuildPolicyLogits(GameStateTensors gameStateTensors, Tensor trunkOutput)
     {
         using var scope = NewDisposeScope();
+        using var profileScope = ProfileScope.New("LeafBlocks" + Profiling.PhaseSuffix);
 
         Tensor moveEmbeddings = _moveEmbeddingLayerNorm.forward(_moveVectorizer.forward(gameStateTensors));
         Tensor flattenedLogits = BuildPolicyLogits(trunkOutput, moveEmbeddings);
@@ -267,6 +285,7 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
     Tensor BuildSelectedPolicyLogits(GameStateTensors gameStateTensors, Tensor trunkOutput, Tensor moveIndices)
     {
         using var scope = NewDisposeScope();
+        using var profileScope = ProfileScope.New("LeafBlocks" + Profiling.PhaseSuffix);
 
         Tensor moveEmbeddings = _moveEmbeddingLayerNorm.forward(_moveVectorizer.forward(gameStateTensors, moveIndices));
         Tensor actionLogits = BuildActionLogits(trunkOutput, moveEmbeddings);
