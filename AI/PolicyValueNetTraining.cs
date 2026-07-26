@@ -150,6 +150,11 @@ public static class PolicyValueNetworkTraining
                 stackedSamples = TensorGroupExtentions.Stack(trainingSamples, disposeInputs: true, concat: true);
             }
             int sampleCount = trainingSamples.Count;
+            int totalBatchCount = (sampleCount + settings.BatchSize - 1) / settings.BatchSize;
+            int accumulationSteps = Math.Max(1, settings.GradientAccumulationSteps);
+            // Highest KLD seen among the batches of the current accumulation group, so the
+            // per-step diagnostic still reflects every batch that fed into it.
+            float groupMaxKld = 0f;
             for (int epoch = 0; epoch < settings.EpochCount && !stoppedEarly; ++epoch)
             {
                 Tensor shuffledIndices;
@@ -170,7 +175,21 @@ public static class PolicyValueNetworkTraining
                     {
                         batch = shuffled.GetBatch(batchStart, batchEnd);
                     }
-                    optimizer.zero_grad();
+
+                    // Gradients accumulate across a group of batches and are applied once
+                    // at its end. The final group of an epoch may be short, so the group's
+                    // real size is used to scale the loss rather than the configured one.
+                    int batchIndex = batchStart / settings.BatchSize;
+                    int groupStartBatch = batchIndex - (batchIndex % accumulationSteps);
+                    int groupBatchCount = Math.Min(accumulationSteps, totalBatchCount - groupStartBatch);
+                    bool isFirstBatchInGroup = batchIndex == groupStartBatch;
+                    bool isLastBatchInGroup = batchIndex == groupStartBatch + groupBatchCount - 1;
+
+                    if (isFirstBatchInGroup)
+                    {
+                        optimizer.zero_grad();
+                        groupMaxKld = 0f;
+                    }
 
 
                     Tensor logProbs;
@@ -247,6 +266,11 @@ public static class PolicyValueNetworkTraining
                         Tensor valueTargets = batch.ValueTarget.to(values.device).reshape([-1]);
                         Tensor valueLoss = functional.mse_loss(values.reshape([-1]), valueTargets);
                         loss = policyLoss + settings.ValueLossCoefficient * valueLoss;
+
+                        // Each batch contributes its share, so the accumulated gradient is
+                        // the mean over the group rather than the sum.
+                        if (groupBatchCount > 1)
+                            loss = loss / groupBatchCount;
                     }
 
                     float kldValue;
@@ -257,11 +281,24 @@ public static class PolicyValueNetworkTraining
                     }
                     kldSum += kldValue;
                     kldCount++;
+                    groupMaxKld = Math.Max(groupMaxKld, kldValue);
 
                     using (ProfileScope.New("PpoBackward"))
                     {
                         loss.backward();
                     }
+                    if (settings.KldEarlyStopThreshold > 0f && kldValue > settings.KldEarlyStopThreshold)
+                    {
+                        // Abandon the partly accumulated group; the next rollout zeroes it.
+                        stoppedEarly = true;
+                        continue;
+                    }
+
+                    // Clipping and the step belong to the whole group, so both wait until
+                    // every batch in it has contributed its gradient.
+                    if (!isLastBatchInGroup)
+                        continue;
+
                     Tensor gradNormTensor;
                     if (settings.GradNormClip > 0f)
                     {
@@ -282,13 +319,7 @@ public static class PolicyValueNetworkTraining
                     }
                     gradNormTensors.Add(gradNormTensor);
                     entropyTensors.Add(entropy.ToOuterScope());
-                    kldValues.Add(kldValue);
-
-                    if (settings.KldEarlyStopThreshold > 0f && kldValue > settings.KldEarlyStopThreshold)
-                    {
-                        stoppedEarly = true;
-                        continue;
-                    }
+                    kldValues.Add(groupMaxKld);
 
                     using (ProfileScope.New("OptimizerStep"))
                     {
@@ -460,6 +491,11 @@ public struct PpoTrainingSettings
     public int SampledSoftmaxCount = 40;
     public int EpochCount = 3;
     public int BatchSize = 256;
+    /// <summary>
+    /// Number of batches whose gradients are accumulated before an optimizer step, so an
+    /// effective step covers BatchSize * this many samples. One steps every batch.
+    /// </summary>
+    public int GradientAccumulationSteps = 1;
     public float LearningRate = 1e-5f;
     public float AdamBeta1 = 0.9f;
     public float AdamBeta2 = 0.97f;

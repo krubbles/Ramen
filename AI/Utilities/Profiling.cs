@@ -16,6 +16,27 @@ public static class Profiling
     public static Action SynchronizeDevice;
 
     /// <summary>
+    /// Scope names that get a <see cref="SynchronizeDevice"/> barrier. Null syncs every
+    /// scope.
+    /// <para>
+    /// A barrier costs a device round-trip (~0.2 ms), which is charged to the scope that
+    /// triggers it. For a scope entered thousands of times per rollout that overwhelms
+    /// the work being measured, so only scopes that actually touch the GPU should be
+    /// listed here; purely managed scopes are timed correctly without one.
+    /// </para>
+    /// </summary>
+    public static HashSet<string> SynchronizedScopes;
+
+    static void Barrier(string name)
+    {
+        if (SynchronizeDevice is null)
+            return;
+        if (SynchronizedScopes is not null && !SynchronizedScopes.Contains(name))
+            return;
+        SynchronizeDevice();
+    }
+
+    /// <summary>
     /// Appended to network phase scope names so the same block can be told apart between
     /// rollout inference and the training update. Empty outside profiling runs.
     /// </summary>
@@ -99,7 +120,7 @@ public static class Profiling
         if (!CollectData)
             return;
 
-        SynchronizeDevice?.Invoke();
+        Barrier(name);
         List<ProfileDatum> timeSeries = GetTimeSeries();
         timeSeries.Add(new ProfileDatum(IsEnter: true, name, DateTime.UtcNow));
     }
@@ -109,7 +130,7 @@ public static class Profiling
         if (!CollectData)
             return;
 
-        SynchronizeDevice?.Invoke();
+        Barrier(name);
         List<ProfileDatum> timeSeries = GetTimeSeries();
         timeSeries.Add(new ProfileDatum(IsEnter: false, name, DateTime.UtcNow));
     }
