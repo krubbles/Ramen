@@ -193,6 +193,7 @@ public static class PolicyValueNetworkTraining
 
 
                     Tensor logProbs;
+                    Tensor sampledLogitsForDistillation = null;
                     Tensor logPiNew;
                     Tensor logPiOld;
                     Tensor values;
@@ -205,6 +206,7 @@ public static class PolicyValueNetworkTraining
                         {
                             Tensor sampledLogits;
                             (sampledLogits, values) = network.GetPolicyValue(batch.StateTensors, batch.MoveIndices);
+                            sampledLogitsForDistillation = sampledLogits;
 
                             Tensor chosenOldProb = batch.SamplingProb[TensorIndex.Colon, 0].to(sampledLogits.device).clamp(1e-9f, 1f - 1e-6f);
                             Tensor safeNegLogitSampleProbs = batch.SamplingProb[TensorIndex.Colon, 1..].to(sampledLogits.device).max(1e-9f);
@@ -266,6 +268,25 @@ public static class PolicyValueNetworkTraining
                         Tensor valueTargets = batch.ValueTarget.to(values.device).reshape([-1]);
                         Tensor valueLoss = functional.mse_loss(values.reshape([-1]), valueTargets);
                         loss = policyLoss + settings.ValueLossCoefficient * valueLoss;
+
+                        // Distil the secondary tower toward the policy tower over the sampled
+                        // moves. The target is detached, so this trains only the small tower;
+                        // its trunk input is detached inside the network for the same reason.
+                        if (settings.DistillationCoefficient > 0f &&
+                            network is NewPolicyNetwork dualNetwork &&
+                            dualNetwork.HasSecondaryLeaf &&
+                            settings.UseSampledSoftmax)
+                        {
+                            Tensor smallLogits = dualNetwork.GetSecondaryPolicyLogits(
+                                batch.StateTensors, batch.MoveIndices);
+                            Tensor smallLogProbs = functional.log_softmax(smallLogits, dim: 1);
+                            Tensor largeLogProbs = functional.log_softmax(
+                                sampledLogitsForDistillation, dim: 1).detach();
+                            Tensor largeProbs = exp(largeLogProbs);
+                            Tensor distillationLoss =
+                                (largeProbs * (largeLogProbs - smallLogProbs)).sum(dim: 1).mean();
+                            loss = loss + settings.DistillationCoefficient * distillationLoss;
+                        }
 
                         // Each batch contributes its share, so the accumulated gradient is
                         // the mean over the group rather than the sum.
@@ -365,7 +386,8 @@ public static class PolicyValueNetworkTraining
             ClipRate = clipRate,
             StoppedEarly = stoppedEarly,
             AverageKld = averageKld,
-            LoadBalance = loadBalance
+            LoadBalance = loadBalance,
+            LeafCoverage = LeafCoverageStats.Drain()
         };
     }
 
@@ -496,6 +518,11 @@ public struct PpoTrainingSettings
     /// effective step covers BatchSize * this many samples. One steps every batch.
     /// </summary>
     public int GradientAccumulationSteps = 1;
+    /// <summary>
+    /// Weight on the KL that distils the secondary move tower toward the policy tower.
+    /// Zero disables it, leaving the secondary tower untrained.
+    /// </summary>
+    public float DistillationCoefficient = 0f;
     public float LearningRate = 1e-5f;
     public float AdamBeta1 = 0.9f;
     public float AdamBeta2 = 0.97f;
@@ -520,7 +547,8 @@ public readonly record struct RolloutData(
     float ClipRate,
     bool StoppedEarly,
     float AverageKld,
-    MoELoadBalanceSummary? LoadBalance = null);
+    MoELoadBalanceSummary? LoadBalance = null,
+    LeafCoverageSummary? LeafCoverage = null);
 
 public readonly record struct MoELoadBalanceSummary(
     float AverageLoadBalancingLoss,

@@ -6,14 +6,10 @@ using static TorchSharp.torch.nn;
 public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFreeLoadBalancedNetwork
 {
     readonly GameStateVectorizer _stateVectorizer;
-    readonly MoveVectorizer _moveVectorizer;
     readonly ModuleList<DeepSeekMoEResidualBlock> _trunkBlocks = new();
-    readonly ModuleList<DeepSeekMoEResidualBlock> _moveBlocks = new();
+    readonly LeafTower _primaryLeaf;
+    readonly LeafTower _secondaryLeaf;
     readonly Linear _valueHead;
-    readonly LayerNorm _trunkLayerNorm;
-    readonly LayerNorm _moveEmbeddingLayerNorm;
-    readonly Linear _trunkProjection;
-    readonly Linear _logitHead;
     readonly Settings _settings;
     readonly Device _device;
 
@@ -54,6 +50,17 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
         public float MoveRoutingBiasUpdateSpeed;
         public ResidualBlock.ActivationType MoveActivationType;
         public bool LeafPerLayerEmbedding;
+        /// <summary>
+        /// When positive the move blocks are dense <see cref="ResidualBlock"/>s with this
+        /// hidden-to-residual ratio. Zero keeps the routed MoE blocks.
+        /// </summary>
+        public float MoveDenseHiddenRatio;
+        /// <summary>
+        /// An optional second move tower hanging off the same trunk, with its own move
+        /// vectorizer, adapter and head. Used to train a small tower alongside the policy
+        /// tower and measure how well it approximates it.
+        /// </summary>
+        public LeafTower.Settings? SecondaryLeaf;
         public bool AddWinningMoveEmbedding;
         /// <summary>
         /// Expert capacity as a multiple of the mean expert load. Assignments past the
@@ -76,14 +83,6 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
                 : settings.StateResidualWidth,
             scoreBucketCount: settings.ScoreBucketCount,
             device: _device);
-        _moveVectorizer = new MoveVectorizer(
-            moveEmbeddingWidth: settings.LeafPerLayerEmbedding
-                ? settings.MoveResidualWidth * (settings.MoveBlockCount + 1)
-                : settings.MoveResidualWidth,
-            scoreBucketCount: settings.ScoreBucketCount,
-            addWinningMoveEmbedding: settings.AddWinningMoveEmbedding,
-            device: _device);
-
         for (int blockIndex = 0; blockIndex < settings.TrunkBlockCount; ++blockIndex)
         {
             _trunkBlocks.append(new DeepSeekMoEResidualBlock(
@@ -105,39 +104,41 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
                 device: _device));
         }
 
-        for (int blockIndex = 0; blockIndex < settings.MoveBlockCount; ++blockIndex)
+        LeafTower.Settings primaryLeafSettings = new()
         {
-            _moveBlocks.append(new DeepSeekMoEResidualBlock(
-                residualWidth: settings.MoveResidualWidth,
-                routerInputWidth: settings.StateResidualWidth,
-                routedExpertCount: settings.MoveRoutedExpertCount,
-                chosenExpertCount: settings.MoveChosenExpertCount,
-                routingBiasUpdateSpeed: settings.MoveRoutingBiasUpdateSpeed,
-                activationType: settings.MoveActivationType,
-                routedExpertHiddenRatio: settings.MoveRoutedExpertHiddenRatio > 0f
-                    ? settings.MoveRoutedExpertHiddenRatio
-                    : 0.5f,
-                expertCapacityFactor: settings.ExpertCapacityFactor > 0f
-                    ? settings.ExpertCapacityFactor
-                    : 4f,
-                sharedExpertHiddenRatio: settings.MoveSharedExpertHiddenRatio > 0f
-                    ? settings.MoveSharedExpertHiddenRatio
-                    : 1f,
-                device: _device));
+            ResidualWidth = settings.MoveResidualWidth,
+            BlockCount = settings.MoveBlockCount,
+            HiddenRatio = settings.MoveDenseHiddenRatio,
+            PerLayerEmbedding = settings.LeafPerLayerEmbedding,
+            ActivationType = settings.MoveActivationType,
+            UseMoE = settings.MoveDenseHiddenRatio <= 0f,
+            RoutedExpertCount = settings.MoveRoutedExpertCount,
+            ChosenExpertCount = settings.MoveChosenExpertCount,
+            RoutedExpertHiddenRatio = settings.MoveRoutedExpertHiddenRatio,
+            SharedExpertHiddenRatio = settings.MoveSharedExpertHiddenRatio,
+            RoutingBiasUpdateSpeed = settings.MoveRoutingBiasUpdateSpeed,
+            ExpertCapacityFactor = settings.ExpertCapacityFactor,
+        };
+        _primaryLeaf = new LeafTower(
+            primaryLeafSettings,
+            trunkWidth: settings.StateResidualWidth,
+            scoreBucketCount: settings.ScoreBucketCount,
+            addWinningMoveEmbedding: settings.AddWinningMoveEmbedding,
+            device: _device,
+            name: "PrimaryLeaf");
+
+        if (settings.SecondaryLeaf is { } secondaryLeafSettings)
+        {
+            _secondaryLeaf = new LeafTower(
+                secondaryLeafSettings,
+                trunkWidth: settings.StateResidualWidth,
+                scoreBucketCount: settings.ScoreBucketCount,
+                addWinningMoveEmbedding: settings.AddWinningMoveEmbedding,
+                device: _device,
+                name: "SecondaryLeaf");
         }
 
-        int moveEmbeddingWidth = settings.LeafPerLayerEmbedding
-            ? settings.MoveResidualWidth * (settings.MoveBlockCount + 1)
-            : settings.MoveResidualWidth;
-
         _valueHead = Linear(settings.StateResidualWidth, 1, device: _device);
-        _trunkLayerNorm = LayerNorm(moveEmbeddingWidth, device: _device);
-        _moveEmbeddingLayerNorm = LayerNorm(moveEmbeddingWidth, device: _device);
-        _trunkProjection = Linear(
-            settings.StateResidualWidth,
-            moveEmbeddingWidth,
-            device: _device);
-        _logitHead = Linear(settings.MoveResidualWidth, 2, device: _device);
 
         RegisterComponents();
     }
@@ -149,7 +150,7 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
 
         GameStateTensors networkInputs = MoveNetworkInputsToDevice(gameStateTensors);
         Tensor trunkOutput = BuildTrunkOutput(networkInputs);
-        Tensor policyLogits = BuildPolicyLogits(networkInputs, trunkOutput);
+        Tensor policyLogits = _primaryLeaf.Forward(networkInputs, trunkOutput);
         Tensor value = _valueHead.forward(trunkOutput);
 
         policyLogits.MoveToOuterDisposeScope();
@@ -157,15 +158,67 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
         return (policyLogits, value);
     }
 
-    public bool UpdateExpertLoadBalance { get; set; }
+    bool _updateExpertLoadBalance;
+
+    public bool UpdateExpertLoadBalance
+    {
+        get => _updateExpertLoadBalance;
+        set
+        {
+            _updateExpertLoadBalance = value;
+            _primaryLeaf.UpdateExpertLoadBalance = value;
+            if (_secondaryLeaf is not null)
+                _secondaryLeaf.UpdateExpertLoadBalance = value;
+        }
+    }
+
+    public bool HasSecondaryLeaf => _secondaryLeaf is not null;
+
+    /// <summary>
+    /// Full-move logits from both towers plus the value, from a single trunk pass. The
+    /// secondary tower reads a detached trunk so its loss cannot perturb trunk training,
+    /// keeping the policy tower's dynamics comparable to a single-tower run.
+    /// </summary>
+    public (Tensor primaryLogits, Tensor secondaryLogits, Tensor value) GetDualPolicyValue(
+        GameStateTensors gameStateTensors)
+    {
+        using var scope = NewDisposeScope();
+
+        GameStateTensors networkInputs = MoveNetworkInputsToDevice(gameStateTensors);
+        Tensor trunkOutput = BuildTrunkOutput(networkInputs);
+        Tensor primaryLogits = _primaryLeaf.Forward(networkInputs, trunkOutput);
+        Tensor secondaryLogits = _secondaryLeaf is null
+            ? null
+            : _secondaryLeaf.Forward(networkInputs, trunkOutput.detach());
+        Tensor value = _valueHead.forward(trunkOutput);
+
+        primaryLogits.MoveToOuterDisposeScope();
+        secondaryLogits?.MoveToOuterDisposeScope();
+        value.MoveToOuterDisposeScope();
+        return (primaryLogits, secondaryLogits, value);
+    }
+
+    /// <summary>Secondary-tower logits for a chosen subset of moves, on a detached trunk.</summary>
+    public Tensor GetSecondaryPolicyLogits(GameStateTensors gameStateTensors, Tensor moveIndices)
+    {
+        using var scope = NewDisposeScope();
+
+        GameStateTensors networkInputs = MoveNetworkInputsToDevice(gameStateTensors);
+        Tensor trunkOutput = BuildTrunkOutput(networkInputs).detach();
+        Tensor logits = _secondaryLeaf.ForwardSelected(networkInputs, trunkOutput, moveIndices);
+
+        logits.MoveToOuterDisposeScope();
+        return logits;
+    }
 
     public List<MoERoutingStats> DrainRoutingStats()
     {
         List<MoERoutingStats> stats = [];
         for (int blockIndex = 0; blockIndex < _trunkBlocks.Count; ++blockIndex)
             stats.AddRange(_trunkBlocks[blockIndex].DrainRoutingStats());
-        for (int blockIndex = 0; blockIndex < _moveBlocks.Count; ++blockIndex)
-            stats.AddRange(_moveBlocks[blockIndex].DrainRoutingStats());
+        stats.AddRange(_primaryLeaf.DrainRoutingStats());
+        if (_secondaryLeaf is not null)
+            stats.AddRange(_secondaryLeaf.DrainRoutingStats());
         return stats;
     }
 
@@ -176,7 +229,7 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
 
         GameStateTensors networkInputs = MoveNetworkInputsToDevice(gameStateTensors);
         Tensor trunkOutput = BuildTrunkOutput(networkInputs);
-        Tensor policyLogits = BuildPolicyLogits(networkInputs, trunkOutput);
+        Tensor policyLogits = _primaryLeaf.Forward(networkInputs, trunkOutput);
 
         policyLogits.MoveToOuterDisposeScope();
         return policyLogits;
@@ -189,7 +242,7 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
 
         GameStateTensors networkInputs = MoveNetworkInputsToDevice(gameStateTensors);
         Tensor trunkOutput = BuildTrunkOutput(networkInputs);
-        Tensor selectedPolicyLogits = BuildSelectedPolicyLogits(networkInputs, trunkOutput, moveIndices);
+        Tensor selectedPolicyLogits = _primaryLeaf.ForwardSelected(networkInputs, trunkOutput, moveIndices);
         Tensor value = _valueHead.forward(trunkOutput);
 
         selectedPolicyLogits.MoveToOuterDisposeScope();
@@ -268,108 +321,6 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
     }
 
 
-    Tensor BuildPolicyLogits(GameStateTensors gameStateTensors, Tensor trunkOutput)
-    {
-        using var scope = NewDisposeScope();
-        using var profileScope = ProfileScope.New("LeafBlocks" + Profiling.PhaseSuffix);
-
-        Tensor moveEmbeddings = _moveEmbeddingLayerNorm.forward(_moveVectorizer.forward(gameStateTensors));
-        Tensor flattenedLogits = BuildPolicyLogits(trunkOutput, moveEmbeddings);
-        Tensor maskedLogits = PolicyLogitMask.Apply(gameStateTensors, flattenedLogits);
-
-        maskedLogits.MoveToOuterDisposeScope();
-        return maskedLogits;
-    }
-
-
-    Tensor BuildSelectedPolicyLogits(GameStateTensors gameStateTensors, Tensor trunkOutput, Tensor moveIndices)
-    {
-        using var scope = NewDisposeScope();
-        using var profileScope = ProfileScope.New("LeafBlocks" + Profiling.PhaseSuffix);
-
-        Tensor moveEmbeddings = _moveEmbeddingLayerNorm.forward(_moveVectorizer.forward(gameStateTensors, moveIndices));
-        Tensor actionLogits = BuildActionLogits(trunkOutput, moveEmbeddings);
-        Tensor selectedActionIndices = moveIndices.to(_device).to_type(ScalarType.Int64).remainder(2).unsqueeze(-1);
-        Tensor selectedLogits = actionLogits.gather(dim: 2, index: selectedActionIndices).squeeze(2);
-        Tensor maskedLogits = PolicyLogitMask.Apply(gameStateTensors, selectedLogits, moveIndices);
-
-        maskedLogits.MoveToOuterDisposeScope();
-        return maskedLogits;
-    }
-
-
-    Tensor BuildPolicyLogits(Tensor trunkOutput, Tensor moveEmbeddings)
-    {
-        using var scope = NewDisposeScope();
-
-        Tensor actionLogits = BuildActionLogits(trunkOutput, moveEmbeddings);
-        Tensor policyLogits = actionLogits.view([trunkOutput.size(0), moveEmbeddings.size(1) * 2]);
-
-        policyLogits.MoveToOuterDisposeScope();
-        return policyLogits;
-    }
-
-
-    Tensor BuildActionLogits(Tensor trunkOutput, Tensor moveEmbeddings)
-    {
-        using var scope = NewDisposeScope();
-
-        Tensor trunkLeaf = _trunkLayerNorm.forward(_trunkProjection.forward(trunkOutput));
-        Tensor moveNetworkOutput;
-        if (_settings.LeafPerLayerEmbedding)
-        {
-            Tensor perLayerMoveEmbedding = moveEmbeddings.view([
-                moveEmbeddings.size(0),
-                moveEmbeddings.size(1),
-                _settings.MoveBlockCount + 1,
-                _settings.MoveResidualWidth]);
-            Tensor perLayerTrunkLeaf = trunkLeaf.view([
-                trunkOutput.size(0),
-                _settings.MoveBlockCount + 1,
-                _settings.MoveResidualWidth]);
-
-            moveNetworkOutput = perLayerMoveEmbedding.narrow(2, 0, 1).squeeze(2) +
-                perLayerTrunkLeaf.narrow(1, 0, 1).squeeze(1).unsqueeze(1).expand(
-                    trunkOutput.size(0),
-                    moveEmbeddings.size(1),
-                    _settings.MoveResidualWidth);
-            for (int blockIndex = 0; blockIndex < _moveBlocks.Count; ++blockIndex)
-            {
-                moveNetworkOutput = _moveBlocks[blockIndex].Forward(
-                    moveNetworkOutput,
-                    trunkOutput,
-                    UpdateExpertLoadBalance,
-                    routerInputIsBlockInput: false);
-                moveNetworkOutput = moveNetworkOutput +
-                    perLayerMoveEmbedding.narrow(2, blockIndex + 1, 1).squeeze(2) +
-                    perLayerTrunkLeaf.narrow(1, blockIndex + 1, 1).squeeze(1).unsqueeze(1).expand(
-                        trunkOutput.size(0),
-                        moveEmbeddings.size(1),
-                        _settings.MoveResidualWidth);
-            }
-        }
-        else
-        {
-            moveNetworkOutput = moveEmbeddings + trunkLeaf.unsqueeze(1).expand(
-                trunkOutput.size(0),
-                moveEmbeddings.size(1),
-                _settings.MoveResidualWidth);
-            for (int blockIndex = 0; blockIndex < _moveBlocks.Count; ++blockIndex)
-                moveNetworkOutput = _moveBlocks[blockIndex].Forward(
-                    moveNetworkOutput,
-                    trunkOutput,
-                    UpdateExpertLoadBalance,
-                    routerInputIsBlockInput: false);
-        }
-
-        Tensor actionLogits = _logitHead.forward(functional.gelu(moveNetworkOutput));
-
-        actionLogits.MoveToOuterDisposeScope();
-        return actionLogits;
-    }
-
-
-
     static void ValidateSettings(Settings settings)
     {
 #pragma warning disable CA2208 // not passing argument name to AOOR constructor
@@ -391,12 +342,16 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
             throw new ArgumentOutOfRangeException(nameof(settings.MoveResidualWidth), "Move residual width must be positive.");
         if (settings.MoveBlockCount < 0)
             throw new ArgumentOutOfRangeException(nameof(settings.MoveBlockCount), "Move block count must be non-negative.");
-        if (settings.MoveRoutedExpertCount <= 0)
-            throw new ArgumentOutOfRangeException(nameof(settings.MoveRoutedExpertCount), "Move routed expert count must be positive.");
-        if (settings.MoveChosenExpertCount <= 0 || settings.MoveChosenExpertCount > settings.MoveRoutedExpertCount)
-            throw new ArgumentOutOfRangeException(nameof(settings.MoveChosenExpertCount), "Move chosen expert count must be between one and the routed expert count.");
-        if (settings.MoveRoutingBiasUpdateSpeed <= 0f)
-            throw new ArgumentOutOfRangeException(nameof(settings.MoveRoutingBiasUpdateSpeed), "Move routing bias update speed must be positive.");
+        // Routed-expert settings only apply when the move blocks are MoE blocks.
+        if (settings.MoveDenseHiddenRatio <= 0f)
+        {
+            if (settings.MoveRoutedExpertCount <= 0)
+                throw new ArgumentOutOfRangeException(nameof(settings.MoveRoutedExpertCount), "Move routed expert count must be positive.");
+            if (settings.MoveChosenExpertCount <= 0 || settings.MoveChosenExpertCount > settings.MoveRoutedExpertCount)
+                throw new ArgumentOutOfRangeException(nameof(settings.MoveChosenExpertCount), "Move chosen expert count must be between one and the routed expert count.");
+            if (settings.MoveRoutingBiasUpdateSpeed <= 0f)
+                throw new ArgumentOutOfRangeException(nameof(settings.MoveRoutingBiasUpdateSpeed), "Move routing bias update speed must be positive.");
+        }
 #pragma warning restore CA2208
     }
 }

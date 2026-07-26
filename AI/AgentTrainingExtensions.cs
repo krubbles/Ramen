@@ -6,6 +6,13 @@ namespace Ramen.AI;
 public static class AgentTrainingExtensions
 {
     /// <summary>
+    /// Lower bound applied to move probabilities before negative sampling. Well below any
+    /// meaningful probability, so it only matters once a move's true probability has
+    /// rounded to zero.
+    /// </summary>
+    const float NegativeSampleProbabilityFloor = 1e-16f;
+
+    /// <summary>
     /// Makes moves based on the policy model's predicted probability distribution for a batch of game states.
     /// Also generates a PPO training sample for the chosen move.
     /// </summary>
@@ -51,7 +58,10 @@ public static class AgentTrainingExtensions
             else
             {
                 Tensor notChosenMask = arange(moveCount, dtype: ScalarType.Int64, device: CPU).unsqueeze(0) != chosenSampleIndices;
-                Tensor negativeProbs = cpuProbs * notChosenMask.to_type(ScalarType.Float32);
+                // Floor before masking, so the chosen move stays exactly zero and cannot be
+                // drawn as its own negative. A sharp enough policy rounds every non-chosen
+                // probability to zero, and multinomial rejects an all-zero row.
+                Tensor negativeProbs = cpuProbs.max(NegativeSampleProbabilityFloor) * notChosenMask.to_type(ScalarType.Float32);
                 Tensor negativeSampleIndices = multinomial(negativeProbs, clampedSampleCount - 1, replacement: true);
                 sampleIndices = cat([chosenSampleIndices, negativeSampleIndices], dim: 1);
             }

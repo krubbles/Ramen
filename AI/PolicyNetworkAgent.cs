@@ -85,7 +85,17 @@ public sealed class PolicyNetworkAgent : IAgent, IDisposable
         Tensor value;
         using (ProfileScope.New("GetPolicyLogits"))
         {
-            (logits, value) = Network.GetPolicyValue(gameStateTensors);
+            if (LeafCoverageStats.Enabled && Network is NewPolicyNetwork dualNetwork && dualNetwork.HasSecondaryLeaf)
+            {
+                (Tensor primaryLogits, Tensor secondaryLogits, Tensor dualValue) =
+                    dualNetwork.GetDualPolicyValue(gameStateTensors);
+                LeafCoverageStats.Accumulate(smallLogits: secondaryLogits, largeLogits: primaryLogits);
+                (logits, value) = (primaryLogits, dualValue);
+            }
+            else
+            {
+                (logits, value) = Network.GetPolicyValue(gameStateTensors);
+            }
         }
 
         const float IllegalMoveLogitEpsilon = 1e-2f;
