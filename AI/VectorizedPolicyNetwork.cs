@@ -61,6 +61,13 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
         /// tower and measure how well it approximates it.
         /// </summary>
         public LeafTower.Settings? SecondaryLeaf;
+        /// <summary>
+        /// Candidate count for two-tier move scoring. When positive the secondary tower
+        /// scores every move and its top-K become candidates; the primary tower then
+        /// refines only those, and its output is added to the secondary's logit. Zero
+        /// disables the cascade and the primary tower scores every move on its own.
+        /// </summary>
+        public int CascadeCandidateCount;
         public bool AddWinningMoveEmbedding;
         /// <summary>
         /// Expert capacity as a multiple of the mean expert load. Assignments past the
@@ -173,6 +180,77 @@ public sealed class NewPolicyNetwork : Module, IPolicyNetwork, IAuxiliaryLossFre
     }
 
     public bool HasSecondaryLeaf => _secondaryLeaf is not null;
+
+    public int CascadeCandidateCount => _settings.CascadeCandidateCount;
+
+    public bool IsCascade => _settings.CascadeCandidateCount > 0 && _secondaryLeaf is not null;
+
+    /// <summary>
+    /// Two-tier scoring over every move. The filter tower scores all moves, its top-K become
+    /// the candidate set, and the refine tower's output is added to those candidates' logits.
+    /// Moves outside the candidate set keep their filter logit, so the policy keeps full
+    /// support and no move can be driven to zero probability by the candidate cut.
+    /// </summary>
+    public (Tensor logits, Tensor candidateIndices, Tensor value) GetCascadePolicyValue(
+        GameStateTensors gameStateTensors)
+    {
+        using var scope = NewDisposeScope();
+
+        GameStateTensors networkInputs = MoveNetworkInputsToDevice(gameStateTensors);
+        Tensor trunkOutput = BuildTrunkOutput(networkInputs);
+
+        Tensor filterLogits = _secondaryLeaf.Forward(networkInputs, trunkOutput);
+        int candidateCount = (int)Math.Min(_settings.CascadeCandidateCount, filterLogits.size(1));
+        (Tensor _, Tensor candidateIndices) = filterLogits.topk(candidateCount, dim: 1, largest: true, sorted: false);
+
+        Tensor refineLogits = _primaryLeaf.ForwardSelected(networkInputs, trunkOutput, candidateIndices);
+        Tensor logits = filterLogits.scatter_add(dim: 1, index: candidateIndices, src: refineLogits);
+        // The refine term must not resurrect a move the legality mask excluded.
+        logits = PolicyLogitMask.Apply(gameStateTensors, logits);
+
+        // How much of the acting policy's mass the candidate cut leaves unrefined. Unlike the
+        // distillation study this is measured on the live cascade, so it is the real leakage.
+        LeafCoverageStats.Accumulate(smallLogits: filterLogits, largeLogits: logits);
+        Tensor value = _valueHead.forward(trunkOutput);
+
+        logits.MoveToOuterDisposeScope();
+        candidateIndices.MoveToOuterDisposeScope();
+        value.MoveToOuterDisposeScope();
+        return (logits, candidateIndices, value);
+    }
+
+    /// <summary>
+    /// Two-tier scoring for a stored slot layout. The first <paramref name="candidateCount"/>
+    /// slots are the candidate set the rollout chose, so the refine tower's output lands on
+    /// exactly those columns and the rest keep the filter logit alone.
+    /// </summary>
+    public (Tensor logits, Tensor value) GetCascadePolicyValue(
+        GameStateTensors gameStateTensors,
+        Tensor slotIndices,
+        int candidateCount)
+    {
+        using var scope = NewDisposeScope();
+
+        GameStateTensors networkInputs = MoveNetworkInputsToDevice(gameStateTensors);
+        Tensor trunkOutput = BuildTrunkOutput(networkInputs);
+
+        Tensor filterLogits = _secondaryLeaf.ForwardSelected(networkInputs, trunkOutput, slotIndices);
+        Tensor candidateIndices = slotIndices.narrow(1, 0, candidateCount);
+        Tensor refineLogits = _primaryLeaf.ForwardSelected(networkInputs, trunkOutput, candidateIndices);
+
+        Tensor logits = cat([
+            filterLogits.narrow(1, 0, candidateCount) + refineLogits,
+            filterLogits.narrow(1, candidateCount, filterLogits.size(1) - candidateCount)],
+            dim: 1);
+        // A candidate slot can hold an illegal move when a state has fewer legal moves than
+        // the candidate count; re-masking stops the refine term lifting it above the mask.
+        logits = PolicyLogitMask.Apply(gameStateTensors, logits, slotIndices);
+        Tensor value = _valueHead.forward(trunkOutput);
+
+        logits.MoveToOuterDisposeScope();
+        value.MoveToOuterDisposeScope();
+        return (logits, value);
+    }
 
     /// <summary>
     /// Full-move logits from both towers plus the value, from a single trunk pass. The

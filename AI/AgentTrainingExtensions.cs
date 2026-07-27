@@ -33,7 +33,8 @@ public static class AgentTrainingExtensions
         }
 
         // get a batch of policy probabilities for each state as a single batched tensor
-        (GameStateTensors gameStateTensors, Tensor logProbs, Tensor value) = agent.GetPolicyProbDist(temp: 1f, gameStates); // returned tensors are on the gpu.
+        (GameStateTensors gameStateTensors, Tensor logProbs, Tensor value, Tensor candidateIndices) =
+            agent.GetPolicyProbDistWithCandidates(temp: 1f, gameStates); // returned tensors are on the gpu.
         Tensor probs = exp(logProbs);
 
         int moveCount = (int)probs.size(1);
@@ -41,11 +42,66 @@ public static class AgentTrainingExtensions
         int clampedSampleCount = useSampledSoftmax ? Math.Clamp(sampleCount, minSampleCount, moveCount) : 1;
 
         // Index 0 is always the chosen move. Remaining indices are sampled negatives for sampled softmax.
+        // Under the cascade the layout is instead [candidates | chosen-if-outside | negatives].
         Tensor sampleIndices;
         Tensor chosenMoveIndices;
         Tensor sampledProbs;
         Tensor chosenLogProbs;
         Tensor cpuProbs;
+        Tensor slotValidMask = null;
+        Tensor exactMass = null;
+        Tensor chosenSlotIndex = null;
+        if (candidateIndices is not null)
+        {
+            using (ProfileScope.New("SampleMoveIndices"))
+            {
+                cpuProbs = probs.to(CPU);
+                Tensor cpuCandidates = candidateIndices.to(CPU);
+                int candidateCount = (int)cpuCandidates.size(1);
+                int negativeCount = Math.Max(1, Math.Min(sampleCount, moveCount - candidateCount - 1));
+
+                Tensor chosen = multinomial(cpuProbs, 1, replacement: true);
+                Tensor chosenIsCandidate = cpuCandidates.eq(chosen).any(dim: 1, keepdim: true);
+
+                // Negatives come from outside the exact block, so their proposal is a clean
+                // distribution over that complement.
+                Tensor inCandidates = zeros(gameStates.Length, moveCount, dtype: ScalarType.Bool);
+                inCandidates.scatter_(dim: 1, index: cpuCandidates, src: ones_like(cpuCandidates).to_type(ScalarType.Bool));
+                Tensor excluded = inCandidates.logical_or(
+                    arange(moveCount, dtype: ScalarType.Int64).unsqueeze(0).eq(chosen));
+                Tensor negativeProbs = cpuProbs.max(NegativeSampleProbabilityFloor) *
+                    excluded.logical_not().to_type(ScalarType.Float32);
+                Tensor negatives = multinomial(negativeProbs, negativeCount, replacement: true);
+
+                // The chosen slot carries the chosen move only when it is not already a
+                // candidate; otherwise it is a masked duplicate of candidate zero.
+                Tensor chosenSlot = where(chosenIsCandidate, cpuCandidates.narrow(1, 0, 1), chosen);
+                sampleIndices = cat([cpuCandidates, chosenSlot, negatives], dim: 1);
+
+                Tensor validCandidates = ones(gameStates.Length, candidateCount, dtype: ScalarType.Float32);
+                Tensor validChosenSlot = chosenIsCandidate.logical_not().to_type(ScalarType.Float32);
+                Tensor validNegatives = ones(gameStates.Length, negativeCount, dtype: ScalarType.Float32);
+                slotValidMask = cat([validCandidates, validChosenSlot, validNegatives], dim: 1);
+
+                Tensor candidateMass = cpuProbs.gather(dim: 1, index: cpuCandidates).sum(dim: 1, keepdim: true);
+                Tensor chosenProb = cpuProbs.gather(dim: 1, index: chosen);
+                exactMass = candidateMass + chosenProb * validChosenSlot;
+
+                // Where the chosen move is a candidate its slot is its position in the
+                // candidate block; otherwise it is the dedicated chosen slot.
+                Tensor candidatePosition = cpuCandidates.eq(chosen).to_type(ScalarType.Int64).argmax(dim: 1, keepdim: true);
+                chosenSlotIndex = where(
+                    chosenIsCandidate,
+                    candidatePosition,
+                    full_like(candidatePosition, candidateCount));
+
+                chosenMoveIndices = chosen.select(dim: 1, index: 0);
+                sampledProbs = cpuProbs.gather(dim: 1, index: sampleIndices);
+                Tensor chosenDevice = chosenMoveIndices.to(logProbs.device);
+                chosenLogProbs = logProbs.gather(dim: 1, index: chosenDevice.unsqueeze(1)).select(dim: 1, index: 0);
+            }
+        }
+        else
         using (ProfileScope.New("SampleMoveIndices"))
         {
             // Sample on CPU: MPS multinomial can rarely return a zero-probability first draw, which later becomes a huge KLD spike.
@@ -95,6 +151,9 @@ public static class AgentTrainingExtensions
         for (int stateIndex = 0; stateIndex < gameStates.Length; ++stateIndex)
         {
             // Clone per-sample slices so each sample owns compact tensors instead of views to full step batches.
+            Tensor sampleSlotValidMask;
+            Tensor sampleExactMass;
+            Tensor sampleChosenSlotIndex;
             Tensor sampleSamplingProb;
             Tensor sampleSamplingLogProb;
             GameStateTensors sampleStateTensors;
@@ -107,6 +166,9 @@ public static class AgentTrainingExtensions
                 sampleStateTensors = gameStateTensors.GetBatch(stateIndex, stateIndex + 1).Clone();
                 sampleMoveIndices = sampleIndices[stateIndex..(stateIndex + 1)].clone();
                 sampleValue = cpuValue[stateIndex..(stateIndex + 1)].clone();
+                sampleSlotValidMask = slotValidMask?[stateIndex..(stateIndex + 1)].clone();
+                sampleExactMass = exactMass?[stateIndex..(stateIndex + 1)].clone();
+                sampleChosenSlotIndex = chosenSlotIndex?[stateIndex..(stateIndex + 1)].clone();
             }
             float[] policy;
             using (ProfileScope.New("CopyPolicyRow"))
@@ -121,6 +183,9 @@ public static class AgentTrainingExtensions
                 StateTensors = sampleStateTensors,
                 MoveIndices = sampleMoveIndices,
                 Value = sampleValue,
+                SlotValidMask = sampleSlotValidMask,
+                ExactMass = sampleExactMass,
+                ChosenSlotIndex = sampleChosenSlotIndex,
                 ChosenMoveNLProb = -chosenLogProbsManaged[stateIndex],
             };
             sample.DetachFromScope();
@@ -163,4 +228,24 @@ public class PolicyTrainingSample : ITensorGroup
     /// The negative natural log probability of the chosen move. Used for debugging
     /// </summary>
     public float ChosenMoveNLProb;
+
+    // --- two-tier (cascade) sampling ---------------------------------------------------
+    // Slot layout is [candidates | chosen-if-outside-candidates | sampled negatives].
+    // Candidates and the chosen move form the exact block of the sampled-softmax
+    // normalizer; only the negatives carry a log-q correction.
+
+    /// <summary>One per slot: zero for a slot that carries no move, such as the
+    /// chosen-move slot when the chosen move is already a candidate.</summary>
+    public Tensor SlotValidMask;
+
+    /// <summary>
+    /// Old-policy probability mass of the exact block. The negatives are drawn from the
+    /// complement of that block, so their proposal is q(a) = pi_old(a) / (1 - ExactMass)
+    /// and this is the term that normalizes their correction.
+    /// </summary>
+    public Tensor ExactMass;
+
+    /// <summary>Slot holding the chosen move, which is not a fixed position under the
+    /// cascade layout.</summary>
+    public Tensor ChosenSlotIndex;
 }

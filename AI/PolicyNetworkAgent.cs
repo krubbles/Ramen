@@ -71,6 +71,17 @@ public sealed class PolicyNetworkAgent : IAgent, IDisposable
 
     public (GameStateTensors gameStateTensors, Tensor logProbs, Tensor value) GetPolicyProbDist(float temp, params ReadOnlySpan<GameState> gameStates)
     {
+        (GameStateTensors tensors, Tensor logProbs, Tensor value, Tensor _) =
+            GetPolicyProbDistWithCandidates(temp, gameStates);
+        return (tensors, logProbs, value);
+    }
+
+    /// <summary>
+    /// As <see cref="GetPolicyProbDist"/>, but also returns the cascade candidate set when the
+    /// network scores moves in two tiers. Null otherwise.
+    /// </summary>
+    public (GameStateTensors gameStateTensors, Tensor logProbs, Tensor value, Tensor candidateIndices) GetPolicyProbDistWithCandidates(float temp, params ReadOnlySpan<GameState> gameStates)
+    {
         using var scope = NewDisposeScope();
         using var profileScope = ProfileScope.New(nameof(GetPolicyProbDist));
 
@@ -83,9 +94,14 @@ public sealed class PolicyNetworkAgent : IAgent, IDisposable
         using var inferenceMode = inference_mode();
         Tensor logits;
         Tensor value;
+        Tensor candidateIndices = null;
         using (ProfileScope.New("GetPolicyLogits"))
         {
-            if (LeafCoverageStats.Enabled && Network is NewPolicyNetwork dualNetwork && dualNetwork.HasSecondaryLeaf)
+            if (Network is NewPolicyNetwork cascadeNetwork && cascadeNetwork.IsCascade)
+            {
+                (logits, candidateIndices, value) = cascadeNetwork.GetCascadePolicyValue(gameStateTensors);
+            }
+            else if (LeafCoverageStats.Enabled && Network is NewPolicyNetwork dualNetwork && dualNetwork.HasSecondaryLeaf)
             {
                 (Tensor primaryLogits, Tensor secondaryLogits, Tensor dualValue) =
                     dualNetwork.GetDualPolicyValue(gameStateTensors);
@@ -112,8 +128,9 @@ public sealed class PolicyNetworkAgent : IAgent, IDisposable
         }
         logProbs.ToOuterScope();
         value.ToOuterScope();
+        candidateIndices?.ToOuterScope();
         gameStateTensors.ToOuterScope();
-        return (gameStateTensors, logProbs, value);
+        return (gameStateTensors, logProbs, value, candidateIndices);
     }
 
     static GameStateTensors CreateGameStateTensors(ReadOnlySpan<GameState> gameStates)

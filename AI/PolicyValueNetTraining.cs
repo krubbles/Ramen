@@ -202,7 +202,49 @@ public static class PolicyValueNetworkTraining
                         if (network is IAuxiliaryLossFreeLoadBalancedNetwork loadBalancedNetwork)
                             loadBalancedNetwork.UpdateExpertLoadBalance = true;
                         Profiling.PhaseSuffix = "_Train";
-                        if (settings.UseSampledSoftmax)
+                        if (settings.UseSampledSoftmax && batch.ExactMass is not null)
+                        {
+                            // Two-tier layout: [candidates | chosen-if-outside | negatives].
+                            // The exact block needs no correction; the negatives are drawn from
+                            // its complement with q(a) = pi_old(a) / (1 - ExactMass), so their
+                            // correction is -log pi_old(a) + log(1 - ExactMass) - log(count).
+                            NewPolicyNetwork cascadeNetwork = (NewPolicyNetwork)network;
+                            int candidateCount = cascadeNetwork.CascadeCandidateCount;
+                            int exactCount = candidateCount + 1;
+
+                            Tensor slotLogits;
+                            (slotLogits, values) = cascadeNetwork.GetCascadePolicyValue(
+                                batch.StateTensors, batch.MoveIndices, candidateCount);
+                            sampledLogitsForDistillation = slotLogits;
+
+                            int negativeCount = (int)slotLogits.size(1) - exactCount;
+                            Tensor slotValid = batch.SlotValidMask.to(slotLogits.device);
+                            Tensor exactMass = batch.ExactMass.to(slotLogits.device).clamp(1e-9f, 1f - 1e-9f);
+                            Tensor slotProbs = batch.SamplingProb.to(slotLogits.device);
+
+                            Tensor exactLogits = slotLogits.narrow(1, 0, exactCount);
+                            // A slot carrying no move must not contribute to the normalizer.
+                            exactLogits = where(
+                                slotValid.narrow(1, 0, exactCount).gt(0.5f),
+                                exactLogits,
+                                full_like(exactLogits, PolicyLogitMask.IllegalMoveLogit));
+
+                            Tensor negativeLogits = slotLogits.narrow(1, exactCount, negativeCount);
+                            Tensor negativeSampleProbs = slotProbs.narrow(1, exactCount, negativeCount).max(1e-9f);
+                            Tensor adjustedNegativeLogits = negativeLogits
+                                - log(negativeSampleProbs)
+                                + log(1f - exactMass)
+                                - MathF.Log(negativeCount);
+
+                            Tensor adjustedLogits = cat([exactLogits, adjustedNegativeLogits], dim: 1);
+                            Tensor slotLogProbs = functional.log_softmax(adjustedLogits, dim: 1);
+
+                            Tensor chosenSlot = batch.ChosenSlotIndex.to(slotLogits.device).to_type(ScalarType.Int64);
+                            logPiNew = slotLogProbs.gather(dim: 1, index: chosenSlot).select(dim: 1, index: 0);
+                            logPiOld = log(slotProbs.gather(dim: 1, index: chosenSlot).clamp(1e-9f, 1f).select(dim: 1, index: 0));
+                            logProbs = null;
+                        }
+                        else if (settings.UseSampledSoftmax)
                         {
                             Tensor sampledLogits;
                             (sampledLogits, values) = network.GetPolicyValue(batch.StateTensors, batch.MoveIndices);
