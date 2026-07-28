@@ -48,8 +48,8 @@ public sealed class EntropyTrackingLearningRate
         float[] referenceEntropy,
         double baseLearningRate,
         double gain = 0.3,
-        double minMultiplier = 0.1,
-        double maxMultiplier = 10.0,
+        double minMultiplier = 1.0 / 15.0,
+        double maxMultiplier = 15.0,
         double maxErrorPerStep = 0.5,
         double maxAdjustmentPerRollout = 1.2)
     {
