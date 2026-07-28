@@ -21,6 +21,7 @@ public sealed class EntropyTrackingLearningRate
     readonly double _minMultiplier;
     readonly double _maxMultiplier;
     readonly double _maxErrorPerStep;
+    readonly double _maxAdjustmentPerRollout;
 
     double _multiplier = 1.0;
 
@@ -37,13 +38,20 @@ public sealed class EntropyTrackingLearningRate
     /// Entropy error is clamped to this before it is applied, so a single wild rollout
     /// cannot jump the learning rate.
     /// </param>
+    /// <param name="maxAdjustmentPerRollout">
+    /// Hard cap on how far the multiplier can move in one rollout, as a ratio. This is the
+    /// binding constraint on the controller's speed: entropy responds to a rate change over
+    /// several rollouts, so a controller that can move faster than that overshoots and then
+    /// has to unwind, which is far worse than tracking loosely.
+    /// </param>
     public EntropyTrackingLearningRate(
         float[] referenceEntropy,
         double baseLearningRate,
         double gain = 0.3,
-        double minMultiplier = 0.05,
-        double maxMultiplier = 20.0,
-        double maxErrorPerStep = 0.5)
+        double minMultiplier = 0.2,
+        double maxMultiplier = 5.0,
+        double maxErrorPerStep = 0.5,
+        double maxAdjustmentPerRollout = 1.2)
     {
         _referenceEntropy = referenceEntropy;
         _baseLearningRate = baseLearningRate;
@@ -51,6 +59,7 @@ public sealed class EntropyTrackingLearningRate
         _minMultiplier = minMultiplier;
         _maxMultiplier = maxMultiplier;
         _maxErrorPerStep = maxErrorPerStep;
+        _maxAdjustmentPerRollout = maxAdjustmentPerRollout;
     }
 
     /// <summary>
@@ -69,7 +78,12 @@ public sealed class EntropyTrackingLearningRate
     /// rollout. Past the end of the reference the multiplier is held, so the run continues
     /// at whatever rate it had settled on rather than snapping back.
     /// </summary>
-    public double Update(int rollout, float entropy)
+    /// <param name="policyIsResponding">
+    /// False when the policy barely moved this rollout. Entropy is then not being held up by
+    /// the learning rate, so cutting further would only freeze the run while the error
+    /// persists and the multiplier keeps winding down. Increases are still allowed.
+    /// </param>
+    public double Update(int rollout, float entropy, bool policyIsResponding = true)
     {
         if (ReferenceFor(rollout) is not float reference)
             return LearningRate;
@@ -79,9 +93,22 @@ public sealed class EntropyTrackingLearningRate
         double error = entropy - reference;
         error = Math.Clamp(error, -_maxErrorPerStep, _maxErrorPerStep);
 
-        _multiplier = Math.Clamp(_multiplier * Math.Exp(_gain * error), _minMultiplier, _maxMultiplier);
+        double adjustment = Math.Clamp(
+            Math.Exp(_gain * error),
+            1.0 / _maxAdjustmentPerRollout,
+            _maxAdjustmentPerRollout);
+
+        if (adjustment < 1.0 && !policyIsResponding)
+            adjustment = 1.0;
+
+        _multiplier = Math.Clamp(_multiplier * adjustment, _minMultiplier, _maxMultiplier);
         return LearningRate;
     }
+
+    /// <summary>Whether the multiplier has run into a bound, which means tracking has failed
+    /// and the run should not be read as a comparison.</summary>
+    public bool IsSaturated =>
+        _multiplier <= _minMultiplier * 1.001 || _multiplier >= _maxMultiplier * 0.999;
 
     /// <summary>Applies the current rate to every parameter group.</summary>
     public void Apply(AdamW optimizer)
