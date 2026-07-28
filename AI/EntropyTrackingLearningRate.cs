@@ -16,9 +16,25 @@ using TorchSharp.Modules;
 /// The controller works on the entropy <em>slope</em>, not its level. Controlling the level
 /// directly cannot be stable here: entropy is near-monotonic, so once a run overshoots below
 /// the reference the only correction available is to stop learning and wait, which drives the
-/// rate to zero and then back up. Targeting a slope ratio bounded in [0.5, 2] instead means
-/// even a large level error only ever asks the run to descend twice as fast as the reference,
-/// which is an achievable rate rather than an unbounded demand.
+/// rate to zero and then back up. Asking for a slope instead is an achievable demand rather
+/// than an unbounded one.
+/// </para>
+/// <para>
+/// Slopes are measured as a level difference across a window rather than from adjacent
+/// rollouts. A single rollout's entropy change is almost entirely noise -- measured against a
+/// real run it carries a signal-to-noise ratio of 0.45 in mid-training and 0.12 once converged
+/// -- and the ratio of two such estimates is meaningless, which sends the multiplier on a
+/// random walk between its bounds however carefully the target is chosen. Differencing levels
+/// across <c>W</c> rollouts grows the signal by <c>W</c> while the noise stays put, so it beats
+/// smoothing the per-rollout slopes, which would only gain <c>sqrt(W)</c>.
+/// </para>
+/// <para>
+/// The target slope is whatever closes the current level error over a fixed horizon, treating
+/// both trajectories as locally linear: descend <c>error / horizon</c> per rollout faster than
+/// the reference and the gap is gone in <c>horizon</c> rollouts. A target fixed at some
+/// multiple of the reference slope instead — the previous design — keeps demanding maximum
+/// speed until the error changes sign, so it always arrives at the trajectory still moving and
+/// has to unwind, which is what made the learning rate swing between its bounds.
 /// </para>
 /// </summary>
 public sealed class EntropyTrackingLearningRate
@@ -28,16 +44,17 @@ public sealed class EntropyTrackingLearningRate
     readonly double _minMultiplier;
     readonly double _maxMultiplier;
     readonly double _maxAdjustmentPerRollout;
-    readonly double _levelErrorScale;
+    readonly double _convergenceHorizon;
     readonly double _maxSlopeRatioTarget;
-    readonly double _slopeSmoothing;
+    readonly double _responseExponent;
+    readonly int _slopeWindow;
     readonly double _slopeFloor;
     readonly double _maxObservedRatio;
+    readonly Queue<float> _entropyHistory = new();
 
     double _multiplier = 1.0;
-    double _selfSlope;          // smoothed entropy decrease per rollout, this run
+    double _selfSlope;          // entropy decrease per rollout over the window, this run
     double _referenceSlope;     // same for the reference
-    float _previousEntropy = float.NaN;
     int _samples;
 
     public double Multiplier => _multiplier;
@@ -60,18 +77,25 @@ public sealed class EntropyTrackingLearningRate
     /// whereas raising it damages MoE routing. Matching a reference that has nearly levelled
     /// off legitimately needs a very small rate, so the floor must not fight that.
     /// </param>
-    /// <param name="levelErrorScale">
-    /// Entropy error, in nats, at which the target slope ratio reaches its bound. Smaller
-    /// values chase the reference harder.
+    /// <param name="convergenceHorizon">
+    /// Rollouts over which the target slope aims to close the current level error. Small
+    /// values chase the reference harder and overshoot more; large values track loosely. This
+    /// is the knob that decides how aggressive the controller is.
     /// </param>
     /// <param name="maxSlopeRatioTarget">
-    /// Bound on the target ratio, applied both ways: at most this much faster than the
-    /// reference when behind, and its reciprocal when ahead. This is what keeps the demand on
-    /// the learning rate finite no matter how large the level error grows.
+    /// Safety bound on the target ratio, applied both ways. The horizon normally keeps the
+    /// target near 1; this only binds when the level error is large relative to the reference's
+    /// own slope, and stops the controller demanding a slope no learning rate can produce.
     /// </param>
-    /// <param name="slopeSmoothing">
-    /// Weight on the newest rollout in the slope estimate. A single rollout's entropy change
-    /// is mostly noise, so the slopes are exponentially smoothed before being divided.
+    /// <param name="responseExponent">
+    /// Damping on the inversion. Converting a slope ratio into a rate change assumes slope is
+    /// proportional to rate; in practice the response is weaker and delayed, so a full
+    /// correction each rollout overshoots and rings. Below 1 the controller approaches its
+    /// operating point geometrically instead.
+    /// </param>
+    /// <param name="slopeWindow">
+    /// Rollouts spanned by the slope estimate. Longer is less noisy but lags further behind a
+    /// change in the learning rate, and lag is what makes a controller ring.
     /// </param>
     public EntropyTrackingLearningRate(
         float[] referenceEntropy,
@@ -79,10 +103,11 @@ public sealed class EntropyTrackingLearningRate
         double minMultiplier = 1.0 / 50.0,
         double maxMultiplier = 15.0,
         double maxAdjustmentPerRollout = 2.5,
-        double levelErrorScale = 0.5,
-        double maxSlopeRatioTarget = 2.0,
-        double slopeSmoothing = 0.25,
-        double slopeFloorFraction = 0.1,
+        double convergenceHorizon = 10.0,
+        double maxSlopeRatioTarget = 4.0,
+        double responseExponent = 0.35,
+        int slopeWindow = 4,
+        double slopeFloorFraction = 0.8,
         double maxObservedRatio = 5.0)
     {
         _referenceEntropy = referenceEntropy;
@@ -90,9 +115,10 @@ public sealed class EntropyTrackingLearningRate
         _minMultiplier = minMultiplier;
         _maxMultiplier = maxMultiplier;
         _maxAdjustmentPerRollout = maxAdjustmentPerRollout;
-        _levelErrorScale = levelErrorScale;
+        _convergenceHorizon = convergenceHorizon;
         _maxSlopeRatioTarget = maxSlopeRatioTarget;
-        _slopeSmoothing = slopeSmoothing;
+        _responseExponent = responseExponent;
+        _slopeWindow = Math.Max(1, slopeWindow);
         _maxObservedRatio = maxObservedRatio;
 
         // The floor is a fraction of the reference's own typical slope rather than an absolute
@@ -132,54 +158,58 @@ public sealed class EntropyTrackingLearningRate
         if (ReferenceFor(rollout) is not float reference)
             return LearningRate;
 
-        float previousEntropy = _previousEntropy;
-        _previousEntropy = entropy;
-        float? previousReference = ReferenceFor(rollout - 1);
-        if (float.IsNaN(previousEntropy) || previousReference is not float earlierReference)
+        _entropyHistory.Enqueue(entropy);
+        while (_entropyHistory.Count > _slopeWindow + 1)
+            _entropyHistory.Dequeue();
+
+        // Both slopes span the same window, so whatever the window costs in lag it costs both
+        // equally and their ratio stays meaningful.
+        int window = _entropyHistory.Count - 1;
+        if (window < 1 || ReferenceFor(rollout - window) is not float windowStartReference)
             return LearningRate;
 
         // Slopes are entropy *decrease* per rollout, so a healthy run has a positive slope.
-        // One rollout's change is mostly noise, hence the smoothing before they are divided.
-        _selfSlope = Smooth(_selfSlope, previousEntropy - entropy);
-        _referenceSlope = Smooth(_referenceSlope, earlierReference - reference);
+        _selfSlope = (_entropyHistory.Peek() - entropy) / window;
+        _referenceSlope = (windowStartReference - reference) / window;
         _samples++;
 
-        // Behind the reference, aim to descend faster; ahead of it, slower. Bounded either
-        // way, so the demand on the learning rate stays finite however large the gap is.
         double levelError = entropy - reference;
-        double exponent = Math.Clamp(levelError / _levelErrorScale, -1.0, 1.0);
-        TargetSlopeRatio = Math.Pow(_maxSlopeRatioTarget, exponent);
 
-        // Two rollouts of history is not enough to divide two smoothed slopes.
-        if (_samples < 2)
+        // Act only on a full window; a partial one is the noisy estimate this is meant to avoid.
+        if (window < _slopeWindow)
             return LearningRate;
 
         double adjustment;
         if (_referenceSlope <= _slopeFloor)
         {
             // The reference has levelled off, so there is no slope to match.
+            TargetSlopeRatio = 1.0;
             adjustment = 1.0;
-        }
-        else if (_selfSlope <= _slopeFloor)
-        {
-            // This run has stopped descending, so the slope ratio is not invertible. Being
-            // behind means it needs a push; being ahead means waiting is the correct action
-            // and cutting the rate further would achieve nothing.
-            adjustment = levelError > 0 ? _maxAdjustmentPerRollout : 1.0;
         }
         else
         {
+            // Descend fast enough to erase the current gap over the horizon and no faster. The
+            // target decays towards the reference's own slope as the gap closes, so the run
+            // arrives on the trajectory already matching its pace rather than still correcting.
+            double targetSlope = _referenceSlope + levelError / _convergenceHorizon;
+            TargetSlopeRatio = Math.Clamp(
+                targetSlope / _referenceSlope,
+                1.0 / _maxSlopeRatioTarget,
+                _maxSlopeRatioTarget);
+
             // Assume slope responds roughly in proportion to the rate near the current
             // operating point, and invert. The assumption need not hold exactly: this is a
-            // fixed point iteration, and the per-rollout clamp keeps a bad estimate from
-            // overshooting.
+            // fixed point iteration, and the exponent plus the per-rollout clamp keep a bad
+            // estimate from overshooting.
             // Clamped before inverting: a noisy rollout can otherwise ask for an adjustment
-            // far larger than the evidence supports.
+            // far larger than the evidence supports. The clamp also covers a run that has
+            // stopped descending, or is drifting back upwards, without a special case -- both
+            // land on the floor, which asks for a large but not unbounded increase.
             double observedRatio = Math.Clamp(
                 _selfSlope / _referenceSlope,
                 1.0 / _maxObservedRatio,
                 _maxObservedRatio);
-            adjustment = TargetSlopeRatio / observedRatio;
+            adjustment = Math.Pow(TargetSlopeRatio / observedRatio, _responseExponent);
         }
 
         adjustment = Math.Clamp(adjustment, 1.0 / _maxAdjustmentPerRollout, _maxAdjustmentPerRollout);
@@ -189,9 +219,6 @@ public sealed class EntropyTrackingLearningRate
         _multiplier = Math.Clamp(_multiplier * adjustment, _minMultiplier, _maxMultiplier);
         return LearningRate;
     }
-
-    double Smooth(double current, double sample) =>
-        _samples == 0 ? sample : current + _slopeSmoothing * (sample - current);
 
     /// <summary>Applies the current rate to every parameter group.</summary>
     public void Apply(AdamW optimizer)
