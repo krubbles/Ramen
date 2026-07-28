@@ -352,6 +352,13 @@ public static class PolicyValueNetworkTraining
                     }
                     if (settings.KldEarlyStopThreshold > 0f && kldValue > settings.KldEarlyStopThreshold)
                     {
+                        // Record the batch that tripped the threshold before bailing, so the
+                        // value responsible for the stop is visible in the step data rather
+                        // than being dropped along with the abandoned group.
+                        gradNormTensors.Add(zeros(1, device: CPU).ToOuterScope());
+                        entropyTensors.Add(entropy.ToOuterScope());
+                        kldValues.Add(kldValue);
+
                         // Abandon the partly accumulated group; the next rollout zeroes it.
                         stoppedEarly = true;
                         continue;
