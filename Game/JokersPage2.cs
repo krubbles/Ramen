@@ -136,11 +136,6 @@ public partial class Joker // Page 2 Jokers
     public static readonly Joker MarbleJoker = null;
 
     /// <summary>
-    /// Number of hands played between Loyalty Card payouts.
-    /// </summary>
-    public const int LoyaltyCardHandInterval = 6;
-
-    /// <summary>
     /// X4 Mult every 6 hands played. The hand counter lives in
     /// <see cref="JokerInstance.State"/> and is advanced through a
     /// <see cref="SetJokerStateMove"/> so it rolls back with the hand that advanced it.
@@ -153,7 +148,7 @@ public partial class Joker // Page 2 Jokers
         OnJokerTrigger = (gameState, joker) =>
         {
             int handsPlayed = joker.State + 1;
-            if (handsPlayed >= LoyaltyCardHandInterval)
+            if (handsPlayed >= 6)
             {
                 gameState.ScoringState.CurrentHandMult *= 4;
                 handsPlayed = 0;
