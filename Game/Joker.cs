@@ -23,6 +23,7 @@ public class JokerInstance
 {
     public readonly Joker JokerData;
     public int State = 0;
+    public Edition Edition;
 
     public JokerInstance(Joker jokerData)
     {
