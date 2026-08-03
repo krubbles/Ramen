@@ -27,38 +27,6 @@ public enum TarotCardType
     World // turn 3 cards into spades
 }
 
-public enum ConsumableType : byte
-{
-    Tarot,
-    Planet
-}
-
-public readonly struct ConsumableCard
-{
-    public readonly ConsumableType Type;
-    public readonly TarotCardType TarotCard;
-    public readonly HandType PlanetCard;
-
-    public ConsumableCard(TarotCardType tarotCard)
-    {
-        Type = ConsumableType.Tarot;
-        TarotCard = tarotCard;
-    }
-
-    public ConsumableCard(HandType planetCard)
-    {
-        Type = ConsumableType.Planet;
-        PlanetCard = planetCard;
-    }
-}
-
-public sealed class ConsumableState
-{
-    public readonly List<ConsumableCard> Cards = [];
-    public int Capacity = 2;
-    public TarotCardType LastUsedTarotCard { get; internal set; }
-}
-
 public static class UseTarotCardMove
 {
     internal static void ApplyTarotCard(GameState gameState, TarotCardType tarotCard, params ReadOnlySpan<int> cardIndices)
